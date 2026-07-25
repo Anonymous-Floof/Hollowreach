@@ -14,4 +14,4 @@
 // respective format actually changes; bump this every release.
 //
 // tools/release.py parses the line below with a regex — keep its exact shape.
-export const GAME_VERSION = "1.1.0";
+export const GAME_VERSION = "1.2.0";
