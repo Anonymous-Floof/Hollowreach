@@ -6,12 +6,15 @@
 //                    the lit colour. (Phase 1 reproduces the old forward look;
 //                    later phases add sun/point lights, contact shadows, SSAO,
 //                    god-rays, water reflections.)
-// Pass 2b forward  : translucent water, the selection outline and the held item
-//                    draw forward into the lit buffer (depth-testing the scene).
+// Pass 2b forward  : translucent water and the selection outline draw forward
+//                    into the lit buffer, depth-testing the scene. The held
+//                    viewmodel follows, into the same colour but with its own
+//                    scratch depth (it lives in a separate near-field
+//                    projection) — see drawHeld and render/viewmodel.js.
 // Pass 3  present  : the lit buffer is upscaled/copied to the screen.
 
 import { createProgram } from "../core/gl.js";
-import { TERRAIN_VS, TERRAIN_FS, LINE_VS, LINE_FS } from "../core/shaders.js";
+import { TERRAIN_VS, TERRAIN_FS, LINE_VS, LINE_FS, VIEWMODEL_VS, VIEWMODEL_FS } from "../core/shaders.js";
 import {
   GBUF_SKY_VS, GBUF_SKY_FS, GBUF_TERRAIN_VS, GBUF_TERRAIN_FS,
   FULLSCREEN_VS, COMPOSITE_FS, PRESENT_FS, GODRAY_FS, SSAO_FS, SSAO_BLUR_FS,
@@ -25,6 +28,7 @@ import { emitOf, lightColorOf } from "../world/blocks.js";
 import { getItem } from "../game/items.js";
 import { EntityRenderer } from "./entityrenderer.js";
 import { GBuffer } from "./gbuffer.js";
+import { Viewmodel } from "./viewmodel.js";
 import { PANO_DIRS, PANO_UPS } from "./panorama.js";
 
 export class Renderer {
@@ -55,9 +59,14 @@ export class Renderer {
     // explicit layout() qualifiers, so no name bindings are needed.
     this.shadowTerrain = createProgram(gl, SHADOW_TERRAIN_VS, SHADOW_TERRAIN_FS, []);
     this.shadowEntity = createProgram(gl, SHADOW_ENTITY_VS, SHADOW_ENTITY_FS, []);
-    // forward program (still used for translucent water + the held viewmodel)
+    // forward program (still used for translucent water)
     this.forward = createProgram(gl, TERRAIN_VS, TERRAIN_FS, ["aPos", "aUV", "aShade", "aSky", "aBlock", "aWave"]);
     this.line = createProgram(gl, LINE_VS, LINE_FS, ["aPos"]);
+    // the first-person hand: its own program (pose baked into uMVP) and its own
+    // pose/animation state, see render/viewmodel.js
+    this.viewmodelProg = createProgram(gl, VIEWMODEL_VS, VIEWMODEL_FS, []);
+    this.viewmodel = new Viewmodel();
+    this._heldModel = mat4.create();
 
     this.gbuffer = new GBuffer(gl);
     // Quality knobs (overridden via setQuality from the graphics setting).
@@ -119,11 +128,8 @@ export class Renderer {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
-    this.heldId = -1;
-    this.heldMesh = null;
-    this.projOnly = mat4.create();
+    this.heldProj = mat4.create();
     this.heldMVP = mat4.create();
-    this._heldT = mat4.create();
     this._invVP = mat4.create();
     this._visible = [];                    // reused per-frame visible-chunk list
     this._selArr = new Float32Array(72);   // reused selection-outline vertex data
@@ -146,7 +152,7 @@ export class Renderer {
     const faces = [];
     for (let i = 0; i < 6; i++) {
       cam.setLook(eye, PANO_DIRS[i], PANO_UPS[i], 90, 1);
-      this.render(world, cam, sky, null, 0, { phase: 0, mag: 0 }, 0);
+      this.render(world, cam, sky, null, null, 0);   // no selection, no held item
       faces.push(this._grab(faceSize, faceSize, 0.86));
     }
     canvas.width = ow; canvas.height = oh;
@@ -468,8 +474,9 @@ export class Renderer {
 
   // `heldItem` is the selected hotbar item's key (any item — the viewmodel
   // draws blocks and sprite items alike); block-item keys also feed the
-  // held-light glow in collectLights.
-  render(world, camera, sky, selection, heldItem, bob, underwater = 0) {
+  // held-light glow in collectLights. The hand's pose and animation clocks live
+  // on this.viewmodel, which the game ticks (see main.updatePlaying).
+  render(world, camera, sky, selection, heldItem, underwater = 0) {
     const gl = this.gl;
     const time = performance.now() * 0.001;
     let heldBlockId = 0;
@@ -703,7 +710,7 @@ export class Renderer {
     }
 
     if (selection) this.drawSelection(camera, selection);
-    if (heldItem) this.drawHeld(camera, heldItem, sky, bob);
+    if (heldItem) this.drawHeld(world, camera, heldItem, sky);
 
     // ================= Pass 2c: god-rays (half-res, into an aux target) =======
     const gr = this.renderGodrays(camera, sky);
@@ -759,124 +766,49 @@ export class Renderer {
     gl.drawArrays(gl.LINES, 0, 24);
   }
 
-  // The held viewmodel in the lower-right, drawn forward into the lit buffer
-  // with depth off (always on top). Any item renders: the mesh comes from the
-  // shared item-model cache (the same model its dropped entity uses), posed
-  // once per item and depth-sorted CPU-side since there's no usable depth
-  // buffer here. `bob` = {phase, mag} sways it while walking.
-  drawHeld(camera, itemKey, sky, bob) {
+  // The first-person hand, drawn last into the lit buffer through its own
+  // close-up projection so a held item never clips into the world.
+  //
+  // It gets a scratch depth buffer of its own (gbuffer.bindHeld): the scene's
+  // depth is in a different projection and is still needed by later passes, but
+  // without SOME depth test a model just draws in emission order and its back
+  // faces paint over its front ones — the old "held block has no top face".
+  // The pose and every animation come from render/viewmodel.js as one matrix.
+  drawHeld(world, camera, itemKey, sky) {
     const gl = this.gl;
-    if (this.heldId !== itemKey) {
-      this._buildHeld(itemKey);
-      this.heldId = itemKey;
-    }
-    if (!this.heldMesh) return;
+    const it = getItem(itemKey);
+    const mesh = this.entityRenderer.itemMeshes.get(itemKey);
+    if (!mesh) return;
 
-    mat4.perspective(this.projOnly, (camera.fov * Math.PI) / 180,
+    this.viewmodel.modelMatrix(this._heldModel, it, mesh,
+      (camera.fov * Math.PI) / 180, gl.canvas.width / gl.canvas.height);
+    mat4.perspective(this.heldProj, (camera.fov * Math.PI) / 180,
       gl.canvas.width / gl.canvas.height, 0.01, 10);
-    let mvp = this.projOnly;
-    if (bob && bob.mag > 0.001) {
-      const bx = Math.cos(bob.phase) * 0.035 * bob.mag;
-      const by = -Math.abs(Math.sin(bob.phase)) * 0.045 * bob.mag;
-      mat4.translate(this._heldT, bx, by, 0);
-      mat4.multiply(this.heldMVP, this.projOnly, this._heldT);
-      mvp = this.heldMVP;
-    }
+    mat4.multiply(this.heldMVP, this.heldProj, this._heldModel);
 
-    const p = this.forward;
+    // Light the item by where the player is standing, so it dims at night and
+    // goes near-black in an unlit cave. Skylight keeps a moonlight floor, the
+    // same idea as the terrain's night ambient — a hand outdoors at midnight is
+    // dim, not invisible.
+    const cx = Math.floor(camera.pos[0]), cy = Math.floor(camera.pos[1]), cz = Math.floor(camera.pos[2]);
+    const light = Math.max(world.getBlockLight(cx, cy, cz) / 15,
+      (world.getSky(cx, cy, cz) / 15) * Math.max(0.10, sky.dayFactor()));
+
+    this.gbuffer.bindHeld();
+    const p = this.viewmodelProg;
     gl.useProgram(p);
-    gl.disable(gl.DEPTH_TEST);
-    gl.uniformMatrix4fv(p.uniform("uViewProj"), false, mvp);
-    gl.uniform1f(p.uniform("uDaylight"), 1.0);
-    gl.uniform1f(p.uniform("uTime"), 0);
-    gl.uniform1f(p.uniform("uFogNear"), 1000);
-    gl.uniform1f(p.uniform("uFogFar"), 2000);
-    gl.uniform3f(p.uniform("uCamPos"), 0, 0, 0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.disable(gl.CULL_FACE);          // mirrored styles reverse the winding
+    gl.disable(gl.BLEND);
+    gl.uniformMatrix4fv(p.uniform("uMVP"), false, this.heldMVP);
+    gl.uniform1f(p.uniform("uLight"), light);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture);
     gl.uniform1i(p.uniform("uAtlas"), 0);
-    gl.bindVertexArray(this.heldMesh.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, this.heldMesh.count);
-    gl.enable(gl.DEPTH_TEST);
-  }
-
-  // Build the posed viewmodel for an item: take its shared unit-space model,
-  // bake the hand pose (scale → roll → tilt → turn → place) into the vertices
-  // on the CPU, then sort triangles back-to-front so the depth-off draw
-  // self-occludes correctly (the old cube path drew its bottom face over its
-  // top face). The pose is fixed per item, so this runs only on hotbar changes.
-  //
-  // Poses (anchor = the sprite's bottom centre, i.e. a tool's handle butt):
-  //  shape — blocks, the classic three-quarter cube view low in the corner.
-  //  tool  — handle in the hand at the bottom-right, rolled so the head leans
-  //          up-left toward the screen centre, tipped away into the scene, and
-  //          turned so the flat of the head reads diagonally, not face-on.
-  //  sprite — other items: mostly face-on with a hint of roll and edge.
-  _buildHeld(itemKey) {
-    const src = this.entityRenderer.itemMeshes.get(itemKey);
-    if (!src) {
-      if (this.heldMesh) { this.gl.deleteVertexArray(this.heldMesh.vao); this.gl.deleteBuffer(this.heldMesh.vbo); }
-      this.heldMesh = null;
-      return;
-    }
-    const it = getItem(itemKey);
-    let pose;
-    if (src.kind === "shape") pose = { place: [0.95, -0.80, -1.02], ry: -Math.PI / 5, rx: Math.PI / 6, rz: 0, sc: 0.46 };
-    else if (it && it.toolType === "sword") pose = { place: [1.18, -1.04, -0.90], ry: -0.55, rx: -0.42, rz: 0.12, sc: 0.85 };
-    else if (it && it.type === "tool") pose = { place: [1.12, -1.04, -0.90], ry: -0.55, rx: -0.42, rz: 0.62, sc: 0.85 };
-    else pose = { place: [1.00, -0.90, -0.92], ry: -0.38, rx: 0.05, rz: 0.15, sc: 0.62 };
-    // Swords' art draws the hilt bottom-left/blade top-right — correct for the
-    // icon (matches convention), but that puts the blade toward the outer edge
-    // and the hilt toward screen centre once posed: backwards from a held grip.
-    // Mirror just the sword's local x so the hilt lands in the hand (outward,
-    // bottom-right) and the blade reaches toward the crosshair (inward,
-    // up-left), matching pick/axe/shovel whose centred art needs no mirroring.
-    const mirror = (it && it.toolType === "sword") ? -1 : 1;
-    const cz = Math.cos(pose.rz), sz = Math.sin(pose.rz);
-    const cx = Math.cos(pose.rx), sx = Math.sin(pose.rx);
-    const cy = Math.cos(pose.ry), sy = Math.sin(pose.ry);
-    const d = src.data, n = d.length / 8;
-    const out = new Float32Array(d);
-    for (let i = 0; i < n; i++) {
-      const o = i * 8;
-      const x0 = d[o] * pose.sc * mirror, y0 = d[o + 1] * pose.sc, z = d[o + 2] * pose.sc;
-      const x = cz * x0 - sz * y0, y = sz * x0 + cz * y0;        // roll about Z (lean the head left)
-      const ty = cx * y - sx * z, tz = sx * y + cx * z;          // tilt about X (tip into the scene)
-      out[o] = cy * x + sy * tz + pose.place[0];                  // turn about Y (show the edge)
-      out[o + 1] = ty + pose.place[1];
-      out[o + 2] = -sy * x + cy * tz + pose.place[2];
-      // the shared mesh zeroes this slot (it's the entity program's bone index);
-      // here it's the forward program's aSky — full sky light for the viewmodel
-      out[o + 6] = 1;
-    }
-    // back-to-front: camera looks down -z, so draw ascending z (farthest first)
-    const tris = [];
-    for (let t = 0; t < n / 3; t++) {
-      const o = t * 24;
-      tris.push([out[o + 2] + out[o + 10] + out[o + 18], o]);
-    }
-    tris.sort((a, b) => a[0] - b[0]);
-    const sorted = new Float32Array(d.length);
-    let w = 0;
-    for (const [, o] of tris) { sorted.set(out.subarray(o, o + 24), w); w += 24; }
-    this._uploadHeld(sorted);
-  }
-
-  _uploadHeld(verts) {
-    const gl = this.gl;
-    if (this.heldMesh) { gl.deleteVertexArray(this.heldMesh.vao); gl.deleteBuffer(this.heldMesh.vbo); }
-    const data = new Float32Array(verts);
-    const vao = gl.createVertexArray();
-    gl.bindVertexArray(vao);
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
-    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
-    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 32, 20);
-    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 32, 24);
-    gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 32, 28);
+    gl.bindVertexArray(mesh.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     gl.bindVertexArray(null);
-    this.heldMesh = { vao, vbo, count: data.length / 8 };
+    this.gbuffer.bindLit();            // leave the scene target bound as found
   }
 }

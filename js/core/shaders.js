@@ -188,6 +188,39 @@ void main() {
   frag = vec4(col, 1.0);
 }`;
 
+// The first-person held item. It lives in its own little near-field world (see
+// render/viewmodel.js), so the pose and the close-up projection arrive already
+// multiplied together as uMVP and there is no fog or world position to speak of.
+// uLight is the light level where the player is standing, so the hand dims in a
+// cave or at night — with a generous floor, since you should always be able to
+// see what you are holding.
+export const VIEWMODEL_VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec2 aUV;
+layout(location=2) in float aShade;
+uniform mat4 uMVP;
+out vec2 vUV;
+out float vShade;
+void main() {
+  vUV = aUV;
+  vShade = aShade;
+  gl_Position = uMVP * vec4(aPos, 1.0);
+}`;
+
+export const VIEWMODEL_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+in float vShade;
+uniform sampler2D uAtlas;
+uniform float uLight;      // 0..1 light where the player stands
+out vec4 frag;
+void main() {
+  vec4 tex = texture(uAtlas, vUV);
+  if (tex.a < 0.5) discard;                  // sprite cutouts
+  frag = vec4(tex.rgb * vShade * (0.22 + 0.78 * uLight), 1.0);
+}`;
+
 export const LINE_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;

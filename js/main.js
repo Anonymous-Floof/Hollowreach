@@ -683,6 +683,14 @@ class Game {
       net: this.net,
     });
 
+    // The first-person hand: advance its swing/equip/sway clocks, and start a
+    // swing on any frame the player actually used what they are holding.
+    const vm = this.renderer.viewmodel;
+    const held = this.inventory.selectedSlot();
+    vm.setItem(held ? held.key : null);
+    vm.update(dt, this.player.bobState());
+    if (this.interact.swung) vm.swing();
+
     // Tick entities after interaction so drops spawned this frame are collected
     // (or start falling) immediately.
     this.world.tickEntities(dt, this.entityCtx());
@@ -1005,7 +1013,7 @@ class Game {
     const selection = this.state === "playing" ? this.interact.selection : null;
     const slot = this.inventory.selectedSlot();
 
-    this.renderer.render(this.world, this.camera, this.sky, selection, slot ? slot.key : null, this.player.bobState(), this._underwater || 0);
+    this.renderer.render(this.world, this.camera, this.sky, selection, slot ? slot.key : null, this._underwater || 0);
 
     // floating names over remote players
     if (this.net && this.net.ghosts && this.net.ghosts.players.size) {

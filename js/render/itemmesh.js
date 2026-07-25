@@ -14,7 +14,7 @@
 //
 // Meshes are built in unit space — x/z centred on the origin, y up from 0 — and
 // cached; consumers place them with a model matrix (scale/rotate/translate).
-// Vertex format matches the entity + forward programs: pos3, uv2, shade, then
+// Vertex format matches the entity + viewmodel programs: pos3, uv2, shade, then
 // two zeroed floats (the entity program's bone index + colour slot).
 
 import { getBlock, texForFace } from "../world/blocks.js";
@@ -75,7 +75,7 @@ export class ItemMeshCache {
       quad(4, 0.85, [x1, y0, z1], [x0, y0, z1], [x0, y1, z1], [x1, y1, z1]);
       quad(5, 0.85, [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]);
     }
-    return this._upload(verts, "shape");
+    return this._upload(verts, "shape", block.render);
   }
 
   // ---- extruded sprites -----------------------------------------------------
@@ -116,8 +116,9 @@ export class ItemMeshCache {
       w(0); w(1); w(2); w(0); w(2); w(3);
     };
 
-    // Back plate first, then edges, then the front plate: the held item is
-    // drawn with depth-test off, so later triangles must be the nearer ones.
+    // Back plate, then the edge walls, then the front plate. Emission order no
+    // longer matters for correctness (every consumer depth-tests), but keeping
+    // it back-to-front costs nothing and helps early-z.
     const [fu0, fv0, fu1, fv1] = atlas.uvForName(tileName);
     const zF = T / 2, zB = -T / 2;
     const xa = X(0), xb = X(tw), ya = Y(th), yb = Y(0);
@@ -171,12 +172,12 @@ export class ItemMeshCache {
     return this._upload(verts, "sprite");
   }
 
-  _upload(verts, kind) {
+  // `shape` is the block's render shape ("stair", "door", ...) for solid block
+  // items, so the viewmodel can hold a door differently from a cube without
+  // needing the block table.
+  _upload(verts, kind, shape = null) {
     const gl = this.gl;
     const arr = new Float32Array(verts);
-    // `data` is kept CPU-side: the held viewmodel draws with depth-test off, so
-    // it re-orders these triangles back-to-front for its fixed pose (renderer
-    // drawHeld) instead of trusting emission order.
     const vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
     const vbo = gl.createBuffer();
@@ -188,6 +189,6 @@ export class ItemMeshCache {
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 32, 24);
     gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 32, 28);
     gl.bindVertexArray(null);
-    return { vao, vbo, count: arr.length / 8, kind, data: arr };
+    return { vao, vbo, count: arr.length / 8, kind, shape };
   }
 }

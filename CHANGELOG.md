@@ -15,6 +15,26 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- The held item is animated: it swings when you mine, hit, place or use
+  something (holding a mine keeps it swinging), sways with your walk cycle,
+  rises into frame when you switch hotbar slots, and drifts gently at rest.
+- Held items are lit by where you are standing, so they dim at night and go
+  almost dark in an unlit cave instead of glowing at full brightness.
+
+### Fixed
+- Held blocks no longer lose faces — a held cube's top face could be painted
+  over by its own bottom face, and shaped blocks like stairs showed through
+  themselves. The viewmodel now depth-tests properly.
+- Held items keep their place on screen at any window shape. On narrow or tall
+  windows they used to slide off the right edge.
+
+### Changed
+- Tools, swords, blocks and panels (doors, trapdoors, ladders) each have their
+  own hand pose, so a sword is held hilt-outward and blade-up, a pickaxe by its
+  handle, and a door turned to show its face instead of edge-on.
+- Held items sit lower in the corner and read at a consistent size.
+
 ## [1.1.0] - 2026-07-19
 
 ### Added
@@ -80,6 +100,6 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Unreleased]: https://github.com/Anonymous-Floof/Hollow-Reach/compare/v1.1.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollow-Reach/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.0.0

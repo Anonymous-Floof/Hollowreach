@@ -33,9 +33,11 @@ export class GBuffer {
     this.w = 0; this.h = 0;
     this.scale = 1;            // render scale (quality): internal buffers = canvas * scale
     this.sceneFBO = null;
-    this.litFBO = null;        // lit colour + scene depth (forward water/selection/held)
+    this.litFBO = null;        // lit colour + scene depth (forward water/selection)
     this.litColorFBO = null;   // lit colour only (composite reads scene depth as a texture)
+    this.heldFBO = null;       // lit colour + a scratch depth buffer (viewmodel)
     this.gAlbedo = this.gLight = this.gNormal = this.depth = this.lit = null;
+    this.heldDepth = null;
     // a pool of extra half/full screen single-target FBOs for effect passes
     this.aux = [];             // [{fbo, tex, w, h}]
   }
@@ -90,6 +92,23 @@ export class GBuffer {
     gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
     this._check("litColor");
 
+    // --- viewmodel target: the lit colour again, but with a SCRATCH depth buffer.
+    // The held item is drawn through its own close-up projection, so its depths
+    // mean nothing against the scene's — yet it still has to hide its own back
+    // faces. A private depth buffer we can clear gives the viewmodel a real
+    // depth test against itself while leaving the scene depth (which the god-ray
+    // and underwater passes still read) untouched. ---
+    this.heldDepth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.heldDepth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, bw, bh);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+    this.heldFBO = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.heldFBO);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.lit, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.heldDepth);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    this._check("held");
+
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -126,6 +145,14 @@ export class GBuffer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.litColorFBO);
     gl.viewport(0, 0, this.bufW(), this.bufH());
   }
+  // The viewmodel target, with its scratch depth cleared and ready to test.
+  bindHeld() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.heldFBO);
+    gl.viewport(0, 0, this.bufW(), this.bufH());
+    gl.depthMask(true);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+  }
 
   _check(label) {
     const gl = this.gl;
@@ -136,10 +163,13 @@ export class GBuffer {
   _dispose() {
     const gl = this.gl;
     for (const t of [this.gAlbedo, this.gLight, this.gNormal, this.depth, this.lit]) if (t) gl.deleteTexture(t);
+    if (this.heldDepth) gl.deleteRenderbuffer(this.heldDepth);
     if (this.sceneFBO) gl.deleteFramebuffer(this.sceneFBO);
     if (this.litFBO) gl.deleteFramebuffer(this.litFBO);
     if (this.litColorFBO) gl.deleteFramebuffer(this.litColorFBO);
-    this.sceneFBO = this.litFBO = this.litColorFBO = null;
+    if (this.heldFBO) gl.deleteFramebuffer(this.heldFBO);
+    this.sceneFBO = this.litFBO = this.litColorFBO = this.heldFBO = null;
+    this.heldDepth = null;
   }
 
   dispose() {

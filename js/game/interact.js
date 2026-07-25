@@ -23,10 +23,15 @@ export class Interact {
     this.breakFrac = 0;
     this._attackCD = 0;   // seconds until the next melee swing can land
     this._digSoundT = 0;  // rhythm clock for the mining tick sound
+    // True on any frame the player actually used what they are holding — mining,
+    // hitting, placing, eating. The renderer's viewmodel reads it to swing the
+    // hand; holding a mine keeps it true, which chains into a repeating swing.
+    this.swung = false;
   }
 
   update(dt, input, player, world, inventory, opts) {
     if (this._attackCD > 0) this._attackCD -= dt;
+    this.swung = false;
     const eye = player.eye();
     const dir = player.forward();
     const hit = raycast(world, eye, dir, 6);
@@ -42,6 +47,7 @@ export class Interact {
     if (eHit && eHit.entity.ghost && (!hit || eHit.dist < hit.dist)) {
       this.selection = null; this.reset();
       if (!opts.net) return;
+      if (input.buttons.left || input.clicks.right) this.swung = true;
       if (input.clicks.right) {
         const edef = defOf(eHit.entity.type);
         if (edef && edef.hooks && edef.hooks.onInteract) {
@@ -65,6 +71,7 @@ export class Interact {
       const edef = defOf(eHit.entity.type);
       if (edef && edef.hooks && edef.hooks.onInteract) {
         this.selection = null; this.reset();
+        if (input.buttons.left || input.clicks.right) this.swung = true;
         const ctx = { world, player, inventory, notify: opts.notify, input };
         if (input.clicks.right) edef.hooks.onInteract(eHit.entity, ctx, "right");
         else if (input.buttons.left && this._attackCD <= 0) {   // cooldown so holding LMB doesn't instakill
@@ -76,6 +83,10 @@ export class Interact {
       }
     }
 
+    // Left-click always swings the hand, whether it lands on a block, an
+    // unbreakable one, or nothing at all.
+    if (input.buttons.left) this.swung = true;
+
     // ---- eating: right-click with food, works even when aiming at the sky ----
     // (an interactive block — station/sleep/toggle — still takes priority).
     if (input.clicks.right) {
@@ -84,20 +95,20 @@ export class Interact {
       if (it && it.type === "food") {
         const tb = hit ? getBlock(world.getBlock(hit.x, hit.y, hit.z)) : null;
         const blockHandles = tb && (tb.station || tb.sleep || tb.toggle) && !input.down("ShiftLeft");
-        if (!blockHandles && opts.onEat && opts.onEat(it)) { inventory.consumeSelected(); return; }
+        if (!blockHandles && opts.onEat && opts.onEat(it)) { inventory.consumeSelected(); this.swung = true; return; }
       }
       // ---- buckets: scoop / pour, works when aiming at water (which the solid
       // raycast skips), so it runs before the !hit early-out below ----
       if (it && it.type === "bucket") {
         const tb = hit ? getBlock(world.getBlock(hit.x, hit.y, hit.z)) : null;
         const blockHandles = tb && (tb.station || tb.sleep || tb.toggle || tb.anchor) && !input.down("ShiftLeft");
-        if (!blockHandles && this.useBucket(world, inventory, player, hit, opts)) return;
+        if (!blockHandles && this.useBucket(world, inventory, player, hit, opts)) { this.swung = true; return; }
       }
       // ---- wayshard: warp to the surface (works aiming anywhere) ----
       if (it && it.type === "warp") {
         const tb = hit ? getBlock(world.getBlock(hit.x, hit.y, hit.z)) : null;
         const blockHandles = tb && (tb.station || tb.sleep || tb.toggle || tb.anchor) && !input.down("ShiftLeft");
-        if (!blockHandles && opts.onWarp && opts.onWarp()) { inventory.consumeSelected(); return; }
+        if (!blockHandles && opts.onWarp && opts.onWarp()) { inventory.consumeSelected(); this.swung = true; return; }
       }
     }
 
@@ -139,6 +150,7 @@ export class Interact {
 
     // ---- placing / using stations / toggling ----
     if (input.clicks.right) {
+      this.swung = true;
       if (b.station && !input.down("ShiftLeft")) {
         opts.onOpenStation(b.station, hit.x, hit.y, hit.z);
       } else if (b.sleep && !input.down("ShiftLeft")) {
