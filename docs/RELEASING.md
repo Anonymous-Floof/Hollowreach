@@ -40,7 +40,7 @@ actually changes — don't touch them for a release:
 
 ## The release flow
 
-**0. While developing** — describe changes in the `[Unreleased]` section of
+**0. While developing** — describe changes in the `[Latest]` section of
 [CHANGELOG.md](../CHANGELOG.md), written for players (grouped `### Added` /
 `### Changed` / `### Fixed` headings work well). These lines become the release
 notes verbatim, so this is the "outline changes and additions" step.
@@ -51,8 +51,8 @@ notes verbatim, so this is the "outline changes and additions" step.
 python tools/release.py bump minor        # or major / patch
 ```
 
-Moves the `[Unreleased]` entries under a dated `## [1.2.0]` heading and writes
-the new number into js/version.js. Refuses to run if `[Unreleased]` is empty.
+Moves the `[Latest]` entries under a dated `## [1.2.0]` heading and writes
+the new number into js/version.js. Refuses to run if `[Latest]` is empty.
 Review the two changed files, then commit and push them
 (`Release v1.2.0` is a fine message).
 

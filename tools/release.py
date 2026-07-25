@@ -1,7 +1,7 @@
 """Release tooling for Hollowreach. Stdlib only, same Python 3 the game needs.
 
     python tools/release.py bump <major|minor|patch>
-        Move the [Unreleased] changelog entries under a new version heading
+        Move the [Latest] changelog entries under a new version heading
         (dated today) and write the new number into js/version.js.
 
     python tools/release.py package
@@ -91,22 +91,22 @@ def cmd_bump(part):
 
     with open(CHANGELOG, encoding="utf-8") as f:
         text = f.read()
-    m = re.search(r"^## \[Unreleased\][^\n]*\n(.*?)(?=^## \[|^\[|\Z)", text, re.M | re.S)
+    m = re.search(r"^## \[Latest\][^\n]*\n(.*?)(?=^## \[|^\[|\Z)", text, re.M | re.S)
     if not m:
-        fail("no [Unreleased] section in CHANGELOG.md")
+        fail("no [Latest] section in CHANGELOG.md")
     body = m.group(1).strip()
     if not body:
-        fail("the [Unreleased] section of CHANGELOG.md is empty — write the "
+        fail("the [Latest] section of CHANGELOG.md is empty — write the "
              "release notes there first, then bump")
 
     today = datetime.date.today().isoformat()
-    replacement = "## [Unreleased]\n\n## [%s] - %s\n\n%s\n\n" % (new, today, body)
+    replacement = "## [Latest]\n\n## [%s] - %s\n\n%s\n\n" % (new, today, body)
     text = text[:m.start()] + replacement + text[m.end():]
     # keep the compare/tag link footer up to date if it exists
     text = text.replace("/compare/v%s...HEAD" % cur, "/compare/v%s...HEAD" % new)
-    m2 = re.search(r"^\[Unreleased\]: (.*)/compare/", text, re.M)
+    m2 = re.search(r"^\[Latest\]: (.*)/compare/", text, re.M)
     if m2 and ("\n[%s]: " % new) not in text:
-        text = re.sub(r"^(\[Unreleased\]: [^\n]*\n)",
+        text = re.sub(r"^(\[Latest\]: [^\n]*\n)",
                       r"\g<1>[%s]: %s/releases/tag/v%s\n" % (new, m2.group(1), new),
                       text, count=1, flags=re.M)
     with open(CHANGELOG, "w", encoding="utf-8", newline="\n") as f:
@@ -114,7 +114,7 @@ def cmd_bump(part):
 
     write_version(new, src)
     print("bumped %s -> %s" % (cur, new))
-    print("CHANGELOG.md: [Unreleased] entries moved under [%s] - %s" % (new, today))
+    print("CHANGELOG.md: [Latest] entries moved under [%s] - %s" % (new, today))
     print("next: review both files, commit, then  python tools/release.py publish")
 
 
