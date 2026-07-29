@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Hollowreach — native C++ port of the WebGL2 build in ../js.
+# Hollowreach — a voxel sandbox, ported from the WebGL2 build this repository
+# was forked from (github.com/Anonymous-Floof/Hollow-Reach).
 #
 # Targets OpenGL 3.3 core, which is the desktop feature level matching WebGL2
 # one-for-one, so the ported shaders and render passes stay a direct translation.
@@ -10,6 +11,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
+
+# Static CRT on MSVC. The shipped artifact is one executable that a player
+# unzips and double-clicks, and the default /MD links against VCRUNTIME140.dll
+# and MSVCP140.dll — which are part of the Visual C++ Redistributable, not of
+# Windows. Someone who has never installed Visual Studio does not have them, and
+# the game does not start: a missing-DLL dialog, before a single line of ours
+# runs. Set before the dependencies are declared so GLFW and ENet inherit it;
+# mixing runtimes in one binary is its own class of bug.
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)

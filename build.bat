@@ -10,7 +10,7 @@ rem   build.bat debug           configure + build Debug
 rem   build.bat release         configure + build Release
 rem   build.bat run             build then launch
 rem   build.bat clean           delete the build directory
-rem   build.bat package         build then produce the release zip in ..\dist
+rem   build.bat package         build then produce the release zip in dist\
 rem
 rem NOTE: this file must keep CRLF line endings. cmd.exe reading an LF-only
 rem batch file drops the first character of every line, so `rem` runs as `m`.

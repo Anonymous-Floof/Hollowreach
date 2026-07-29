@@ -1,20 +1,29 @@
-"""Release tooling for Hollowreach. Stdlib only, same Python 3 the game needs.
+"""Release tooling for Hollowreach. Stdlib only, and no dependency on the build.
 
     python tools/release.py bump <major|minor|patch>
         Move the [Latest] changelog entries under a new version heading
-        (dated today) and write the new number into js/version.js.
+        (dated today) and write the new number into CMakeLists.txt.
 
-    python tools/release.py package
-        Build dist/Hollowreach-vX.Y.Z.zip — the full game plus the Windows
-        (run.bat) and Linux/macOS (run.sh) launchers, everything under a
-        Hollowreach-vX.Y.Z/ folder so it unzips tidily — and
-        dist/RELEASE_NOTES-vX.Y.Z.md, the release body generated from
-        CHANGELOG.md plus standard download/run instructions.
+    python tools/release.py package [--no-build]
+        Build the game and produce dist/Hollowreach-vX.Y.Z-<Platform>.zip
+        (the executable plus the docs a player might open, under one folder so
+        it unzips tidily) and dist/RELEASE_NOTES-vX.Y.Z.md, the release body
+        generated from CHANGELOG.md plus download and run instructions.
+
+        The zip itself is CPack's, configured in cmake/package.cmake — one
+        definition of what ships, used whether it is built from here or by
+        hand with `build.bat package`. This script drives it and does the
+        parts CPack has no opinion about: checking the changelog first,
+        naming and writing the notes, and tidying the staging directory.
 
     python tools/release.py publish [--draft]
         package, then create the GitHub release (tag vX.Y.Z, zip attached,
         notes as the body) via the `gh` CLI. --draft leaves it unpublished so
         it can be reviewed on github.com first.
+
+A release is per-platform: this produces the zip for whatever machine it runs
+on. Shipping Windows and Linux means running `package` on each and attaching
+both, which is what `publish --draft` plus `gh release upload` is for.
 
 Typical flow when shipping:  bump minor  ->  review + commit + push  ->  publish.
 See docs/RELEASING.md for the full walkthrough.
@@ -22,25 +31,18 @@ See docs/RELEASING.md for the full walkthrough.
 
 import argparse
 import datetime
+import glob
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
-import time
-import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION_FILE = os.path.join(ROOT, "js", "version.js")
+VERSION_FILE = os.path.join(ROOT, "CMakeLists.txt")
 CHANGELOG = os.path.join(ROOT, "CHANGELOG.md")
 DIST = os.path.join(ROOT, "dist")
-
-# What ships in the zip: the game, its server, both launchers, and the docs a
-# player might actually open. Dev-only folders (tools/, screenshots/, worlds/,
-# .git/ ...) stay out.
-SHIP_FILES = ["index.html", "server.py", "run.bat", "run.sh",
-              "README.md", "LICENSE", "CHANGELOG.md"]
-SHIP_DIRS = ["css", "js"]
 
 
 def fail(msg):
@@ -49,8 +51,13 @@ def fail(msg):
 
 
 # ---- version ----------------------------------------------------------------
+#
+# The version lives in the CMake project() call and reaches the game as the
+# HR_VERSION define, so there is exactly one place it is written down and the
+# build cannot disagree with the changelog about which release this is.
 
-VERSION_RE = re.compile(r'^export const GAME_VERSION = "(\d+)\.(\d+)\.(\d+)";', re.M)
+VERSION_RE = re.compile(r"^(project\(Hollowreach\b[^)]*?\bVERSION )(\d+)\.(\d+)\.(\d+)",
+                        re.M | re.S)
 
 
 def read_version():
@@ -58,12 +65,12 @@ def read_version():
         src = f.read()
     m = VERSION_RE.search(src)
     if not m:
-        fail("could not find GAME_VERSION in js/version.js")
-    return ".".join(m.groups()), src
+        fail("could not find the VERSION in the project() call in CMakeLists.txt")
+    return ".".join(m.groups()[1:]), src
 
 
 def write_version(new, src):
-    src = VERSION_RE.sub('export const GAME_VERSION = "%s";' % new, src, count=1)
+    src = VERSION_RE.sub(lambda m: m.group(1) + new, src, count=1)
     with open(VERSION_FILE, "w", encoding="utf-8", newline="\n") as f:
         f.write(src)
 
@@ -129,8 +136,43 @@ def _git_dirty():
 
 # ---- package ----------------------------------------------------------------
 
-def cmd_package():
+def _build_and_pack():
+    """Runs the platform build script's `package` action, which builds the game
+    and then hands off to CPack. Going through the script rather than calling
+    cmake directly is the point: on Windows neither CMake nor Ninja nor the MSVC
+    toolchain is normally on PATH, and build.bat is what knows how to find all
+    three."""
+    if os.name == "nt":
+        cmd = [os.path.join(ROOT, "build.bat"), "package"]
+    else:
+        cmd = [os.path.join(ROOT, "build.sh"), "package"]
+        if not os.access(cmd[0], os.X_OK):
+            cmd = ["sh"] + cmd
+    print("building:", " ".join(cmd))
+    r = subprocess.run(cmd, cwd=ROOT)
+    if r.returncode != 0:
+        fail("the build failed (see output above)")
+
+
+def _find_zip(version):
+    """CPack names the archive Hollowreach-vX.Y.Z-<CMAKE_SYSTEM_NAME>.zip, and the
+    system name is whatever CMake decided rather than anything Python knows, so
+    the file is found rather than predicted."""
+    found = sorted(glob.glob(os.path.join(DIST, "Hollowreach-v%s-*.zip" % version)))
+    if not found:
+        fail("no dist/Hollowreach-v%s-*.zip was produced — did the packaging step "
+             "run? Try 'build.bat package' on its own to see why not." % version)
+    if len(found) > 1:
+        # Two platforms' zips can legitimately sit here at once if they were
+        # copied in for one release, but only one was just built.
+        found.sort(key=os.path.getmtime)
+    return found[-1]
+
+
+def cmd_package(no_build=False):
     version, _ = read_version()
+    # Checked BEFORE building, because a missing changelog section is a
+    # three-second fix and a full build is not.
     notes = changelog_section(version)
     if notes is None:
         fail("CHANGELOG.md has no '## [%s]' section — run "
@@ -141,55 +183,25 @@ def cmd_package():
         print("warning: uncommitted changes in the working tree — the zip is "
               "built from the files on disk, not from a git ref")
 
-    name = "Hollowreach-v" + version
     os.makedirs(DIST, exist_ok=True)
-    zip_path = os.path.join(DIST, name + ".zip")
-    if os.path.exists(zip_path):
-        os.remove(zip_path)
+    if no_build:
+        print("skipping the build (--no-build)")
+    else:
+        _build_and_pack()
 
-    def add(zf, abs_path, rel):
-        arc = name + "/" + rel.replace(os.sep, "/")
-        if rel == "run.sh":
-            # LF endings (a CRLF shebang is "bad interpreter") + unix exec bit,
-            # regardless of what the Windows checkout did to the file
-            with open(abs_path, "rb") as f:
-                data = f.read().replace(b"\r\n", b"\n")
-            info = zipfile.ZipInfo(arc, date_time=time.localtime()[:6])
-            info.create_system = 3          # "unix", or extractors ignore the mode bits
-            info.external_attr = 0o100755 << 16
-            zf.writestr(info, data, zipfile.ZIP_DEFLATED)
-        elif rel == "run.bat":
-            with open(abs_path, "rb") as f:
-                data = f.read()
-            data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
-            zf.writestr(name + "/run.bat", data, zipfile.ZIP_DEFLATED)
-        else:
-            zf.write(abs_path, arc, zipfile.ZIP_DEFLATED)
-
-    count = 0
-    with zipfile.ZipFile(zip_path, "w") as zf:
-        for rel in SHIP_FILES:
-            p = os.path.join(ROOT, rel)
-            if not os.path.exists(p):
-                fail("missing file: " + rel)
-            add(zf, p, rel)
-            count += 1
-        for d in SHIP_DIRS:
-            for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, d)):
-                dirnames.sort()
-                for fn in sorted(filenames):
-                    p = os.path.join(dirpath, fn)
-                    add(zf, p, os.path.relpath(p, ROOT))
-                    count += 1
+    zip_path = _find_zip(version)
+    # CPack's staging tree. Harmless, ignored by git, and confusing to find in a
+    # folder that is otherwise exactly what gets uploaded.
+    shutil.rmtree(os.path.join(DIST, "_CPack_Packages"), ignore_errors=True)
 
     notes_path = os.path.join(DIST, "RELEASE_NOTES-v%s.md" % version)
     with open(notes_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(RELEASE_NOTES_TEMPLATE.format(version=version, notes=notes,
-                                              zip_name=name + ".zip"))
+                                              zip_name=os.path.basename(zip_path)))
 
     size = os.path.getsize(zip_path) / (1024 * 1024)
-    print("packaged %d files -> %s (%.1f MB)" % (count, os.path.relpath(zip_path, ROOT), size))
-    print("release notes    -> %s" % os.path.relpath(notes_path, ROOT))
+    print("packaged -> %s (%.1f MB)" % (os.path.relpath(zip_path, ROOT), size))
+    print("notes    -> %s" % os.path.relpath(notes_path, ROOT))
     return zip_path, notes_path, version
 
 
@@ -200,30 +212,32 @@ RELEASE_NOTES_TEMPLATE = """\
 
 ## How to play
 
-1. Download **`{zip_name}`** below and unzip it anywhere.
-2. Start the game:
-   - **Windows** — double-click `run.bat`
-   - **Linux / macOS** — run `./run.sh` (from a terminal, or a double-click if
-     your file manager runs scripts)
-3. Your browser opens the game automatically.
+1. Download the zip for your system below and unzip it anywhere.
+2. Run **`Hollowreach`**.
 
-The only requirements are **Python 3** (the launcher tells you where to get it
-if it's missing) and a browser with **WebGL2** — recent Chrome, Edge, or
-Firefox. Nothing is installed and nothing leaves your machine; a tiny local
-server just hosts the files for your own browser.
+That is the whole installation. There is no runtime to install and no installer
+to run: the assets are baked into the executable and everything links statically
+apart from your graphics driver. The game creates a `data/` folder next to
+itself for your worlds, screenshots and settings, so it stays portable — move
+the folder and everything moves with it.
 
-**Multiplayer note:** everyone needs the same game version (v{version}).
+The only requirement is a GPU and driver supporting **OpenGL 3.3**, which is
+anything from roughly 2010 onward.
+
+**Multiplayer note:** everyone needs the same game version (v{version}), and
+this is LAN play — hosting for someone outside your network needs port
+25565/udp forwarded to the host.
 """
 
 
 # ---- publish ----------------------------------------------------------------
 
-def cmd_publish(draft):
+def cmd_publish(draft, no_build=False):
     if shutil.which("gh") is None:
         fail("the GitHub CLI (`gh`) is not installed or not on PATH — install "
              "it from https://cli.github.com/ and run `gh auth login`, or "
              "create the release by hand (see docs/RELEASING.md)")
-    zip_path, notes_path, version = cmd_package()
+    zip_path, notes_path, version = cmd_package(no_build)
     tag = "v" + version
 
     existing = subprocess.run(["gh", "release", "view", tag], cwd=ROOT,
@@ -249,19 +263,23 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    b = sub.add_parser("bump", help="advance GAME_VERSION and date the changelog")
+    b = sub.add_parser("bump", help="advance the project version and date the changelog")
     b.add_argument("part", choices=["major", "minor", "patch"])
-    sub.add_parser("package", help="build the release zip + notes into dist/")
+    k = sub.add_parser("package", help="build the release zip + notes into dist/")
+    k.add_argument("--no-build", action="store_true",
+                   help="use the zip already in dist/ instead of rebuilding")
     p = sub.add_parser("publish", help="package, then create the GitHub release via gh")
     p.add_argument("--draft", action="store_true", help="create as a draft release")
+    p.add_argument("--no-build", action="store_true",
+                   help="use the zip already in dist/ instead of rebuilding")
     args = ap.parse_args()
 
     if args.cmd == "bump":
         cmd_bump(args.part)
     elif args.cmd == "package":
-        cmd_package()
+        cmd_package(args.no_build)
     else:
-        cmd_publish(args.draft)
+        cmd_publish(args.draft, args.no_build)
 
 
 if __name__ == "__main__":

@@ -112,6 +112,16 @@ instead of reading this whole file.
 the main or pause menu) where you can view them, delete them, or reveal them in
 your file manager. They are ordinary PNGs in `data/screenshots/`.
 
+**If it runs slowly, turn down Render Distance first.** Measured at 1280×720 on
+a Radeon RX 5700 XT, a settled world costs 13.8 ms a frame at distance 4, 19.1
+at 7 and 27.6 at 12 — so the view radius is by far the biggest lever you have.
+The quality preset is a much smaller one: Ultra and High measure within half a
+frame per second of each other, because what they vary is how many samples each
+effect takes, not whether the effect runs. To make a real difference there, turn
+individual effects off — God Rays, Water Reflections, Cast Shadows and
+Volumetric Clouds each remove a whole pass — or drop to Low, which is the only
+preset that also renders at reduced resolution.
+
 **Bed** — craft from 3 planks + 3 wool (from a sheep), place it (it lays out two cells, pillow
 always at the head whichever way you face), then right-click at night to
 fast-forward to morning. Sleeping advances the actual game clock, so
