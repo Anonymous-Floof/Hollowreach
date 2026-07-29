@@ -52,19 +52,24 @@ Biome biomeOf(double T, double M) {
 // Ravines (v2): a thin band of a low-frequency field carves a canyon from the
 // surface into the deeps. Returns 0 for none, or the canyon floor y.
 constexpr double kRavineBand = 0.016;
-int ravineFloor(const NoiseSet& n, int wx, int wz, int h) {
-  if (h <= kSeaLevel + 2) return 0;  // never crack open the sea floor
+int ravineFloor(const NoiseSet& n, int wx, int wz, int h, int ver) {
+  const int sea = seaLevel(ver);
+  if (h <= sea + 2) return 0;  // never crack open the sea floor
   const double rv = n.ravine.fbm2(wx * 0.0045 + 7, wz * 0.0045 - 3, 2);
   if (std::abs(rv) >= kRavineBand) return 0;
-  // Depth varies along the crack so the floor undulates.
+  // Depth varies along the crack so the floor undulates. Measured down from the
+  // sea rather than up from bedrock, so a v3 ravine is the same canyon in a
+  // deeper world instead of one that reaches four times further toward the ore.
+  // The v2 arithmetic is unchanged by construction: 46 - 32 = 14, 46 - 38 = 8.
   const double d = n.ravine.fbm2(wx * 0.02 - 40, wz * 0.02 + 25, 2);
-  const int floorY = 14 + static_cast<int>(std::floor(d * 5));
-  return floorY > 8 ? floorY : 8;
+  const int floorY = (sea - 32) + static_cast<int>(std::floor(d * 5));
+  const int floorMin = ravineFloorMin(ver);
+  return floorY > floorMin ? floorY : floorMin;
 }
 
 // Water line for flooded deep caverns (v2): carved space at or below this level
-// fills with still water instead of air.
-constexpr int kDeepWaterY = 12;
+// fills with still water instead of air. 46 - 34 = 12 keeps v2 exactly as it was.
+int deepWaterY(int ver) { return seaLevel(ver) - 34; }
 
 // Ore veins. Deepest and rarest first so they win ties. Higher `scale` means
 // higher-frequency noise and so smaller, more broken-up veins; higher `threshold`
@@ -88,6 +93,30 @@ const OreSpec kOres[] = {
     {"ore_embercoal", 8, 84, 0.17, 0.60, 99, 71, 41},
 };
 
+// v3. Same veins, same noise, same salts — only the bands move, so a seed's ore
+// keeps its shape and changes its depth.
+//
+// The first four are the "you have to go and find it" tier and every one of them
+// ends at or below deepOreCeiling (y=55), which sits seven blocks under the
+// deepest a ravine floor can reach (y=62). That is the guarantee: no amount of
+// standing at the bottom of a canyon shows you aetherite. Caves still can, and
+// should — spelunking is meant to pay.
+//
+// The rest are the "you will trip over it" tier and are allowed near the surface,
+// because a new player needs copper and coal without a mining expedition.
+const OreSpec kOresV3[] = {
+    {"ore_aetherite", 3, 30, 0.19, 0.73, 11, 0, 23},
+    {"ore_gloamite", 3, 38, 0.19, 0.72, 55, 13, 88},
+    {"ore_sparkstone", 4, 46, 0.19, 0.71, 40, 5, 70},
+    {"ore_sunbrass", 4, 55, 0.18, 0.69, 80, 9, 14},
+    {"ore_azurite", 6, 70, 0.18, 0.67, 3, 50, 31},
+    {"ore_verdanite", 8, 80, 0.18, 0.67, 21, 60, 47},
+    {"ore_ferralite", 8, 88, 0.18, 0.66, 60, 22, 90},
+    {"ore_copper", 12, 98, 0.17, 0.62, 17, 33, 5},
+    {"ore_embercoal", 16, 132, 0.17, 0.60, 99, 71, 41},
+};
+static_assert(std::size(kOres) == std::size(kOresV3), "both tables index oreIds()");
+
 // Ore ids resolved once, in table order, so the inner loop never touches a string.
 struct OreIds {
   BlockId id[std::size(kOres)] {};
@@ -100,10 +129,11 @@ const OreIds& oreIds() {
   return ids;
 }
 
-BlockId oreAt(const NoiseSet& n, int wx, int wy, int wz) {
+BlockId oreAt(const NoiseSet& n, int wx, int wy, int wz, int ver) {
   const OreIds& ids = oreIds();
+  const OreSpec* table = ver >= 3 ? kOresV3 : kOres;
   for (std::size_t i = 0; i < std::size(kOres); ++i) {
-    const OreSpec& o = kOres[i];
+    const OreSpec& o = table[i];
     if (wy < o.yMin || wy > o.yMax) continue;
     const double value = n.ore.noise3((wx + o.sx) * o.scale, (wy + o.sy) * o.scale,
                                       (wz + o.sz) * o.scale);
@@ -116,7 +146,7 @@ BlockId oreAt(const NoiseSet& n, int wx, int wy, int wz) {
 // stone variant so the underground is not uniformly greystone. v2 also seams in
 // the odd pocket of gravel or packed dirt.
 BlockId stoneAt(const NoiseSet& n, int wx, int wy, int wz, int ver) {
-  const BlockId base = oreAt(n, wx, wy, wz);
+  const BlockId base = oreAt(n, wx, wy, wz, ver);
   if (base != wk().greystone) return base;  // ore wins the cell
   if (ver >= 2) {
     const double p = n.stonevar.fbm3(wx * 0.035 + 50, wy * 0.035, wz * 0.035 - 50, 2);
@@ -134,8 +164,12 @@ bool isCave(const NoiseSet& n, int wx, int wy, int wz, int ver) {
   // proper caverns while the near-surface stays tight.
   const double blob = n.cave.fbm3(wx * 0.045, wy * 0.06, wz * 0.045, 3);
   double th = 0.55;
-  if (ver >= 2 && wy < 30) {
-    const double lowered = 0.55 - (30 - wy) * 0.005;
+  // Where the caverns start opening up, measured from the sea like everything
+  // else: 46 - 16 = 30 reproduces v2. In v3 that is y=84, so the whole deep half
+  // of the world is cavern country rather than a thin seam above bedrock.
+  const int deepStart = seaLevel(ver) - 16;
+  if (ver >= 2 && wy < deepStart) {
+    const double lowered = 0.55 - (deepStart - wy) * 0.005;
     th = lowered > 0.42 ? lowered : 0.42;
   }
   if (blob > th) return true;
@@ -249,6 +283,7 @@ void stampPalm(Chunk& chunk, std::uint32_t seed, int wx, int wz, int h) {
 // originates just outside still appears seamlessly — no cross-chunk writes and no
 // ordering dependency. 3 covers the palm fronds.
 void stampTrees(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
+  const int sea = seaLevel(ver);
   const int margin = ver >= 2 ? 3 : 2;
   const int minX = chunk.cx * CX - margin, maxX = chunk.cx * CX + CX + margin;
   const int minZ = chunk.cz * CZ - margin, maxZ = chunk.cz * CZ + CZ + margin;
@@ -263,7 +298,7 @@ void stampTrees(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
       if (ver < 2) {
         if (r >= 0.018) continue;
         const ColumnInfo info = columnInfo(n, wx, wz, ver);
-        if (info.h <= kSeaLevel + 1) continue;  // no trees on beaches or in water
+        if (info.h <= sea + 1) continue;  // no trees on beaches or in water
         const double wsel = hash2i(seed ^ 0xbeefu, wx, wz);
         const TreeKind kind =
             wsel < 0.15 ? TreeKind::Pine : wsel < 0.3 ? TreeKind::Dusk : TreeKind::Oak;
@@ -272,14 +307,14 @@ void stampTrees(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
       }
 
       const ColumnInfo info = columnInfo(n, wx, wz, ver);
-      if (info.h <= kSeaLevel + 1) {
+      if (info.h <= sea + 1) {
         // Warm beaches grow the odd palm above the tide line.
-        if (info.h == kSeaLevel + 1 && info.temperature > 0.22 && r < 0.012) {
+        if (info.h == sea + 1 && info.temperature > 0.22 && r < 0.012) {
           stampPalm(chunk, seed, wx, wz, info.h);
         }
         continue;
       }
-      if (ravineFloor(n, wx, wz, info.h)) continue;  // the ground here is carved away
+      if (ravineFloor(n, wx, wz, info.h, ver)) continue;  // the ground here is carved away
       const double wsel = hash2i(seed ^ 0xbeefu, wx, wz);
       const TreeSpec spec = treeSpecFor(info.biome, wsel);
       if (r >= spec.density) continue;
@@ -369,6 +404,7 @@ void stampFoliage(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
 // open water in a neighbouring column. Runs after foliage and overwrites any grass
 // tuft that landed on the same cell.
 void stampPapyrus(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
+  const int sea = seaLevel(ver);
   ChunkData& d = *chunk.data;
   const int baseX = chunk.cx * CX, baseZ = chunk.cz * CZ;
   const WellKnownBlocks& w = wk();
@@ -379,14 +415,14 @@ void stampPapyrus(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
       if (r >= 0.20) continue;
       const ColumnInfo info = columnInfo(n, wx, wz, ver);
       if (info.biome == Biome::Snow) continue;
-      if (info.h < kSeaLevel || info.h > kSeaLevel + 1) continue;  // right at the waterline
+      if (info.h < sea || info.h > sea + 1) continue;  // right at the waterline
       const BlockId ground = d.voxels[localIdx(x, info.h, z)];
       if (ground != w.sand && ground != w.turf && ground != w.loam) continue;
 
       bool shore = false;
       const int dirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
       for (const auto& dir : dirs) {
-        if (columnInfo(n, wx + dir[0], wz + dir[1], ver).h < kSeaLevel) {
+        if (columnInfo(n, wx + dir[0], wz + dir[1], ver).h < sea) {
           shore = true;
           break;
         }
@@ -438,6 +474,7 @@ const char* biomeName(Biome biome) {
 }
 
 ColumnInfo columnInfo(const NoiseSet& n, int wx, int wz, int ver) {
+  const int sea = seaLevel(ver);
   const double cont = n.terrain.fbm2(wx * 0.0055, wz * 0.0055, 4);      // broad continents
   const double hills = n.hills.fbm2(wx * 0.021, wz * 0.021, 3) * 0.55;  // local bumps
 
@@ -460,14 +497,15 @@ ColumnInfo columnInfo(const NoiseSet& n, int wx, int wz, int ver) {
       // fails only on mountain columns, this is the line to suspect.
       ridged = std::pow(peak > 0.0 ? peak : 0.0, 2.6) * 38 * mmask;
     }
-    h = kSeaLevel + cont * 24 + hills * 14 * flat + ridged;
+    h = sea + cont * 24 + hills * 14 * flat + ridged;
   } else {
-    h = kSeaLevel + cont * 24 + hills * 14;
+    h = sea + cont * 24 + hills * 14;
   }
 
   int hi = static_cast<int>(std::floor(h));
   if (hi < 4) hi = 4;
-  if (hi > WH - 14) hi = WH - 14;
+  const int top = topClamp(ver);
+  if (hi > top) hi = top;
   out.h = hi;
   return out;
 }
@@ -482,6 +520,8 @@ Biome biomeAt(const NoiseSet& n, int wx, int wz, int ver) {
 }
 
 void generate(Chunk& chunk, const NoiseSet& n, int ver) {
+  const int sea = seaLevel(ver);
+  const int deepWater = deepWaterY(ver);
   const std::uint32_t seed = n.seed();
   ChunkData& d = *chunk.data;
   const WellKnownBlocks& w = wk();
@@ -492,8 +532,8 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
       const int wx = baseX + x, wz = baseZ + z;
       const ColumnInfo info = columnInfo(n, wx, wz, ver);
       const int h = info.h;
-      const bool beach = h <= kSeaLevel + 1;
-      const int rvFloor = ver >= 2 ? ravineFloor(n, wx, wz, h) : 0;
+      const bool beach = h <= sea + 1;
+      const int rvFloor = ver >= 2 ? ravineFloor(n, wx, wz, h, ver) : 0;
 
       for (int y = 0; y < WH; ++y) {
         BlockId id = kAir;
@@ -515,18 +555,18 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
 
           // Ravines slice from the surface into the deeps (v2).
           if (rvFloor && y >= rvFloor && id != w.bedrock) {
-            id = y <= kDeepWaterY ? w.water : kAir;
+            id = y <= deepWater ? w.water : kAir;
           }
           // Otherwise carve caves out of underground solid — not the very top,
           // not bedrock.
           else if (id != w.bedrock && depth >= 1 && y > 2 && isCave(n, wx, y, wz, ver)) {
-            if (y <= kSeaLevel && depth <= 2) {
+            if (y <= sea && depth <= 2) {
               // Keep the sea floor sealed.
             } else {
-              id = (ver >= 2 && y <= kDeepWaterY) ? w.water : kAir;
+              id = (ver >= 2 && y <= deepWater) ? w.water : kAir;
             }
           }
-        } else if (y <= kSeaLevel) {
+        } else if (y <= sea) {
           id = w.water;
         }
         d.voxels[localIdx(x, y, z)] = id;
@@ -543,11 +583,12 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
 }
 
 SurfacePreview surfacePreview(const NoiseSet& n, int wx, int wz, int ver) {
+  const int sea = seaLevel(ver);
   const std::uint32_t seed = n.seed();
   const ColumnInfo info = columnInfo(n, wx, wz, ver);
   const int h = info.h;
-  if (h < kSeaLevel) return {"water", h};
-  if (ver >= 2 && ravineFloor(n, wx, wz, h)) return {"greystone", 14};
+  if (h < sea) return {"water", h};
+  if (ver >= 2 && ravineFloor(n, wx, wz, h, ver)) return {"greystone", 14};
 
   // Tree canopies: any tree rooted within 2 cells shades this column.
   for (int dx = -2; dx <= 2; ++dx) {
@@ -556,8 +597,8 @@ SurfacePreview surfacePreview(const NoiseSet& n, int wx, int wz, int ver) {
       const double r = hash2i(seed ^ 0x5eedu, tx, tz);
       if (r >= 0.06) continue;
       const ColumnInfo ti = (dx || dz) ? columnInfo(n, tx, tz, ver) : info;
-      if (ti.h <= kSeaLevel + 1) continue;
-      if (ver >= 2 && ravineFloor(n, tx, tz, ti.h)) continue;  // no tree in a ravine
+      if (ti.h <= sea + 1) continue;
+      if (ver >= 2 && ravineFloor(n, tx, tz, ti.h, ver)) continue;  // no tree in a ravine
 
       bool haveKind = false;
       TreeKind kind = TreeKind::Oak;
@@ -578,7 +619,7 @@ SurfacePreview surfacePreview(const NoiseSet& n, int wx, int wz, int ver) {
     }
   }
 
-  if (h <= kSeaLevel + 1) return {"sand", h};
+  if (h <= sea + 1) return {"sand", h};
   if (ver >= 2 && info.biome == Biome::Desert) return {"sand", h};
   if (ver >= 2 && info.biome == Biome::Snow) return {"snowturf", h};
   return {"turf", h};

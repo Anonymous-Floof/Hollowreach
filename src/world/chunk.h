@@ -21,7 +21,11 @@ namespace hr::world {
 
 inline constexpr int CX = 16;   // chunk width  (x)
 inline constexpr int CZ = 16;   // chunk depth  (z)
-inline constexpr int WH = 128;  // world height (y)
+// World height. Raised from 128 at gen v3 so there is somewhere to put an
+// underground: the sea moved from y=46 to y=100 and the surface came with it, so
+// the extra 64 blocks all land below sea level. Costs 5 bytes a cell — a chunk's
+// voxels, metadata and two light channels go from 160 KB to 240 KB.
+inline constexpr int WH = 192;  // world height (y)
 inline constexpr int kCellsPerChunk = CX * WH * CZ;  // 32768
 
 // (y * CZ + z) * CX + x — the same layout the save format's edit records use, so

@@ -66,7 +66,12 @@ void checkf(bool ok, const char* fmt, ...) {
 
 // A scratch world with a hollow pocket of air well above the terrain, so tests can
 // build exactly the situation they mean without worldgen in the way.
-constexpr int kY = 100;
+//
+// 140, not 100: gen v3 put the sea at y=100 and the test origin is an ocean column,
+// so the old pocket was carved underwater and every pond in the water group filled
+// itself before the test could. The pocket has to clear the sea, not just the
+// ground. The tallest thing built on it is the survival group's fall, at kY + 25.
+constexpr int kY = 140;
 constexpr float kOriginX = 8.5f;
 constexpr float kOriginZ = 8.5f;
 
@@ -1541,20 +1546,21 @@ void testSaves() {
   // seabed rather than above the water (js/world/world.js:555).
   {
     world::World w(3918175327u, 1);
+    const int sea = world::seaLevel(w.genVersion());
     const int ground = world::heightAt(w.noise(), 8, 8, w.genVersion());
-    checkf(ground < world::kSeaLevel, "the default spawn column really is under the sea (%d < %d)",
-           ground, world::kSeaLevel);
-    checkf(w.spawnHeight(8, 8) == world::kSeaLevel + 2,
+    checkf(ground < sea, "the default spawn column really is under the sea (%d < %d)",
+           ground, sea);
+    checkf(w.spawnHeight(8, 8) == sea + 2,
            "so spawnHeight puts the player above the water, not above the seabed (%d)",
            w.spawnHeight(8, 8));
     // Dry land is unaffected: still two blocks above the ground it found.
     int dryX = 0, dryZ = 0, dryGround = 0;
-    for (int i = 0; i < 400 && dryGround <= world::kSeaLevel; ++i) {
+    for (int i = 0; i < 400 && dryGround <= sea; ++i) {
       dryX = 40 + i * 7;
       dryZ = 40 - i * 5;
       dryGround = world::heightAt(w.noise(), dryX, dryZ, w.genVersion());
     }
-    checkf(dryGround > world::kSeaLevel && w.spawnHeight(dryX, dryZ) == dryGround + 2,
+    checkf(dryGround > sea && w.spawnHeight(dryX, dryZ) == dryGround + 2,
            "and leaves dry land alone (ground %d -> spawn %d)", dryGround,
            w.spawnHeight(dryX, dryZ));
   }
@@ -1654,6 +1660,101 @@ std::unique_ptr<world::World> makeWaterWorld() {
   }
   settleWater(*w);
   return w;
+}
+
+// --- worldgen depth (v3) -----------------------------------------------------
+//
+// The v3 promise is a arithmetic one — "rare ore ends below where any ravine can
+// reach" — and arithmetic in a comment is worth nothing. These sample real terrain
+// over a wide area and assert the property that was actually promised.
+
+void testWorldgenDepth() {
+  std::printf("worldgen depth\n");
+  const world::NoiseSet noise(3918175327u);
+
+  // The band table and the ravine floor must not overlap, by construction.
+  checkf(world::deepOreCeiling(3) < world::ravineFloorMin(3),
+         "the deep ore ceiling (%d) sits below the deepest ravine floor (%d)",
+         world::deepOreCeiling(3), world::ravineFloorMin(3));
+
+  // And by observation. Walk a wide grid, generate real chunks, and record the
+  // highest cell each ore actually occupies against the lowest ravine floor found.
+  struct Seen {
+    const char* key;
+    world::BlockId id;
+    int highest = -1;
+  };
+  Seen rare[] = {{"ore_aetherite", 0}, {"ore_gloamite", 0}, {"ore_sparkstone", 0},
+                 {"ore_sunbrass", 0}};
+  for (Seen& s : rare) s.id = world::blocks().idOf(s.key);
+
+  int lowestSurface = world::WH;
+  for (int cx = -6; cx <= 6; ++cx) {
+    for (int cz = -6; cz <= 6; ++cz) {
+      world::Chunk chunk;
+      chunk.cx = cx;
+      chunk.cz = cz;
+      chunk.data = std::make_shared<world::ChunkData>();
+      world::generate(chunk, noise, 3);
+      for (int x = 0; x < world::CX; ++x) {
+        for (int z = 0; z < world::CZ; ++z) {
+          const int h = world::heightAt(noise, cx * world::CX + x, cz * world::CZ + z, 3);
+          if (h < lowestSurface) lowestSurface = h;
+          for (int y = 0; y < world::WH; ++y) {
+            const world::BlockId id = chunk.data->voxels[world::localIdx(x, y, z)];
+            for (Seen& s : rare) {
+              if (id == s.id && y > s.highest) s.highest = y;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const int ravineMin = world::ravineFloorMin(3);
+  for (const Seen& s : rare) {
+    checkf(s.highest >= 0, "%s generates at all in v3 (highest y=%d)", s.key, s.highest);
+    checkf(s.highest < ravineMin,
+           "%s never reaches ravine depth (highest y=%d, deepest ravine floor %d)", s.key,
+           s.highest, ravineMin);
+  }
+  // The other way a rare ore could be exposed: terrain lower than the ore ceiling.
+  checkf(lowestSurface > world::deepOreCeiling(3),
+         "no surface column dips to the deep ore band (lowest %d, ceiling %d)", lowestSurface,
+         world::deepOreCeiling(3));
+
+  // Raising WH must not have put anything into the new space in a legacy world —
+  // this is the other half of the golden gate's shortened hash.
+  {
+    world::Chunk legacy;
+    legacy.cx = 0;
+    legacy.cz = 0;
+    legacy.data = std::make_shared<world::ChunkData>();
+    world::generate(legacy, noise, 2);
+    bool clean = true;
+    for (int y = 128; y < world::WH; ++y) {
+      for (int i = 0; i < world::CX * world::CZ; ++i) {
+        if (legacy.data->voxels[y * world::CX * world::CZ + i] != world::kAir) clean = false;
+      }
+    }
+    check(clean, "a v2 chunk leaves the space above y=128 empty");
+  }
+
+  // v3 is v2 translated: the same seed must produce the same surface shape, just
+  // 54 blocks higher. If this drifts, the "same world, deeper" claim is false.
+  {
+    const int shift = world::seaLevel(3) - world::seaLevel(2);
+    int matched = 0, sampled = 0;
+    for (int i = 0; i < 200; ++i) {
+      const int wx = i * 37 - 500, wz = i * -53 + 400;
+      const int a = world::heightAt(noise, wx, wz, 2);
+      const int b = world::heightAt(noise, wx, wz, 3);
+      ++sampled;
+      if (b == a + shift) ++matched;
+    }
+    checkf(matched == sampled, "v3 terrain is v2 lifted by %d (%d/%d columns)", shift, matched,
+           sampled);
+  }
 }
 
 // Water anywhere on the floor, for the "it all dried up" check.
@@ -2402,6 +2503,7 @@ int runSelfTest() {
   testLayout();
   testEntities();
   testSaves();
+  testWorldgenDepth();
   testWater();
   testNet();
   testNetSession();

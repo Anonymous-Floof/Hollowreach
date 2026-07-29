@@ -41,6 +41,16 @@ std::string d(double value) {
   return buffer;
 }
 
+// The light hashes cover only the bottom 128 layers of a chunk, because that is
+// the whole of the JavaScript's world and this build's is 192. Restricting the
+// slice rather than dropping the check keeps it meaningful: the arrays are laid
+// out with y slowest (localIdx = (y*CZ + z)*CX + x), so the shared region is a
+// contiguous prefix and compares byte for byte. What sits above it is asserted
+// separately in --selftest — air, full skylight, no blocklight — because a hash
+// that silently covered a different amount of world would be worse than no hash.
+constexpr std::size_t kJsCells = 128 * world::CZ * world::CX;
+constexpr std::size_t kJsLightBytes = kJsCells;
+
 std::string u32(std::uint32_t value) {
   char buffer[16];
   std::snprintf(buffer, sizeof(buffer), "%08x", value);
@@ -122,7 +132,9 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
 
   out.line("# hollowreach golden vectors v1");
   out.line("# source: c++");
-  out.linef("# GEN_VERSION=%d SEA_LEVEL=%d", world::kGenVersion, world::kSeaLevel);
+  // The dump covers v1 and v2 only, which is what the JavaScript implements, so it
+  // reports the sea level of those rather than of the current default.
+  out.linef("# GEN_VERSION=%d SEA_LEVEL=%d", 2, world::seaLevel(2));
   out.linef("# blocks=%zu CX=%d CZ=%d WH=%d", world::blocks().count(), world::CX, world::CZ,
             world::WH);
 
@@ -275,18 +287,25 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
           world::generate(chunk, noise, ver);
 
           const auto& voxels = chunk.data->voxels;
+          // Only the bottom 128 layers, for the reason kJsLightBytes gives: this
+          // build's world is 192 tall and the reference's is 128, and hashing a
+          // different amount of world would be a comparison that always passes.
+          // nonAir is counted over the WHOLE column, so anything generated in the
+          // new space above would still show up here as a mismatch.
+          const std::size_t shared = std::min<std::size_t>(voxels.size(), kJsCells);
           std::vector<std::uint8_t> keyBytes;
-          keyBytes.reserve(voxels.size() * 6);
+          keyBytes.reserve(shared * 6);
           int nonAir = 0;
-          for (world::BlockId id : voxels) {
-            if (id != world::kAir) ++nonAir;
-            const std::string& key = registry.def(id).key;
+          for (std::size_t i = 0; i < voxels.size(); ++i) {
+            if (voxels[i] != world::kAir) ++nonAir;
+            if (i >= shared) continue;
+            const std::string& key = registry.def(voxels[i]).key;
             for (char ch : key) keyBytes.push_back(static_cast<std::uint8_t>(ch));
             keyBytes.push_back(0);
           }
           out.linef("chunk(%u, v%d, %d, %d) ids=%s keys=%s nonAir=%d", seed, ver, cc[0], cc[1],
                     u32(fnv1a(reinterpret_cast<const std::uint8_t*>(voxels.data()),
-                              voxels.size() * sizeof(world::BlockId)))
+                              shared * sizeof(world::BlockId)))
                         .c_str(),
                     u32(fnv1a(keyBytes.data(), keyBytes.size())).c_str(), nonAir);
         }
@@ -444,8 +463,8 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
               "sky=%s blk=%s emitters=%zu",
               seed, ver, cc[0], cc[1], mesh.opaque.size(), mesh.water.size(),
               u32(hashVerts(mesh.opaque)).c_str(), u32(hashVerts(mesh.water)).c_str(),
-              u32(fnv1a(sky.data(), sky.size())).c_str(),
-              u32(fnv1a(blk.data(), blk.size())).c_str(), centre.emitters.size());
+              u32(fnv1a(sky.data(), kJsLightBytes)).c_str(),
+              u32(fnv1a(blk.data(), kJsLightBytes)).c_str(), centre.emitters.size());
         }
       }
     }

@@ -557,6 +557,9 @@ void Renderer::drawHeld(const world::World& world, const Camera& camera, const S
 void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
                       int screenWidth, int screenHeight, const Selection* selection,
                       const std::string& heldItem, float underwater, double time) {
+  const float cloudBase =
+      static_cast<float>(world::seaLevel(world.genVersion())) + 72.0f;
+
   const float t = static_cast<float>(time);
   const float aspect = static_cast<float>(screenWidth) / std::max(1, screenHeight);
   gbuffer_.resize(screenWidth, screenHeight, quality_.scale);
@@ -698,6 +701,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   const Vec3 cloudAmb {(hz.x + zn.x) * 0.55f, (hz.y + zn.y) * 0.55f, (hz.z + zn.z) * 0.55f};
   compositeProg_->set("uTime", t);
   compositeProg_->set("uCloudCover", quality_.cloudCover);
+  compositeProg_->set("uCloudBase", cloudBase);
   compositeProg_->set("uCloudSteps", quality_.cloudSteps);
   compositeProg_->set("uCloudShadow", quality_.cloudSteps > 0 ? quality_.cloudShadows : 0.0f);
   compositeProg_->set("uCloudSunDir", sun.x, sun.y, sun.z);
@@ -769,6 +773,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
     // Half the sky pass's cloud steps in the reflection: cheaper, and still reads.
     waterProg_->set("uCloudSteps", quality_.cloudSteps / 2);
     waterProg_->set("uCloudCover", quality_.cloudCover);
+    waterProg_->set("uCloudBase", cloudBase);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);

@@ -10,6 +10,11 @@
 // entry point takes it, so a world's terrain never shifts under existing builds.
 // v1 is the original meadow-only generator; v2 adds climate biomes, ridged
 // mountains, ravines, flooded deep caverns, gravel/dirt pockets and shore papyrus.
+// v3 raises the sea to y=100 in a 192-tall world, which leaves a hundred blocks of
+// underground instead of forty-six. The surface is deliberately UNCHANGED: every
+// height is measured from the sea, so the same seed grows the same coastline and
+// the same mountains, just translated up. What that buys is somewhere to put the
+// rare ore where nothing open to the sky can reach it.
 //
 // Determinism here is not cosmetic: multiplayer guests generate terrain locally
 // from the host's seed, so two machines must agree. See noise.cpp for the
@@ -26,8 +31,25 @@
 
 namespace hr::world {
 
-inline constexpr int kSeaLevel = 46;
-inline constexpr int kGenVersion = 2;
+// Sea level is per-version, and it is the datum every other height is measured
+// from — which is what lets v3 be "the same world, deeper" rather than a new one.
+inline constexpr int kSeaLevelLegacy = 46;  // gen v1, v2
+inline constexpr int kSeaLevelDeep = 100;   // gen v3
+inline constexpr int seaLevel(int ver) { return ver >= 3 ? kSeaLevelDeep : kSeaLevelLegacy; }
+
+// The height clamp is versioned too. It never actually bound in v1/v2 — those
+// worlds top out near y=84 against a limit of 114 — but pinning it keeps the
+// guarantee that raising WH cannot move a single block of an existing world.
+inline constexpr int topClamp(int ver) { return (ver >= 3 ? WH : 128) - 14; }
+
+// The deepest a ravine floor can land, and the ceiling for ore that must never be
+// visible from the sky. Ravines are the only feature that opens the deeps to open
+// air, so this is the whole of the "rare ore stays buried" guarantee, and
+// --selftest asserts the gap rather than trusting the arithmetic here.
+inline constexpr int ravineFloorMin(int ver) { return seaLevel(ver) - 38; }
+inline constexpr int deepOreCeiling(int ver) { return seaLevel(ver) - 45; }
+
+inline constexpr int kGenVersion = 3;
 
 enum class Biome : std::uint8_t { Meadow = 0, Forest = 1, Birch = 2, Desert = 3, Snow = 4 };
 inline constexpr int kBiomeCount = 5;

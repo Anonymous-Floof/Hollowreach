@@ -128,7 +128,7 @@ Atlas::Column Atlas::samplePreview(const world::World& world, int wx, int wz) co
                                                         world.genVersion());
   if (p.key == "water") {
     return {world::wk().greystone, std::max(2, p.h),
-            std::max(1, world::kSeaLevel - p.h)};
+            std::max(1, world::seaLevel(world.genVersion()) - p.h)};
   }
   const world::BlockId id = world::blocks().idOf(p.key);
   return {id != 0 ? id : world::wk().turf, p.h, 0};

@@ -767,7 +767,8 @@ void World::spawnDrop(float wx, float wy, float wz, const std::string& key, int 
 
 int World::spawnHeight(int wx, int wz) const {
   const int ground = heightAt(noise_, wx, wz, genVersion_);
-  return (ground > kSeaLevel ? ground : kSeaLevel) + 2;
+  const int sea = seaLevel(genVersion_);
+  return (ground > sea ? ground : sea) + 2;
 }
 
 float World::fluidHeight(int wx, int wy, int wz) const {

@@ -57,6 +57,13 @@ REPO = HERE.parent
 # Chunks whose only difference is the documented one-ULP transcendental drift.
 KNOWN_MESH_DIFFS = {"mesh(3918175327, v1, 7, -3)"}
 
+# The four wooden tools. The browser spells their plank ingredient "planks", which
+# is OAK planks, so a world that spawned you in a pine or birch forest could not
+# make the first pickaxe at all. This build spells it "#planks", the any-wood tag
+# that beds and boats already used. A deliberate divergence, and the only one in
+# the recipe table -- everything else in the group must still match exactly.
+KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)}
+
 
 def find_exe(explicit: str | None) -> Path:
     if explicit:
@@ -177,7 +184,7 @@ def main() -> int:
         (out_dir / f"js-{group}.txt").write_text(js, encoding="utf-8")
         (out_dir / f"cpp-{group}.txt").write_text(cpp, encoding="utf-8")
 
-        known = KNOWN_MESH_DIFFS if group == "mesh" else set()
+        known = {"mesh": KNOWN_MESH_DIFFS, "recipes": KNOWN_RECIPE_DIFFS}.get(group, set())
         checked, failed, known_hits = compare(group, keyed(js), keyed(cpp), known,
                                               args.strict)
         total_checked += checked
@@ -189,7 +196,10 @@ def main() -> int:
         print(f"{total_failed} difference(s) across {total_checked} values.")
         print(f"full dumps: {out_dir}")
         return 1
-    suffix = f" ({total_known} known transcendental difference(s))" if total_known else ""
+    # Not all known differences are transcendental any more: the recipe ones are a
+    # deliberate gameplay fix. Saying "transcendental" for both would be a small lie
+    # in the one line most people read.
+    suffix = f" ({total_known} known, documented difference(s))" if total_known else ""
     # ASCII on purpose: this runs in cmd.exe, whose code page mangles anything else.
     print(f"MATCH - {total_checked} values reproduce the JavaScript exactly{suffix}.")
     return 0

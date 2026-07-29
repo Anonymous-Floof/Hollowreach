@@ -550,7 +550,11 @@ const char* toolTypeName(ToolKind k) {
 // tier so they all progress consistently.
 const std::array<ToolMaterial, 6>& toolMaterials() {
   static const std::array<ToolMaterial, 6> kTable {{
-      {"wood", "Wooden", world::tier::kWood, "planks", 0xb08a52u, 1.7f, 60},
+      // "#planks", not "planks": the literal is OAK planks, so a spawn in a pine,
+      // birch, dusk or palm forest could not craft the first pickaxe at all while
+      // a bed — which uses the tag — worked fine. Every wooden recipe takes the
+      // tag now, so "wood is wood" holds everywhere it should.
+      {"wood", "Wooden", world::tier::kWood, "#planks", 0xb08a52u, 1.7f, 60},
       {"stone", "Stone", world::tier::kStone, "cobbled", 0x7d8189u, 2.4f, 130},
       {"copper", "Copper", world::tier::kCopper, "copper_ingot", 0xc8783au, 3.2f, 200},
       {"ferralite", "Iron", world::tier::kFerralite, "ferralite_ingot", 0xcfd2d6u, 4.2f, 360},

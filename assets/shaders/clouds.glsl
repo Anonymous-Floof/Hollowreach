@@ -13,9 +13,15 @@
 #ifndef HR_CLOUDS_GLSL
 #define HR_CLOUDS_GLSL
 
-const float CLD_BASE = 118.0;
-const float CLD_TOP = 136.0;
-const float CLD_MID = 127.0;
+// The cloud deck rides with the sea, because the sea is where "up" is measured
+// from and gen v3 moved it from y=46 to y=100. uCloudBase is fed the world's own
+// sea level plus the 72 blocks that put the deck at 118 in a v2 world, so the sky
+// looks the same from the ground whichever generation you are standing on. The
+// slab is volumetric and lives in the sky pass, so it is free to sit above WH.
+uniform float uCloudBase;
+#define CLD_BASE uCloudBase
+#define CLD_TOP (uCloudBase + 18.0)
+#define CLD_MID (uCloudBase + 9.0)
 const vec2 CLD_WIND = vec2(1.1, 0.4);
 
 float chash13(vec3 p) {
