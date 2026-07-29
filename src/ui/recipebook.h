@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,10 @@ namespace hr::ui {
 class RecipeBook {
  public:
   void attach(const render::IconAtlas* icons) { icons_ = icons; }
+
+  // Returns wherever the book was opened from — the world, or the crafting screen
+  // that has the grid you were looking at.
+  std::function<void()> onBack;
 
   // Built lazily on first open, like the JS `built` flag: it walks every recipe and
   // groups it, which is not work to do at startup for a screen most sessions never open.

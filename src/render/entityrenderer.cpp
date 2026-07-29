@@ -329,20 +329,27 @@ const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
   const float W[3] = {0.63f, 0.47f, 0.29f};
   const float D[3] = {0.45f, 0.33f, 0.20f};
   const float L[3] = {0.74f, 0.59f, 0.40f};
+  // The hull is modelled bow-to--z. Mobs use "+z is forward" and derive their yaw
+  // from movement, but a ridden boat is handed the PLAYER's yaw (boat.cpp:95), and
+  // the player's yaw 0 faces -z (core/mat4.cpp lookDir). The two conventions are
+  // 180 degrees apart, which is why the original sat you facing the stern -- in the
+  // browser too. Flipping the model rather than the yaw keeps the one place the
+  // boat's heading is decided, and an unridden boat has no heading of its own to
+  // disagree with.
   const std::vector<MeshBox> boxes = {
-      box(0, 0.06f, -0.04f, 0.42f, 0.06f, 0.60f, D[0], D[1], D[2]),    // keel
-      box(0, 0.145f, -0.04f, 0.38f, 0.025f, 0.56f, L[0], L[1], L[2]),  // floor
-      box(0.44f, 0.27f, -0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
-      box(-0.44f, 0.27f, -0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
-      box(0, 0.27f, -0.60f, 0.44f, 0.15f, 0.075f, W[0], W[1], W[2]),  // stern
-      box(0, 0.27f, 0.53f, 0.34f, 0.15f, 0.075f, W[0], W[1], W[2]),   // bow
-      box(0, 0.29f, 0.65f, 0.20f, 0.13f, 0.06f, W[0], W[1], W[2]),
-      box(0, 0.32f, 0.735f, 0.08f, 0.10f, 0.035f, D[0], D[1], D[2]),  // bow tip
-      box(0.44f, 0.435f, -0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
-      box(-0.44f, 0.435f, -0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
-      box(0, 0.435f, -0.60f, 0.455f, 0.02f, 0.09f, D[0], D[1], D[2]),
-      box(0, 0.24f, -0.30f, 0.36f, 0.03f, 0.11f, L[0], L[1], L[2]),  // seat
-      box(0, 0.40f, 0.55f, 0.20f, 0.022f, 0.16f, L[0], L[1], L[2]),  // foredeck
+      box(0, 0.06f, 0.04f, 0.42f, 0.06f, 0.60f, D[0], D[1], D[2]),    // keel
+      box(0, 0.145f, 0.04f, 0.38f, 0.025f, 0.56f, L[0], L[1], L[2]),  // floor
+      box(0.44f, 0.27f, 0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
+      box(-0.44f, 0.27f, 0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
+      box(0, 0.27f, 0.60f, 0.44f, 0.15f, 0.075f, W[0], W[1], W[2]),  // stern
+      box(0, 0.27f, -0.53f, 0.34f, 0.15f, 0.075f, W[0], W[1], W[2]),   // bow
+      box(0, 0.29f, -0.65f, 0.20f, 0.13f, 0.06f, W[0], W[1], W[2]),
+      box(0, 0.32f, -0.735f, 0.08f, 0.10f, 0.035f, D[0], D[1], D[2]),  // bow tip
+      box(0.44f, 0.435f, 0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
+      box(-0.44f, 0.435f, 0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
+      box(0, 0.435f, 0.60f, 0.455f, 0.02f, 0.09f, D[0], D[1], D[2]),
+      box(0, 0.24f, 0.30f, 0.36f, 0.03f, 0.11f, L[0], L[1], L[2]),  // seat
+      box(0, 0.40f, -0.55f, 0.20f, 0.022f, 0.16f, L[0], L[1], L[2]),  // foredeck
   };
   return buildMultiBox(boat_, boxes);
 }

@@ -85,7 +85,7 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
   const std::vector<SettingDef>& schema = settingsSchema();
   for (std::size_t i = 0; i < schema.size(); ++i) {
     const SettingDef& def = schema[i];
-    if (def.category != activeTab_) continue;
+    if (def.hidden || def.category != activeTab_) continue;
 
     // .setting { display: flex; justify-content: space-between; align-items: center;
     //            padding: 8px 4px; border-bottom: 1px solid #141a22 }

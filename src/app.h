@@ -155,6 +155,8 @@ class App {
   void handleGlobalKeys();
   // Alt+Enter and the settings row are the same switch: both go through the store.
   void toggleFullscreen();
+  // H, and the button on the inventory and station screens.
+  void toggleRecipeBook();
 
   bool loadShaders();
   // Enters a world. With `loaded` null this generates a fresh one from the options;
@@ -186,6 +188,8 @@ class App {
 
   // Hotbar selection: number keys, the mouse wheel, and Q to drop.
   void handleHotbarInput(Input& input);
+  // Throws one stack into the world, routing through the host for a guest.
+  void tossStack(const std::string& key, int count, int dura);
   // The hooks Interact calls back into. Built once, since they capture `this`.
   game::InteractHooks makeInteractHooks();
   // The hooks the interface calls back into, likewise.
@@ -219,6 +223,12 @@ class App {
   render::ScreenQuad screenQuad_;
 
   Program* menuBackdrop_ = nullptr;
+  // The menu's chosen background picture, uploaded once per choice. Empty path and a
+  // zero texture mean the stylesheet's radial-gradient fallback.
+  void refreshMenuBackground();
+  std::string menuBgPath_;
+  GLuint menuBgTex_ = 0;
+  float menuBgAspect_ = 1.0f;
 
   resource::Atlas atlas_;
   world::BlockTileTable tiles_;

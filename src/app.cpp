@@ -572,6 +572,10 @@ ui::UiFrame App::uiFrame() {
 void App::wireInterface() {
   interface_.callbacks.resume = [this] { resumePlaying(); };
   interface_.callbacks.quitGame = [this] { running_ = false; };
+  interface_.inventory().onDropStack = [this](const game::ItemStack& s) {
+    tossStack(s.key, s.count, s.dura);
+  };
+  interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
   interface_.callbacks.settingChanged = [this](const std::string&) { applySettings(); };
   interface_.callbacks.closeStation = [this] {
     if (stationOpen_ && interface_.inventory().mode() == ui::InventoryMode::Chest) {
@@ -1481,17 +1485,27 @@ void App::handleHotbarInput(Input& in) {
       const int count = in.ctrl() ? s.count : 1;
       if (in.ctrl()) s.clear();
       else inventory_.consumeSelected();
-      const Vec3 eye = player_->eye();
-      const Vec3 dir = player_->forward();
-      const Vec3 from{eye.x + dir.x * 0.4f, eye.y - 0.2f, eye.z + dir.z * 0.4f};
-      if (netGuest()) {
-        netClient_.sendToss(from, dir, key, count, dura);
-      } else {
-        entities_.spawnTossed(from, dir, key, count, dura);
-      }
-      audio::sfx::toss();
+      tossStack(key, count, dura);
     }
   }
+}
+
+// One throw, out of the player's face along their aim. Shared by Q in the world
+// and by Q over a slot in the inventory screen. The scatter on death does not come
+// through here: it throws from where the body fell, in a random direction, and
+// borrowing this would have the dropped items appear wherever the corpse was
+// looking.
+void App::tossStack(const std::string& key, int count, int dura) {
+  if (!world_ || !player_ || key.empty() || count <= 0) return;
+  const Vec3 eye = player_->eye();
+  const Vec3 dir = player_->forward();
+  const Vec3 from{eye.x + dir.x * 0.4f, eye.y - 0.2f, eye.z + dir.z * 0.4f};
+  if (netGuest()) {
+    netClient_.sendToss(from, dir, key, count, dura);
+  } else {
+    entities_.spawnTossed(from, dir, key, count, dura);
+  }
+  audio::sfx::toss();
 }
 
 void App::renderWorld() {
@@ -1562,16 +1576,9 @@ void App::handleGlobalKeys() {
     }
   }
 
-  if (in.pressed(Key::R)) {
-    if (state_ == AppState::Playing || state_ == AppState::Inventory) {
-      recipeReturn_ = state_;
-      state_ = AppState::RecipeBook;
-      window_.setPointerCaptured(false);
-    } else if (state_ == AppState::RecipeBook) {
-      state_ = recipeReturn_;
-      if (state_ == AppState::Playing) resumePlaying();
-    }
-  }
+  // H, not R: R is wanted for a Vintage Story style handbook later, and the recipe
+  // book is the closest thing this game has to one.
+  if (in.pressed(Key::H)) toggleRecipeBook();
 
   if (in.pressed(Key::N)) {
     if (state_ == AppState::Playing) {
@@ -1607,6 +1614,20 @@ void App::handleGlobalKeys() {
 // Through the store rather than straight at the window, so the settings row and the
 // shortcut can never disagree about which one is telling the truth — and so the choice
 // is still there on the next launch.
+// H in the world or in a station screen, and the button on every crafting screen.
+// Opening from a station remembers it, so closing the book puts the workbench back
+// rather than dropping you into the world with the grid still full.
+void App::toggleRecipeBook() {
+  if (state_ == AppState::Playing || state_ == AppState::Inventory) {
+    recipeReturn_ = state_;
+    state_ = AppState::RecipeBook;
+    window_.setPointerCaptured(false);
+  } else if (state_ == AppState::RecipeBook) {
+    state_ = recipeReturn_;
+    if (state_ == AppState::Playing) resumePlaying();
+  }
+}
+
 void App::toggleFullscreen() {
   ui::settings().setFlag("fullscreen", !window_.fullscreen());
   applySettings();
@@ -1675,12 +1696,58 @@ std::string App::nextScreenshotName() const {
   return buffer;
 }
 
+// The chosen screenshot, uploaded once and kept until the choice changes. Reloading
+// a 2 MB PNG every frame for a static backdrop would be absurd, and the menu is the
+// one screen with no frame budget pressure to hide it behind.
+void App::refreshMenuBackground() {
+  const std::string& want = ui::settings().text("menuBackground");
+  if (want == menuBgPath_) return;
+  menuBgPath_ = want;
+  if (menuBgTex_) {
+    glDeleteTextures(1, &menuBgTex_);
+    menuBgTex_ = 0;
+  }
+  if (menuBgPath_.empty()) return;
+
+  Image image;
+  if (!Image::loadPng(menuBgPath_, image)) {
+    // Deleted from under us, or never readable. Fall back to the gradient and stop
+    // pointing at it, so this is not retried on every menu frame.
+    log::warn("menu background: could not read %s", menuBgPath_.c_str());
+    ui::settings().setText("menuBackground", "");
+    menuBgPath_.clear();
+    return;
+  }
+  glGenTextures(1, &menuBgTex_);
+  glBindTexture(GL_TEXTURE_2D, menuBgTex_);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width(), image.height(), 0, GL_RGBA,
+               GL_UNSIGNED_BYTE, image.data());
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  menuBgAspect_ = image.height() > 0
+                      ? static_cast<float>(image.width()) / static_cast<float>(image.height())
+                      : 1.0f;
+}
+
 void App::renderMenuScene(double /*dt*/) {
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glViewport(0, 0, window_.width(), window_.height());
   glDisable(GL_DEPTH_TEST);
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
+
+  refreshMenuBackground();
+  if (menuBgTex_ != 0) {
+    // Cover, not stretch: a 16:9 capture on a 16:10 window should crop, not squash.
+    // The interface draws its own scrim over this, so the picture stays a backdrop
+    // rather than competing with the buttons.
+    interface_.drawFullscreenImage(window_, menuBgTex_, menuBgAspect_);
+    return;
+  }
 
   menuBackdrop_->use();
   menuBackdrop_->set("uAspect", window_.aspect());

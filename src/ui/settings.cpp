@@ -29,8 +29,12 @@ const std::vector<SettingDef>& schema() {
       {"castShadows", "Cast Shadows (sun)", SettingType::Toggle, "Graphics", 0, 0, 0, 0, true},
       {"clouds", "Volumetric Clouds", SettingType::Toggle, "Graphics", 0, 0, 0, 0, true},
       {"cloudShadows", "Cloud Shadows", SettingType::Toggle, "Graphics", 0, 0, 0, 0, true},
-      {"menuPanorama", "Menu Panorama Background", SettingType::Toggle, "Graphics", 0, 0, 0, 0,
-       true},
+      // The panorama toggle is gone: there was never a panorama to toggle, so the
+      // row switched between the fallback gradient and the same fallback gradient.
+      // What replaced it is a picture chosen from the Gallery — empty means the
+      // gradient, which is what every fresh install gets.
+      {"menuBackground", "Menu Background", SettingType::Select, "Graphics", 0, 0, 0, 0, false,
+       "", {}, /*hidden=*/true},
       // No counterpart in the web build, which had the browser's own fullscreen
       // control. Alt+Enter writes this row too, so the two never disagree.
       {"fullscreen", "Fullscreen (Alt+Enter)", SettingType::Toggle, "Graphics", 0, 0, 0, 0,
@@ -135,6 +139,7 @@ const std::vector<SettingDef>& settingsSchema() { return schema(); }
 std::vector<std::string> settingsCategories() {
   std::vector<std::string> cats;
   for (const SettingDef& s : schema()) {
+    if (s.hidden) continue;  // a hidden row must not conjure a tab of its own
     if (std::find(cats.begin(), cats.end(), s.category) == cats.end()) cats.emplace_back(s.category);
   }
   return cats;

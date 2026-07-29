@@ -72,7 +72,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 265 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 288 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -91,9 +91,8 @@ all and is the fastest way to know a change did not break something.
 | Climb ladder | Walk into it + W/Space (Shift = down) |
 | Select hotbar | 1–9 / scroll |
 | Inventory | E |
-| Recipe book | R |
-| World map (needs an **Atlas**) | M |
-| Minimap toggle (needs an **Atlas**) | N |
+| Recipe book | H (or the **Recipes** button on any crafting screen) |
+| Atlas map (needs an **Atlas**) | N |
 | Screenshot | F2 |
 | Hide the interface | F1 |
 | Fullscreen | Alt+Enter |
@@ -133,10 +132,13 @@ dismount, and left-click an empty boat to pick it back up.
 
 **Inventory (Mouse-Tweaks style):** Left-click picks up / places a stack,
 right-click takes half / places one. **Shift-click** instantly moves a stack to
-the other container (inventory ↔ chest/forge, hotbar ↔ storage). Hold **left**
-and drag across slots to split a held stack evenly; hold **right** and drag to
-drop one per slot. **Scroll** on a slot to nudge single items across. Hover any
-item for its name and stats.
+the other container (inventory ↔ chest/forge, hotbar ↔ storage) — and **hold
+shift and drag** across slots to move every one you touch, which empties a
+rucksack into a chest in a single gesture. **Q** over a slot throws that stack on
+the floor, and **holding Q while dragging** throws all of them. Hold **left** and
+drag across slots to split a held stack evenly; hold **right** and drag to drop
+one per slot. **Scroll** on a slot to nudge single items across. Hover any item
+for its name and stats.
 
 **Biomes:** the overworld is split by temperature and moisture into
 **meadows**, dense **forests**, pale **birch groves**, sandy **deserts** and
@@ -465,9 +467,11 @@ Wayshard, and **Verdanite** for growth and alchemy once farming lands.
   seam for a relay backend.
 - **Cross-play with the browser build**, and **worlds saved by it** — the save
   format is binary and starts fresh. The archived repo still plays those.
-- **The menu panorama** (F8 in the web build). Until it lands the menu draws the
-  stylesheet's own no-panorama fallback, which is what the browser showed with
-  the setting off, and the gallery has no panorama slot for the same reason.
+- **The menu panorama** (F8 in the web build). Instead of the rotating cube map,
+  the menu takes a still picture: **Set BG** on any capture in the Gallery makes
+  it the backdrop, and clearing it falls back to the stylesheet's own gradient.
+  The panorama toggle is gone from Settings — with no panorama to toggle it
+  switched between the fallback gradient and the same fallback gradient.
 - **Pixel-identical inventory icons.** All 67 sprite icons and every
   cross-rendered block icon are bit-exact against the browser; the 120
   cube/shape icons differ only along the one-pixel antialiased silhouette, where

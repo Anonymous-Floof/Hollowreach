@@ -29,6 +29,10 @@ struct SettingDef {
   bool defBool = false;
   const char* defString = "";
   std::vector<const char*> options;
+  // Persisted like any other setting, but not a row on the settings screen. For
+  // values the player picks somewhere they can actually see the choice — the menu
+  // background is chosen from the Gallery, where the pictures are.
+  bool hidden = false;
 };
 
 // Graphics-quality presets (js/ui/settings.js:9-14). The renderer's own

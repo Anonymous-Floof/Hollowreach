@@ -37,6 +37,12 @@ version heading when it's time to ship.
   accident. Turn it back on under Settings → Gameplay.
 
 ### Added
+- **Shift-drag and Q-drag in the inventory.** Hold shift and drag across slots to
+  move every one you touch; hold **Q** and drag to throw them on the floor. Q over
+  a single slot drops that stack. Each slot acts once per gesture.
+- **A Recipes button** on the inventory and every crafting screen, and a Back
+  button in the book itself. The recipe book keybind moved from **R to H**.
+- **Menu background from a screenshot.** **Set BG** on any capture in the Gallery.
 - **Fullscreen** in Settings, and **Quit** on the main menu. Alt+Enter toggles
   fullscreen too, and the game remembers which you chose.
 - **F1 hides the interface** — hotbar, hearts, crosshair, minimap and the block
@@ -45,6 +51,11 @@ version heading when it's time to ship.
   browser build needed.
 
 ### Fixed
+- **Boats are ridden facing forward.** The hull was modelled bow-to-+z while a
+  ridden boat is handed the player's yaw, whose zero faces -z - so you sat facing
+  the stern. The browser did this too.
+- **The controls table said M opened the map.** It is N, and the "minimap toggle"
+  row was not a key at all; it is a setting.
 - **You can die.** Fall damage, drowning and starvation all emptied the hearts
   and then did nothing at all. Dying now drops what you were carrying where you
   fell, pins a death waypoint on the Atlas, and wakes you at your Soul Anchor.

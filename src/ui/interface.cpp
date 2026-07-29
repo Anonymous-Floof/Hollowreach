@@ -36,6 +36,13 @@ bool Interface::init(ShaderCache& shaders, const render::IconAtlas* icons) {
   menu_.actions.quitGame = [this] {
     if (callbacks.quitGame) callbacks.quitGame();
   };
+  // Both directions of the same toggle: App owns which screen you came from.
+  inventoryUI_.onOpenRecipeBook = [this] {
+    if (callbacks.toggleRecipeBook) callbacks.toggleRecipeBook();
+  };
+  recipeBook_.onBack = [this] {
+    if (callbacks.toggleRecipeBook) callbacks.toggleRecipeBook();
+  };
   menu_.actions.resume = [this] {
     if (callbacks.resume) callbacks.resume();
   };
@@ -132,6 +139,26 @@ UiEvent Interface::gatherEvent(const Window& window, const Input& input, double 
   e.dt = dt;
   (void)window;
   return e;
+}
+
+void Interface::drawFullscreenImage(const Window& window, GLuint texture, float imageAspect) {
+  // A pass of its own, before the interface's own frame: the menu backdrop is drawn
+  // by App during the world-less branch, and the card blur later captures whatever
+  // is already on the default framebuffer.
+  ui_.begin(window.width(), window.height(), 1.0f);
+  const float w = ui_.width(), h = ui_.height();
+  const float viewAspect = h > 0 ? w / h : 1.0f;
+  // Cover: crop the long axis rather than squash it, by pulling the UVs in.
+  float u = 0.5f, v = 0.5f;
+  if (imageAspect > viewAspect) {
+    u = 0.5f * viewAspect / imageAspect;  // image is wider: trim the sides
+  } else if (imageAspect > 0.0f) {
+    v = 0.5f * imageAspect / viewAspect;  // image is taller: trim top and bottom
+  }
+  ui_.setTexture(texture);
+  ui_.texturedRect({0, 0, w, h}, 0.5f - u, 0.5f - v, 0.5f + u, 0.5f + v, color::white);
+  ui_.setTexture(0);
+  ui_.end();
 }
 
 void Interface::draw(const Window& window, const Input& input, const UiFrame& frame) {

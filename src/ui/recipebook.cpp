@@ -20,6 +20,7 @@ enum : int {
   kTagNext = 403,
   kTagIcon = 404,    // index into the frame's icon-key table
   kTagResults = 405,
+  kTagBack = 406,
 };
 
 // js/ui/recipebook.js:12-21, verbatim.
@@ -328,10 +329,21 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
   card.dir = Dir::Column;
   doc_.begin(card);
 
-  Style titleRow = Doc::row(0, Justify::Center, Align::Center);
+  // Title left, the way back right. The book is reached from the crafting screens
+  // as well as from the world, and Escape alone is not a visible way out of it.
+  Style titleRow = Doc::row(10, Justify::SpaceBetween, Align::Center);
   titleRow.margin = Edges(0, 0, 18, 0);
   doc_.begin(titleRow);
   doc_.label("Recipe Book", widget::h2());
+  {
+    const bool hovered = hoveredTag_ == kTagBack;
+    Style s = widget::btnSmall(hovered, false, widget::ButtonKind::Normal);
+    s.width = kAuto;
+    s.margin = Edges(0);
+    doc_.begin(s, kTagBack);
+    doc_.label("Back Â· H", widget::btnSmallText(hovered, widget::ButtonKind::Normal));
+    doc_.end();
+  }
   doc_.end();
 
   // .rb-controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 10px }
@@ -448,6 +460,10 @@ void RecipeBook::handle(const UiEvent& event, Text& text) {
   if (hoveredTag_ == kTagSearch) {
     search_.placeCaretAt(text, doc_.rectOf(kTagSearch).inset(10), widget::rbName(),
                          event.mouseX);
+    return;
+  }
+  if (hoveredTag_ == kTagBack) {
+    if (onBack) onBack();
     return;
   }
   if (hoveredTag_ == kTagTab && hoveredIndex_ < static_cast<int>(std::size(kTabs))) {

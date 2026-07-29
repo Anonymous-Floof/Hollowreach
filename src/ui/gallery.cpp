@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "resource/image.h"
 #include "save/gallery.h"
+#include "ui/settings.h"
 
 namespace hr::ui {
 namespace {
@@ -19,6 +20,7 @@ enum : int {
   kTagBack = 504,
   kTagScroll = 505,
   kTagViewer = 506,
+  kTagSetBg = 507,
 };
 
 // .gal-grid { repeat(auto-fill, minmax(210px, 1fr)); gap: 12px }
@@ -185,6 +187,7 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
         bool danger;
       };
       for (const ButtonDef& b : {ButtonDef {kTagView, "View", false},
+                                 ButtonDef {kTagSetBg, "Set BG", false},
                                  ButtonDef {kTagSave, "Reveal", false},
                                  ButtonDef {kTagDelete, "\xE2\x9C\x95", true}}) {
         const bool hovered = hoveredTag_ == b.tag && hoveredIndex_ == static_cast<int>(i);
@@ -274,7 +277,17 @@ void Gallery::handle(const UiEvent& event) {
       log::info("screenshot: %s", item.path.c_str());
       save::gallery::reveal(item.path);
       break;
+    case kTagSetBg:
+      // The menu's backdrop. Stored as a path, not a copy: the picture is already
+      // the player's, sitting in their own screenshots folder, and a second copy
+      // would go stale the moment they deleted the original.
+      settings().setText("menuBackground", item.path);
+      break;
     case kTagDelete:
+      // If the wallpaper is the picture being deleted, stop pointing at it.
+      if (settings().text("menuBackground") == item.path) {
+        settings().setText("menuBackground", "");
+      }
       save::gallery::erase(item.path);
       onShow();
       break;

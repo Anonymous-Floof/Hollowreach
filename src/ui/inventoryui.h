@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,12 @@ enum class Container {
 class InventoryUI {
  public:
   void attach(game::Inventory* inventory, const render::IconAtlas* icons);
+
+  // Throws a stack into the world. The screen has no idea where the player is or
+  // whether this is a guest, so App supplies the same toss that Q uses in the world.
+  std::function<void(const game::ItemStack&)> onDropStack;
+  // The Recipes button in the crafting panel's header.
+  std::function<void()> onOpenRecipeBook;
 
   void open(InventoryMode mode, game::BlockEntity* station);
   // Returns the crafting grid and the cursor stack to the inventory. Forge and chest
@@ -139,6 +146,7 @@ class InventoryUI {
   Doc doc_;
   SlotId hovered_ {};
   bool haveHover_ = false;
+  int hoveredTag_ = 0;  // non-slot widgets, currently just the Recipes button
   float mouseX_ = 0, mouseY_ = 0;
 
   // An in-progress drag-distribute. `seen` prevents a slot being counted twice when
@@ -149,6 +157,20 @@ class InventoryUI {
   };
   bool dragging_ = false;
   Drag drag_;
+
+  // Mouse Tweaks' sweep: hold the modifier and drag across slots, and every slot
+  // the pointer enters gets the same action once. Distinct from Drag above, which
+  // distributes ONE held stack across the cells it touches; a sweep acts on each
+  // slot's own contents and holds nothing.
+  //
+  // `acted_` is what makes it once-per-slot rather than once-per-frame: the pointer
+  // sits inside a slot for many frames and wanders back over slots it already
+  // passed, and either would otherwise fire again.
+  enum class Sweep : std::uint8_t { None, Transfer, Drop };
+  Sweep sweep_ = Sweep::None;
+  std::vector<SlotId> acted_;
+  bool sweepTouch(SlotId id);  // true the first time this sweep sees `id`
+  void dropSlot(SlotId id);
 
   // Progress bars read from the block entity; cached only so draw() does not need the
   // pointer again after update() validated it.

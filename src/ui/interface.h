@@ -72,6 +72,9 @@ struct UiCallbacks {
   // "go back" and App decides where that is.
   std::function<void()> closeScreen;
   std::function<void()> openSettings;
+  // Opens the recipe book from a crafting screen, and closes it back to wherever it
+  // was opened from. One callback because it is one toggle.
+  std::function<void()> toggleRecipeBook;
   std::function<void()> openGallery;
   // The block entity behind an open station screen, or nullptr when it has gone.
   std::function<game::BlockEntity*()> currentStation;
@@ -124,6 +127,10 @@ class Interface {
   Notify& notify() { return notify_; }
   Menu& menu() { return menu_; }
   InventoryUI& inventory() { return inventoryUI_; }
+
+  // Draws one texture over the whole window, cropped to cover rather than stretched.
+  // Used for the menu's chosen background picture.
+  void drawFullscreenImage(const Window& window, GLuint texture, float imageAspect);
   Atlas& atlas() { return atlas_; }
   Gallery& gallery() { return gallery_; }
   RecipeBook& recipeBook() { return recipeBook_; }

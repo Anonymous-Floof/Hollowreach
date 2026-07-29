@@ -13,6 +13,8 @@ namespace {
 // Node tags. The DOM only needs to say "this is a slot"; which slot comes from the
 // container and index it carries.
 constexpr int kTagSlot = 1;
+// Well clear of the container tags, which occupy kTagSlot*100 .. +100.
+constexpr int kTagBook = 9001;
 
 // One tag value per container, so a node's tag/index pair round-trips back to a SlotId.
 int containerTag(Container c) { return kTagSlot * 100 + static_cast<int>(c); }
@@ -294,6 +296,24 @@ void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>&
   }
 }
 
+bool InventoryUI::sweepTouch(SlotId id) {
+  for (const SlotId& s : acted_) {
+    if (s == id) return false;
+  }
+  acted_.push_back(id);
+  return true;
+}
+
+void InventoryUI::dropSlot(SlotId id) {
+  // A crafting result is not yours until you take it, and dropping the forge's
+  // output slot would quietly bin a smelt in progress.
+  if (isOutput(id.container) || id.container == Container::Result) return;
+  game::ItemStack* slot = slotAt(id);
+  if (!slot || slot->empty()) return;
+  if (onDropStack) onDropStack(*slot);
+  slot->clear();
+}
+
 void InventoryUI::quickMove(SlotId id) {
   if (id.container == Container::Result) {
     shiftCraft();
@@ -523,12 +543,24 @@ void InventoryUI::craftPanel(const UiEvent& event) {
   if (match) result = {match.outKey, match.outCount, -1};
 
   doc_.begin(widget::invPanel());
-  doc_.label(mode_ == InventoryMode::Workbench ? "Workbench" : "Crafting", widget::invTitle(),
-             [] {
-               Style s;
-               s.margin = Edges(0, 0, 10, 0);
-               return s;
-             }());
+  // The title row carries the recipe book button, because "what can I make with
+  // this?" is a question you ask while looking at the grid, not one you leave the
+  // screen to ask.
+  {
+    Style head = Doc::row(10, Justify::SpaceBetween, Align::Center);
+    head.margin = Edges(0, 0, 10, 0);
+    doc_.begin(head);
+    doc_.label(mode_ == InventoryMode::Workbench ? "Workbench" : "Crafting",
+               widget::invTitle());
+    const bool hovered = hoveredTag_ == kTagBook;
+    Style s = widget::btnSmall(hovered, false, widget::ButtonKind::Normal);
+    s.width = kAuto;
+    s.margin = Edges(0);
+    doc_.begin(s, kTagBook);
+    doc_.label("Recipes \xC2\xB7 H", widget::btnSmallText(hovered, widget::ButtonKind::Normal));
+    doc_.end();
+    doc_.end();
+  }
 
   // .craft-area { display: flex; align-items: center; gap: 8px }
   doc_.begin(Doc::row(8, Justify::Start, Align::Center));
@@ -684,8 +716,8 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
 
   invPanel(event);
 
-  doc_.label("Shift-click moves stacks \xC2\xB7 drag to split \xC2\xB7 scroll to nudge \xC2\xB7 "
-             "E/Esc to close",
+  doc_.label("Shift-drag moves stacks \xC2\xB7 Q-drag drops them \xC2\xB7 drag to split \xC2\xB7 "
+             "scroll to nudge \xC2\xB7 E/Esc to close",
              widget::muted(12));
   doc_.end();
   doc_.end();
@@ -723,16 +755,55 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   if (event.leftClick && doc_.clickedButton(hit)) audio::sfx::uiClick();
   const bool wasHovering = haveHover_;
   const SlotId previous = hovered_;
+  const int previousTag = hoveredTag_;
   haveHover_ = false;
+  hoveredTag_ = hit >= 0 ? doc_.node(hit).tag : 0;
   if (hit >= 0 && isSlotTag(doc_.node(hit).tag)) {
     hovered_ = {tagContainer(doc_.node(hit).tag), doc_.node(hit).index};
     haveHover_ = true;
   }
-  if (haveHover_ != wasHovering || !(hovered_ == previous)) {
+  if (haveHover_ != wasHovering || !(hovered_ == previous) || hoveredTag_ != previousTag) {
     build(ui, text, event, tweens);
   }
 
-  if (haveHover_) {
+  if (event.leftClick && hoveredTag_ == kTagBook) {
+    if (onOpenRecipeBook) onOpenRecipeBook();
+    return;
+  }
+
+  // --- Mouse Tweaks sweeps ----------------------------------------------------
+  //
+  // Both are "hold something down and drag": shift+left repeats the shift-click
+  // transfer, Q repeats a drop. They are checked before the click handling below so
+  // a shift-click that becomes a drag is one gesture rather than a click and then a
+  // separate sweep, and they end the moment the modifier does — letting go of shift
+  // mid-drag stops the sweep, which is what stops it running away with a chest.
+  const bool qDown = event.input && event.input->down(Key::Q);
+  const bool qPressed = event.input && event.input->pressed(Key::Q);
+  if (sweep_ == Sweep::Transfer && !(event.leftDown && event.shift)) sweep_ = Sweep::None;
+  if (sweep_ == Sweep::Drop && !qDown) sweep_ = Sweep::None;
+  if (sweep_ == Sweep::None) acted_.clear();
+
+  if (haveHover_ && cursor_.empty()) {
+    if (qPressed) {
+      sweep_ = Sweep::Drop;
+      acted_.clear();
+    } else if (event.leftClick && event.shift) {
+      sweep_ = Sweep::Transfer;
+      acted_.clear();
+    }
+  }
+  if (sweep_ != Sweep::None && haveHover_ && sweepTouch(hovered_)) {
+    if (sweep_ == Sweep::Transfer) quickMove(hovered_);
+    else dropSlot(hovered_);
+  }
+  // A sweep owns the pointer, so the click handling below is skipped entirely --
+  // otherwise the same shift-click would transfer the slot a second time. Not an
+  // early return: the forge's bars are refreshed at the end of this function and
+  // they must not stop while somebody is emptying it.
+  if (sweep_ != Sweep::None && dragging_) finishDrag();
+
+  if (sweep_ == Sweep::None && haveHover_) {
     if (event.leftClick) {
       if (event.shift) {
         quickMove(hovered_);
