@@ -1,0 +1,845 @@
+#include "ui/inventoryui.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include "audio/sfx.h"
+#include "game/crafting.h"
+#include "game/items.h"
+
+namespace hr::ui {
+namespace {
+
+// Node tags. The DOM only needs to say "this is a slot"; which slot comes from the
+// container and index it carries.
+constexpr int kTagSlot = 1;
+
+// One tag value per container, so a node's tag/index pair round-trips back to a SlotId.
+int containerTag(Container c) { return kTagSlot * 100 + static_cast<int>(c); }
+Container tagContainer(int tag) { return static_cast<Container>(tag - kTagSlot * 100); }
+bool isSlotTag(int tag) { return tag >= kTagSlot * 100 && tag < kTagSlot * 100 + 100; }
+
+std::vector<int> range(int a, int b) {
+  std::vector<int> out;
+  out.reserve(static_cast<std::size_t>(std::max(0, b - a)));
+  for (int i = a; i < b; ++i) out.push_back(i);
+  return out;
+}
+
+}  // namespace
+
+void InventoryUI::attach(game::Inventory* inventory, const render::IconAtlas* icons) {
+  inv_ = inventory;
+  icons_ = icons;
+}
+
+void InventoryUI::open(InventoryMode mode, game::BlockEntity* station) {
+  mode_ = mode;
+  station_ = station;
+  if (mode == InventoryMode::Inventory || mode == InventoryMode::Workbench) {
+    craftSize_ = mode == InventoryMode::Workbench ? 3 : 2;
+    craft_.assign(static_cast<std::size_t>(craftSize_ * craftSize_), game::ItemStack {});
+  }
+  dragging_ = false;
+  drag_.cells.clear();
+}
+
+void InventoryUI::close() {
+  if (!inv_) {
+    mode_ = InventoryMode::Closed;
+    return;
+  }
+  if (!cursor_.empty()) {
+    inv_->give(cursor_.key, cursor_.count, cursor_.dura);
+    cursor_.clear();
+  }
+  if (mode_ == InventoryMode::Inventory || mode_ == InventoryMode::Workbench) {
+    for (game::ItemStack& s : craft_) {
+      if (!s.empty()) inv_->give(s.key, s.count, s.dura);
+    }
+    craft_.clear();
+  }
+  mode_ = InventoryMode::Closed;
+  station_ = nullptr;
+  dragging_ = false;
+  drag_.cells.clear();
+  haveHover_ = false;
+}
+
+game::CraftStation InventoryUI::stationKind() const {
+  return mode_ == InventoryMode::Workbench ? game::CraftStation::Workbench
+                                           : game::CraftStation::Hand;
+}
+
+// ---------------------------------------------------------------------------
+// Container access
+// ---------------------------------------------------------------------------
+
+game::ItemStack* InventoryUI::slotAt(SlotId id) {
+  switch (id.container) {
+    case Container::Inv:
+      if (!inv_ || id.index < 0 || id.index >= game::kInventorySlots) return nullptr;
+      return &inv_->slots()[static_cast<std::size_t>(id.index)];
+    case Container::Armor:
+      if (!inv_ || id.index < 0 || id.index >= game::kArmorSlots) return nullptr;
+      return &inv_->armor()[static_cast<std::size_t>(id.index)];
+    case Container::Craft:
+      if (id.index < 0 || id.index >= static_cast<int>(craft_.size())) return nullptr;
+      return &craft_[static_cast<std::size_t>(id.index)];
+    case Container::Chest:
+      if (!station_ || id.index < 0 || id.index >= static_cast<int>(station_->slots.size())) {
+        return nullptr;
+      }
+      return &station_->slots[static_cast<std::size_t>(id.index)];
+    case Container::ForgeIn:
+      return station_ ? &station_->input : nullptr;
+    case Container::ForgeFuel:
+      return station_ ? &station_->fuel : nullptr;
+    case Container::ForgeOut:
+      return station_ ? &station_->output : nullptr;
+    case Container::Result:
+    case Container::None:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+const game::ItemStack* InventoryUI::slotAt(SlotId id) const {
+  return const_cast<InventoryUI*>(this)->slotAt(id);
+}
+
+bool InventoryUI::accepts(SlotId id, const std::string& key) const {
+  if (id.container != Container::Armor) return true;
+  const game::ItemDef* item = game::getItem(key);
+  return item && item->type == game::ItemType::Armor && item->armorSlot == id.index;
+}
+
+int InventoryUI::stackMax(const std::string& key) const {
+  return inv_ ? inv_->stackMax(key) : 1;
+}
+
+bool InventoryUI::stackable(const std::string& key) const { return stackMax(key) > 1; }
+
+// ---------------------------------------------------------------------------
+// Click handling (js/ui/inventoryui.js:155-206)
+// ---------------------------------------------------------------------------
+
+void InventoryUI::clickSlot(SlotId id, int button) {
+  if (id.container == Container::Result) {
+    takeResult();
+    return;
+  }
+  game::ItemStack* slot = slotAt(id);
+  if (!slot) return;
+
+  // Tactile tick when a stack moves. Clicking an empty slot with an empty cursor
+  // is silent, which is what stops a drag across the bag from rattling.
+  if (!slot->empty() || !cursor_.empty()) audio::sfx::uiSlot();
+
+  if (isOutput(id.container)) {
+    // An output slot is take-only: nothing can be placed in it, and a partial stack
+    // on the cursor can only top itself up from it.
+    if (!slot->empty() && (cursor_.empty() || (cursor_.key == slot->key &&
+                                               stackable(cursor_.key)))) {
+      if (cursor_.empty()) {
+        cursor_ = *slot;
+        slot->clear();
+      } else {
+        const int add = std::min(stackMax(cursor_.key) - cursor_.count, slot->count);
+        cursor_.count += add;
+        slot->count -= add;
+        if (slot->count <= 0) slot->clear();
+      }
+    }
+    return;
+  }
+
+  if (button == 1) {
+    // Right click: take half, or place one.
+    if (cursor_.empty()) {
+      if (!slot->empty()) {
+        const int half = (slot->count + 1) / 2;  // Math.ceil(count / 2)
+        cursor_ = {slot->key, half, slot->dura};
+        slot->count -= half;
+        if (slot->count <= 0) slot->clear();
+      }
+    } else {
+      if (!accepts(id, cursor_.key)) return;
+      if (slot->empty()) {
+        *slot = {cursor_.key, 1, cursor_.dura};
+        if (--cursor_.count <= 0) cursor_.clear();
+      } else if (slot->key == cursor_.key && stackable(cursor_.key) &&
+                 slot->count < stackMax(cursor_.key)) {
+        ++slot->count;
+        if (--cursor_.count <= 0) cursor_.clear();
+      }
+    }
+    return;
+  }
+
+  // Left click: pick up, place, merge or swap. The branch order matters — merging
+  // must be tested before swapping, or two matching stacks would swap instead.
+  if (cursor_.empty()) {
+    if (!slot->empty()) {
+      cursor_ = *slot;
+      slot->clear();
+    }
+  } else if (!accepts(id, cursor_.key)) {
+    // Cannot place here; the cursor keeps its stack.
+  } else if (slot->empty()) {
+    *slot = cursor_;
+    cursor_.clear();
+  } else if (slot->key == cursor_.key && stackable(cursor_.key)) {
+    const int add = std::min(stackMax(cursor_.key) - slot->count, cursor_.count);
+    slot->count += add;
+    cursor_.count -= add;
+    if (cursor_.count <= 0) cursor_.clear();
+  } else {
+    std::swap(*slot, cursor_);
+  }
+}
+
+void InventoryUI::takeResult() {
+  const game::CraftMatch match = game::matchGrid(craft_, craftSize_, stationKind());
+  if (!match) return;
+  const game::ItemDef* item = game::getItem(match.outKey);
+  if (!cursor_.empty()) {
+    if (cursor_.key != match.outKey || !stackable(match.outKey)) return;
+    if (cursor_.count + match.outCount > stackMax(match.outKey)) return;
+  }
+  game::consumeGrid(craft_, craftSize_, *match.recipe);
+  audio::sfx::craft();
+  if (cursor_.empty()) {
+    cursor_ = {match.outKey, match.outCount, -1};
+    if (item && (item->type == game::ItemType::Tool || item->type == game::ItemType::Armor)) {
+      cursor_.dura = item->durability;
+    }
+  } else {
+    cursor_.count += match.outCount;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mouse Tweaks: shift-click quick move
+// ---------------------------------------------------------------------------
+
+std::vector<InventoryUI::Target> InventoryUI::toInventoryTargets() const {
+  // Main storage first, then the hotbar — so a shift-click out of a chest fills the
+  // bag before it disturbs what you are holding.
+  std::vector<int> indices = range(9, 36);
+  const std::vector<int> hotbar = range(0, 9);
+  indices.insert(indices.end(), hotbar.begin(), hotbar.end());
+  return {{Container::Inv, std::move(indices)}};
+}
+
+bool InventoryUI::invSourceTargets(const game::ItemStack& stack, int index,
+                                   std::vector<Target>& out) const {
+  const game::ItemDef* item = game::getItem(stack.key);
+  if (mode_ == InventoryMode::Chest) {
+    out = {{Container::Chest, range(0, game::kChestSlots)}};
+    return true;
+  }
+  if (mode_ == InventoryMode::Forge) {
+    if (game::smeltingFor(stack.key)) {
+      out = {{Container::ForgeIn, {0}}};
+      return true;
+    }
+    if (game::fuelValue(stack.key) > 0.0f) {
+      out = {{Container::ForgeFuel, {0}}};
+      return true;
+    }
+    return false;
+  }
+  if (mode_ == InventoryMode::Inventory && item && item->type == game::ItemType::Armor &&
+      inv_ && inv_->armor()[static_cast<std::size_t>(item->armorSlot)].empty()) {
+    out = {{Container::Armor, {item->armorSlot}}};
+    return true;
+  }
+  // Shuffle between the hotbar and main storage.
+  out = {{Container::Inv, index < 9 ? range(9, 36) : range(0, 9)}};
+  return true;
+}
+
+void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>& targets) {
+  const bool stacks = stackable(stack.key);
+  const int max = stackMax(stack.key);
+  // Two sweeps: top up matching stacks first, then fill empty slots. Doing it in one
+  // pass would scatter a stack across empty slots while a partial one went untouched.
+  if (stacks) {
+    for (const Target& t : targets) {
+      for (int i : t.indices) {
+        if (stack.count <= 0) return;
+        if (isOutput(t.container)) continue;
+        game::ItemStack* dest = slotAt({t.container, i});
+        if (!dest || dest->empty()) continue;
+        if (dest->key != stack.key || dest->count >= max) continue;
+        if (!accepts({t.container, i}, stack.key)) continue;
+        const int add = std::min(max - dest->count, stack.count);
+        dest->count += add;
+        stack.count -= add;
+      }
+    }
+  }
+  for (const Target& t : targets) {
+    for (int i : t.indices) {
+      if (stack.count <= 0) return;
+      if (isOutput(t.container)) continue;
+      game::ItemStack* dest = slotAt({t.container, i});
+      if (!dest || !dest->empty()) continue;
+      if (!accepts({t.container, i}, stack.key)) continue;
+      const int put = stacks ? std::min(max, stack.count) : 1;
+      *dest = {stack.key, put, stack.dura};
+      stack.count -= put;
+    }
+  }
+}
+
+void InventoryUI::quickMove(SlotId id) {
+  if (id.container == Container::Result) {
+    shiftCraft();
+    return;
+  }
+  game::ItemStack* slot = slotAt(id);
+  if (!slot || slot->empty()) return;
+
+  std::vector<Target> targets;
+  if (id.container == Container::Inv) {
+    if (!invSourceTargets(*slot, id.index, targets)) return;
+  } else {
+    targets = toInventoryTargets();
+  }
+  depositInto(*slot, targets);
+  if (slot->count <= 0) slot->clear();
+}
+
+bool InventoryUI::canAcceptInInventory(const std::string& key, int count) const {
+  if (!inv_) return false;
+  const int max = stackMax(key);
+  int room = 0;
+  for (const game::ItemStack& s : inv_->slots()) {
+    if (s.empty()) room += max;
+    else if (s.key == key && stackable(key)) room += std::max(0, max - s.count);
+    if (room >= count) return true;
+  }
+  return room >= count;
+}
+
+void InventoryUI::shiftCraft() {
+  int guard = 0, made = 0;
+  while (guard++ < 999) {
+    const game::CraftMatch match = game::matchGrid(craft_, craftSize_, stationKind());
+    if (!match) break;
+    if (!canAcceptInInventory(match.outKey, match.outCount)) break;
+    const game::ItemDef* item = game::getItem(match.outKey);
+    game::consumeGrid(craft_, craftSize_, *match.recipe);
+    const int dura =
+        (item && (item->type == game::ItemType::Tool || item->type == game::ItemType::Armor))
+            ? item->durability
+            : -1;
+    inv_->give(match.outKey, match.outCount, dura);
+    ++made;
+  }
+  if (made > 0) audio::sfx::craft();  // one knock for the whole batch
+}
+
+// ---------------------------------------------------------------------------
+// Mouse Tweaks: scroll one item across
+// ---------------------------------------------------------------------------
+
+void InventoryUI::scrollSlot(SlotId id, int direction) {
+  if (id.container == Container::Result) {
+    if (direction > 0) quickMove(id);
+    return;
+  }
+  game::ItemStack* slot = slotAt(id);
+  if (!slot) return;
+
+  if (direction > 0) {
+    if (slot->empty()) return;
+    game::ItemStack one {slot->key, 1, slot->dura};
+    std::vector<Target> targets;
+    if (id.container == Container::Inv) {
+      if (!invSourceTargets(*slot, id.index, targets)) return;
+    } else {
+      targets = toInventoryTargets();
+    }
+    depositInto(one, targets);
+    const int moved = 1 - one.count;
+    if (moved > 0) {
+      slot->count -= moved;
+      if (slot->count <= 0) slot->clear();
+    }
+    return;
+  }
+
+  if (slot->empty() || !stackable(slot->key) || slot->count >= stackMax(slot->key)) return;
+  if (isOutput(id.container)) return;
+  std::vector<Target> sources;
+  if (id.container == Container::Inv) {
+    if (!invSourceTargets(*slot, id.index, sources)) return;
+  } else {
+    sources = toInventoryTargets();
+  }
+  for (const Target& t : sources) {
+    bool done = false;
+    for (int i : t.indices) {
+      game::ItemStack* src = slotAt({t.container, i});
+      if (!src || src->empty() || src->key != slot->key) continue;
+      --src->count;
+      if (src->count <= 0) src->clear();
+      ++slot->count;
+      done = true;
+      break;
+    }
+    if (done) break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mouse Tweaks: click-drag across slots
+// ---------------------------------------------------------------------------
+
+void InventoryUI::addDragCell(SlotId id) {
+  if (id.container == Container::Result || id.container == Container::ForgeOut) return;
+  for (const SlotId& seen : drag_.cells) {
+    if (seen == id) return;
+  }
+  drag_.cells.push_back(id);
+}
+
+void InventoryUI::finishDrag() {
+  const Drag d = drag_;
+  dragging_ = false;
+  drag_.cells.clear();
+  if (cursor_.empty()) return;
+
+  // A drag that only ever touched one slot is just a normal click.
+  if (d.cells.size() <= 1 || !stackable(cursor_.key)) {
+    if (!d.cells.empty()) clickSlot(d.cells.front(), d.button);
+    return;
+  }
+
+  const int max = stackMax(cursor_.key);
+  std::vector<SlotId> eligible;
+  for (const SlotId& id : d.cells) {
+    if (isOutput(id.container)) continue;
+    if (!accepts(id, cursor_.key)) continue;
+    const game::ItemStack* s = slotAt(id);
+    if (!s) continue;
+    if (s->empty() || (s->key == cursor_.key && s->count < max)) eligible.push_back(id);
+  }
+  if (eligible.empty()) return;
+
+  // Left drag splits evenly; right drag drops one each.
+  const int per = d.button == 0
+                      ? std::max(1, cursor_.count / static_cast<int>(eligible.size()))
+                      : 1;
+  for (const SlotId& id : eligible) {
+    if (cursor_.count <= 0) break;
+    game::ItemStack* s = slotAt(id);
+    if (!s) continue;
+    const int have = s->empty() ? 0 : s->count;
+    const int add = std::min({per, max - have, cursor_.count});
+    if (add <= 0) continue;
+    if (s->empty()) *s = {cursor_.key, add, cursor_.dura};
+    else s->count += add;
+    cursor_.count -= add;
+  }
+  if (cursor_.count <= 0) cursor_.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Building the panels
+// ---------------------------------------------------------------------------
+
+widget::StackVisual InventoryUI::visualFor(const game::ItemStack& stack) const {
+  widget::StackVisual v;
+  if (icons_ && icons_->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
+    v.icon.texture = icons_->texture();
+  }
+  v.count = stack.count;
+  const int maxDura = game::maxDurability(stack.key);
+  if (stack.wears() && maxDura > 0) {
+    v.duraFraction = static_cast<float>(stack.dura) / static_cast<float>(maxDura);
+  }
+  return v;
+}
+
+void InventoryUI::slotNode(SlotId id, const game::ItemStack* stack, widget::SlotKind kind,
+                           bool hovered) {
+  Style s = widget::islot(hovered, kind);
+  const int node = doc_.begin(s, containerTag(id.container), id.index);
+  if (stack && !stack->empty()) {
+    const widget::StackVisual v = visualFor(*stack);
+    // The icon fills the slot's content box; the count and the durability bar are
+    // drawn on top in draw(), because both are absolutely positioned in the CSS.
+    doc_.icon(v.icon, metric::invSlot - 4, metric::invSlot - 4);
+  }
+  doc_.end();
+  (void)node;
+}
+
+void InventoryUI::invPanel(const UiEvent& event) {
+  Style panel = widget::invPanel();
+  doc_.begin(panel);
+  doc_.label("Inventory", widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 10, 0);
+    return s;
+  }());
+
+  Style grid;
+  grid.display = Display::Grid;
+  grid.gridCols = 9;
+  grid.gridColWidth = metric::invSlot;
+  grid.gap = metric::invSlotGap;
+
+  doc_.begin(grid);
+  for (int i = 9; i < game::kInventorySlots; ++i) {
+    const SlotId id {Container::Inv, i};
+    slotNode(id, &inv_->slots()[static_cast<std::size_t>(i)], widget::SlotKind::Normal,
+             haveHover_ && hovered_ == id);
+  }
+  doc_.end();
+
+  Style spacer;
+  spacer.height = 10;
+  doc_.box(spacer);
+
+  doc_.begin(grid);
+  for (int i = 0; i < game::kHotbarSlots; ++i) {
+    const SlotId id {Container::Inv, i};
+    slotNode(id, &inv_->slots()[static_cast<std::size_t>(i)], widget::SlotKind::Normal,
+             haveHover_ && hovered_ == id);
+  }
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::craftPanel(const UiEvent& event) {
+  const game::CraftMatch match = game::matchGrid(craft_, craftSize_, stationKind());
+  game::ItemStack result;
+  if (match) result = {match.outKey, match.outCount, -1};
+
+  doc_.begin(widget::invPanel());
+  doc_.label(mode_ == InventoryMode::Workbench ? "Workbench" : "Crafting", widget::invTitle(),
+             [] {
+               Style s;
+               s.margin = Edges(0, 0, 10, 0);
+               return s;
+             }());
+
+  // .craft-area { display: flex; align-items: center; gap: 8px }
+  doc_.begin(Doc::row(8, Justify::Start, Align::Center));
+
+  Style grid;
+  grid.display = Display::Grid;
+  grid.gridCols = craftSize_;
+  grid.gridColWidth = metric::invSlot;
+  grid.gap = metric::invSlotGap;
+  doc_.begin(grid);
+  for (int i = 0; i < craftSize_ * craftSize_; ++i) {
+    const SlotId id {Container::Craft, i};
+    slotNode(id, &craft_[static_cast<std::size_t>(i)], widget::SlotKind::Normal,
+             haveHover_ && hovered_ == id);
+  }
+  doc_.end();
+
+  // .arrow { font-size: 26px; color: muted; padding: 0 6px }
+  TextStyle arrow;
+  arrow.size = 26;
+  arrow.color = color::muted;
+  Style arrowBox;
+  arrowBox.padding = Edges(0, 6);
+  doc_.label("\xE2\x9E\xA4", arrow, arrowBox);  // ➤ (&#10148;)
+
+  const SlotId resultId {Container::Result, 0};
+  slotNode(resultId, match ? &result : nullptr, widget::SlotKind::Result,
+           haveHover_ && hovered_ == resultId);
+
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::armorPanel(const UiEvent& event) {
+  doc_.begin(widget::invPanel());
+  doc_.label("Armour", widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 10, 0);
+    return s;
+  }());
+  Style grid;
+  grid.display = Display::Grid;
+  grid.gridCols = 1;
+  grid.gridColWidth = metric::invSlot;
+  grid.gap = metric::invSlotGap;
+  doc_.begin(grid);
+  for (int i = 0; i < game::kArmorSlots; ++i) {
+    const SlotId id {Container::Armor, i};
+    slotNode(id, &inv_->armor()[static_cast<std::size_t>(i)], widget::SlotKind::Armor,
+             haveHover_ && hovered_ == id);
+  }
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::forgePanel(const UiEvent& event) {
+  doc_.begin(widget::invPanel());
+  doc_.label("Forge", widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 10, 0);
+    return s;
+  }());
+  doc_.begin(Doc::row(8, Justify::Start, Align::Center));
+
+  Style column;
+  column.display = Display::Grid;
+  column.gridCols = 1;
+  column.gridColWidth = metric::invSlot;
+  column.gap = 8;
+  doc_.begin(column);
+  const SlotId inId {Container::ForgeIn, 0};
+  const SlotId fuelId {Container::ForgeFuel, 0};
+  slotNode(inId, slotAt(inId), widget::SlotKind::Normal, haveHover_ && hovered_ == inId);
+  slotNode(fuelId, slotAt(fuelId), widget::SlotKind::Normal, haveHover_ && hovered_ == fuelId);
+  doc_.end();
+
+  // .forge-area: smelt progress on top with the input, burn below with the fuel.
+  Style area = Doc::column(10, Align::Center);
+  doc_.begin(area);
+  Style bar;
+  bar.width = 80;
+  bar.height = 8;
+  bar.radius = 4;
+  bar.bg = color::black;
+  doc_.custom(bar, 2001, 0);  // smelt progress
+  TextStyle arrow;
+  arrow.size = 26;
+  arrow.color = color::muted;
+  doc_.label("\xE2\x9E\xA4", arrow);
+  doc_.custom(bar, 2001, 1);  // fuel burn
+  doc_.end();
+
+  const SlotId outId {Container::ForgeOut, 0};
+  slotNode(outId, slotAt(outId), widget::SlotKind::Normal, haveHover_ && hovered_ == outId);
+
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::chestPanel(const UiEvent& event) {
+  doc_.begin(widget::invPanel());
+  doc_.label("Chest", widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 10, 0);
+    return s;
+  }());
+  Style grid;
+  grid.display = Display::Grid;
+  grid.gridCols = 9;
+  grid.gridColWidth = metric::invSlot;
+  grid.gap = metric::invSlotGap;
+  doc_.begin(grid);
+  for (int i = 0; i < game::kChestSlots; ++i) {
+    const SlotId id {Container::Chest, i};
+    slotNode(id, slotAt({Container::Chest, i}), widget::SlotKind::Normal,
+             haveHover_ && hovered_ == id);
+  }
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens) {
+  doc_.reset(&text);
+
+  // #inventory.screen.dim, centring one column.
+  Style root = widget::screen();
+  doc_.begin(root);
+
+  // The whole thing is a centred column: the station panels on top, the bag below,
+  // then the hint line.
+  doc_.begin(Doc::column(14, Align::Center));
+
+  doc_.begin(Doc::row(16, Justify::Start, Align::Start));
+  switch (mode_) {
+    case InventoryMode::Inventory:
+      armorPanel(event);
+      craftPanel(event);
+      break;
+    case InventoryMode::Workbench: craftPanel(event); break;
+    case InventoryMode::Forge:
+      if (station_) forgePanel(event);
+      break;
+    case InventoryMode::Chest:
+      if (station_) chestPanel(event);
+      break;
+    case InventoryMode::Closed: break;
+  }
+  doc_.end();
+
+  invPanel(event);
+
+  doc_.label("Shift-click moves stacks \xC2\xB7 drag to split \xC2\xB7 scroll to nudge \xC2\xB7 "
+             "E/Esc to close",
+             widget::muted(12));
+  doc_.end();
+  doc_.end();
+
+  doc_.layout({0, 0, ui.width(), ui.height()});
+  (void)tweens;
+}
+
+// ---------------------------------------------------------------------------
+// Frame
+// ---------------------------------------------------------------------------
+
+void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens) {
+  if (mode_ == InventoryMode::Closed || !inv_) return;
+
+  mouseX_ = event.mouseX;
+  mouseY_ = event.mouseY;
+
+  // The forge's block entity is refreshed by the caller every frame; if it vanished
+  // (the block was mined while the screen was open) fall back to the plain bag rather
+  // than writing through a dangling pointer.
+  if ((mode_ == InventoryMode::Forge || mode_ == InventoryMode::Chest) && !station_) {
+    mode_ = InventoryMode::Inventory;
+    craftSize_ = 2;
+    craft_.assign(4, game::ItemStack {});
+  }
+
+  // Two passes over the tree per frame: one to find what is under the cursor with last
+  // frame's geometry, then the real build with the hover state applied. The alternative
+  // is a frame of lag on every hover, which is visible on a 46px slot.
+  build(ui, text, event, tweens);
+  const int hit = doc_.hitTest(event.mouseX, event.mouseY);
+  // main.js:120 hung one listener on the document and ticked whenever the click
+  // landed inside a <button>; this is that listener.
+  if (event.leftClick && doc_.clickedButton(hit)) audio::sfx::uiClick();
+  const bool wasHovering = haveHover_;
+  const SlotId previous = hovered_;
+  haveHover_ = false;
+  if (hit >= 0 && isSlotTag(doc_.node(hit).tag)) {
+    hovered_ = {tagContainer(doc_.node(hit).tag), doc_.node(hit).index};
+    haveHover_ = true;
+  }
+  if (haveHover_ != wasHovering || !(hovered_ == previous)) {
+    build(ui, text, event, tweens);
+  }
+
+  if (haveHover_) {
+    if (event.leftClick) {
+      if (event.shift) {
+        quickMove(hovered_);
+      } else if (!cursor_.empty() && hovered_.container != Container::Result) {
+        dragging_ = true;
+        drag_.button = 0;
+        drag_.cells.clear();
+        addDragCell(hovered_);
+      } else {
+        clickSlot(hovered_, 0);
+      }
+    } else if (event.rightClick) {
+      if (!cursor_.empty() && hovered_.container != Container::Result) {
+        dragging_ = true;
+        drag_.button = 1;
+        drag_.cells.clear();
+        addDragCell(hovered_);
+      } else {
+        clickSlot(hovered_, 1);
+      }
+    } else if (dragging_) {
+      addDragCell(hovered_);
+    } else if (event.wheel != 0.0f) {
+      scrollSlot(hovered_, event.wheel > 0 ? 1 : -1);
+    }
+  }
+
+  if (dragging_ && ((drag_.button == 0 && event.leftRelease) ||
+                    (drag_.button == 1 && event.rightRelease))) {
+    finishDrag();
+  }
+
+  if (mode_ == InventoryMode::Forge && station_) {
+    forgeFuel_ = station_->fuelMax > 0.0f
+                     ? std::max(0.0f, station_->fuelLeft / station_->fuelMax)
+                     : 0.0f;
+    const game::SmeltingRecipe* smelt =
+        station_->input.empty() ? nullptr : game::smeltingFor(station_->input.key);
+    forgeProgress_ = smelt ? std::min(1.0f, station_->progress / smelt->seconds) : 0.0f;
+  }
+}
+
+void InventoryUI::draw(Ui2D& ui, Text& text) {
+  if (mode_ == InventoryMode::Closed || !inv_) return;
+
+  // .screen.dim { background: rgba(8, 11, 15, 0.55) }
+  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.55));
+  doc_.paint(ui);
+
+  // The absolutely-positioned parts of a slot: the count and the durability bar sit
+  // over the icon, and the layout engine has no absolute positioning by design.
+  for (int i = 0; i < doc_.count(); ++i) {
+    const Node& n = doc_.node(i);
+    if (!isSlotTag(n.tag)) continue;
+    const SlotId id {tagContainer(n.tag), n.index};
+    const game::ItemStack* stack = slotAt(id);
+    game::ItemStack resultStack;
+    if (id.container == Container::Result) {
+      const game::CraftMatch match = game::matchGrid(craft_, craftSize_, stationKind());
+      if (!match) continue;
+      resultStack = {match.outKey, match.outCount, -1};
+      stack = &resultStack;
+    }
+    if (!stack || stack->empty()) continue;
+    widget::StackVisual v = visualFor(*stack);
+    v.icon.texture = 0;  // the icon quad is already in the tree
+    widget::drawStack(ui, text, n.rect, v);
+  }
+
+  // The two forge gauges, which are custom nodes the layout only reserved space for.
+  if (mode_ == InventoryMode::Forge) {
+    const int progressNode = doc_.findTag(2001, 0);
+    const int fuelNode = doc_.findTag(2001, 1);
+    if (progressNode >= 0) {
+      widget::drawBar(ui, doc_.node(progressNode).rect, forgeProgress_, color::progressFill,
+                      color::black, 4);
+    }
+    if (fuelNode >= 0) {
+      widget::drawBar(ui, doc_.node(fuelNode).rect, forgeFuel_, color::fuelFill, color::black, 4);
+    }
+  }
+
+  // #held-stack — the floating stack that follows the cursor, centred on it.
+  if (!cursor_.empty()) {
+    const Rect r {mouseX_ - metric::invSlot * 0.5f, mouseY_ - metric::invSlot * 0.5f,
+                  metric::invSlot, metric::invSlot};
+    widget::drawStack(ui, text, r, visualFor(cursor_));
+  } else if (haveHover_) {
+    // The tooltip only shows when nothing is on the cursor, which is what the JS did by
+    // checking `this.cursor` before calling updateTip.
+    const game::ItemStack* stack = slotAt(hovered_);
+    game::ItemStack resultStack;
+    if (hovered_.container == Container::Result) {
+      const game::CraftMatch match = game::matchGrid(craft_, craftSize_, stationKind());
+      if (match) {
+        resultStack = {match.outKey, match.outCount, -1};
+        stack = &resultStack;
+      } else {
+        stack = nullptr;
+      }
+    }
+    if (stack && !stack->empty()) {
+      const game::Tooltip tip =
+          game::itemTooltip(stack->key, stack->dura, game::fuelValue(stack->key));
+      widget::drawTooltip(ui, text, mouseX_, mouseY_, tip.name, tip.lines);
+    }
+  }
+}
+
+}  // namespace hr::ui

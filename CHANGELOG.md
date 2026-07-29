@@ -15,6 +15,42 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Changed
+- **Hollowreach is now a native application.** The whole game has been rewritten
+  in C++ and ships as a single executable — no browser, no local server, no
+  Python. Download, unzip, run. It looks and plays the same on purpose: the same
+  renderer, the same world generator, the same gameplay numbers, verified
+  against the old build value by value, so a seed makes the terrain it always
+  made.
+- **Multiplayer is LAN-first.** Games on your network announce themselves and
+  appear in a list, so joining a friend is usually one click instead of pasting
+  two codes back and forth. Invite codes still work and look the same. Playing
+  with someone outside your network now needs a forwarded port (25565/udp),
+  which is the one thing the old browser build got for free.
+- **Worlds are saved in a compact binary format** in `data/worlds/`, written
+  atomically so a crash mid-save cannot cost you the world, and refused with a
+  reason rather than loaded as nonsense if a file is damaged. Worlds from the
+  browser build do not load; the archived version still plays them.
+- **Fewer animals.** A meadow used to fill up with nineteen head of livestock;
+  it now holds about a quarter of that.
+- **Flight is off by default** — a double-tap of Space was too easy to trigger by
+  accident. Turn it back on under Settings → Gameplay.
+
+### Added
+- **Fullscreen** and **Quit to Desktop** in Settings. Alt+Enter toggles
+  fullscreen too, and the game remembers which you chose.
+- **Interface scale** and **raw mouse input** settings, neither of which the
+  browser build needed.
+
+### Fixed
+- **You can die.** Fall damage, drowning and starvation all emptied the hearts
+  and then did nothing at all. Dying now drops what you were carrying where you
+  fell, pins a death waypoint on the Atlas, and wakes you at your Soul Anchor.
+- Block icons sit centred in their inventory slots instead of two pixels up and
+  to the left.
+- Graphics quality and render distance are no longer quietly reset to their
+  defaults every time the game starts.
+
 ## [1.2.0] - 2026-07-25
 
 ### Added

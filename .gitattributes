@@ -1,9 +1,14 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Launchers must keep their native line endings no matter which OS the repo is
-# checked out on: a CRLF run.sh breaks /bin/sh ("bad interpreter"), and an
-# LF-only run.bat can confuse old cmd.exe parsers. tools/release.py normalises
-# both again when packaging, but the checkout should already be correct.
-run.sh  text eol=lf
-run.bat text eol=crlf
+# The launchers must keep their native line endings no matter which OS the repo
+# is checked out on. This is not cosmetic: an LF-only build.bat does not merely
+# confuse cmd.exe, it drops the first character of every line, so `rem` runs as
+# `m` and nothing works. A CRLF build.sh fails the other way, with "bad
+# interpreter". tools/release.py normalises both again when packaging, but the
+# checkout should already be correct.
+build.bat text eol=crlf
+build.sh  text eol=lf
+
+# Vendored third-party sources keep whatever the upstream ships.
+third_party/** -text

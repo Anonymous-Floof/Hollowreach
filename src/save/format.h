@@ -1,0 +1,128 @@
+// The world save format, version 1.
+//
+// The web build wrote JSON (js/save/serialize.js). This is binary, because the
+// decision was taken up front that existing `worlds/*.json` are not loaded — there
+// is no old format to stay compatible with, and the one thing a save is mostly made
+// of, the per-cell edit list, is 5 bytes here against roughly 30 characters there.
+//
+// Two properties are load-bearing and worth stating before the layout:
+//
+// **Blocks are stored by their string key, never by numeric id.** A world holds
+// the palette it was written with; loading maps each key back through the block
+// registry. Reordering, inserting or removing a block between builds therefore
+// cannot silently turn every chest in a world into a furnace. Unknown keys become
+// air, which is what js/save/serialize.js:63's `BLOCK[blockKey] ?? AIR` did.
+//
+// **Nothing is trusted.** ByteReader fails closed on the first read past the end,
+// counts are checked against the bytes actually remaining, sections carry their own
+// length so a corrupt one cannot swallow the rest of the file, and the payload
+// carries a CRC. A truncated, garbage or hostile file produces a decode failure and
+// a message, never a crash and never a half-loaded world.
+//
+// ---- layout ----------------------------------------------------------------
+//
+//   header    "HRWORLD\0"  u16 version  u16 flags  u32 payloadBytes  u32 payloadCrc
+//   payload   a sequence of sections, each:  u32 tag  u32 length  bytes[length]
+//
+// Sections are self-delimiting and dispatched by tag, so a section can be added,
+// reordered or (with a migration) dropped without touching the reader's structure;
+// an unknown tag is skipped with a warning rather than failing the load. What that
+// does NOT survive is a *changed* section layout, which is what the version field
+// is for — see save/migrate.h.
+
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "core/mat4.h"
+#include "game/blockentities.h"
+#include "game/entities/manager.h"
+#include "game/inventory.h"
+#include "game/player.h"
+#include "world/chunk.h"
+#include "world/world.h"
+
+namespace hr::save {
+
+// Bumped whenever a section's layout changes. Adding a whole new section does not
+// need a bump, because an old reader skips what it does not know.
+inline constexpr std::uint16_t kSaveVersion = 1;
+
+// The oldest version this build can still read. Migrations cover everything from
+// here up to kSaveVersion.
+inline constexpr std::uint16_t kMinReadableVersion = 1;
+
+struct WorldMeta {
+  std::string id;    // "w" + base36 timestamp + random, as in js/save/storage.js:14
+  std::string name;  // what the player typed
+  std::uint32_t seed = 0;
+  std::int32_t genVersion = 2;
+  // Unix seconds. The web build used Date.now() milliseconds; seconds are plenty
+  // for "saved 3m ago" and keep the field readable in a hex dump.
+  std::int64_t createdAt = 0;
+  std::int64_t savedAt = 0;
+  // Which build last wrote this file. Diagnostics only — never gated on, exactly as
+  // js/save/serialize.js:26 says.
+  std::string gameVersion;
+  float time = 0.32f;  // the sky clock
+
+  // The player-set spawn point (a bound Soul Anchor). Absent means "derive the
+  // default from the terrain", which is why it is optional rather than zeroed.
+  bool hasSpawn = false;
+  Vec3 spawn;
+};
+
+struct WaypointSave {
+  float x = 0, y = 64, z = 0;
+  std::string name;
+  std::uint32_t color = 0;  // packed RGBA, high byte red
+  bool death = false;
+};
+
+// One guest's progress in this world, kept by the host so a friend rejoining
+// picks up where they left off. The web build carried this as `remotePlayers` in
+// its save (js/save/serialize.js:47); it is a new section here, which is why it
+// needed no version bump.
+struct GuestSave {
+  std::string playerId;
+  std::string name;
+  game::PlayerState player;
+  game::Inventory inventory;
+  bool hasSpawn = false;
+  Vec3 spawn;
+};
+
+struct WorldSave {
+  WorldMeta meta;
+  game::PlayerState player;
+  game::Inventory inventory;
+  world::World::EditMap edits;
+  std::vector<world::ChunkKey> explored;
+  std::unordered_map<game::BlockEntityKey, game::BlockEntity> blockEntities;
+  std::vector<game::EntitySave> entities;
+  std::vector<WaypointSave> waypoints;
+  std::vector<GuestSave> guests;
+};
+
+// Encodes to bytes. Deterministic: every map is written in sorted key order, so
+// saving the same world twice produces byte-identical files. That is what makes
+// "save, reload, save again, compare" a real round-trip test rather than a
+// field-by-field one that can miss whatever it forgot to compare.
+std::vector<std::uint8_t> encode(const WorldSave& save);
+
+// Decodes, running any migrations needed. Returns false and fills `error` on a bad
+// magic, an unreadable version, a length or CRC mismatch, or a truncated section.
+bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::string* error);
+
+// Just the header and the META section, for the world list — a listing of forty
+// worlds should not decode forty edit maps.
+bool decodeMeta(const std::uint8_t* data, std::size_t size, WorldMeta& out, std::string* error);
+
+// The version a file claims, or 0 if it is not one of ours. Used by the migration
+// scaffold and by --save-info.
+std::uint16_t peekVersion(const std::uint8_t* data, std::size_t size);
+
+}  // namespace hr::save

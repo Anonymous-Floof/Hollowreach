@@ -1,0 +1,432 @@
+#include "game/player.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include "audio/sfx.h"
+#include "core/prng.h"
+
+namespace hr::game {
+namespace {
+using namespace playerConst;
+constexpr float EPS = kCollisionEpsilon;
+constexpr float kPi = 3.14159265358979323846f;
+}  // namespace
+
+Player::Player(float x, float y, float z) {
+  body_.pos = {x, y, z};
+  body_.hw = kHalfWidth;
+  body_.h = kHeight;
+}
+
+void Player::look(double dx, double dy, const PlayerOptions& options) {
+  yaw_ -= static_cast<float>(dx) * options.sensitivity;
+  pitch_ += static_cast<float>(options.invertY ? dy : -dy) * options.sensitivity;
+  // Just short of straight up or down, so the view basis never degenerates.
+  const float limit = kPi / 2.0f - 0.01f;
+  pitch_ = std::clamp(pitch_, -limit, limit);
+}
+
+bool Player::inWater(const world::World& world) const {
+  return world.getBlock(static_cast<int>(std::floor(body_.pos.x)),
+                        static_cast<int>(std::floor(body_.pos.y + 0.9f)),
+                        static_cast<int>(std::floor(body_.pos.z))) == world::wk().water;
+}
+
+bool Player::headInWater(const world::World& world) const {
+  const Vec3 e = eye();
+  return world.getBlock(static_cast<int>(std::floor(e.x)), static_cast<int>(std::floor(e.y)),
+                        static_cast<int>(std::floor(e.z))) == world::wk().water;
+}
+
+bool Player::onLadder(const world::World& world) const {
+  const Vec3& p = body_.pos;
+  const int x0 = static_cast<int>(std::floor(p.x - kHalfWidth));
+  const int x1 = static_cast<int>(std::floor(p.x + kHalfWidth - EPS));
+  const int y0 = static_cast<int>(std::floor(p.y));
+  const int y1 = static_cast<int>(std::floor(p.y + kHeight - EPS));
+  const int z0 = static_cast<int>(std::floor(p.z - kHalfWidth));
+  const int z1 = static_cast<int>(std::floor(p.z + kHalfWidth - EPS));
+  for (int x = x0; x <= x1; ++x) {
+    for (int y = y0; y <= y1; ++y) {
+      for (int z = z0; z <= z1; ++z) {
+        if (world::blocks().def(world.getBlock(x, y, z)).climb) return true;
+      }
+    }
+  }
+  return false;
+}
+
+float Player::fallDistance() const {
+  if (!falling_) return 0.0f;
+  const float d = fallStartY_ - body_.pos.y;
+  return d > 0 ? d : 0.0f;
+}
+
+bool Player::moveAxis(const world::World& world, int axis, float delta) {
+  return sweepAxis(world, body_, axis, delta);
+}
+
+void Player::stepMove(const world::World& world, int axis, float delta, bool swimming,
+                      bool movingInto, bool wasGround) {
+  const bool blocked = moveAxis(world, axis, delta);
+  if (!blocked || !movingInto || !(swimming || wasGround)) return;
+
+  // Swimming lifts a whole block so you can haul yourself onto a shore; on land it
+  // is the small ledge height that walks up stairs and slabs.
+  const float stepH = swimming ? 1.0f : stepHeight_;
+  const float savedAxis = axis == 0 ? body_.pos.x : body_.pos.z;
+  const float savedY = body_.pos.y;
+
+  body_.pos.y += stepH + EPS;
+  if (bodyOverlaps(world, body_)) {
+    body_.pos.y = savedY;  // no headroom
+    return;
+  }
+  if (!moveAxis(world, axis, delta)) {
+    if (!swimming) return;  // stepped onto a ledge; gravity reseats us
+    // Only climb out of water if the head would surface into open air, otherwise
+    // you would swim up through an overhang.
+    const bool headAir =
+        world.getBlock(static_cast<int>(std::floor(body_.pos.x)),
+                       static_cast<int>(std::floor(body_.pos.y + kHeight)),
+                       static_cast<int>(std::floor(body_.pos.z))) == world::kAir;
+    if (headAir) {
+      vel_.y = std::max(vel_.y, 0.0f);
+      return;
+    }
+  }
+  // Still blocked at the raised height: undo the probe.
+  if (axis == 0) body_.pos.x = savedAxis;
+  else body_.pos.z = savedAxis;
+  body_.pos.y = savedY;
+}
+
+void Player::update(float dt, const Input& input, const world::World& world,
+                    const PlayerOptions& options, double simTime) {
+  stepHeight_ = options.stepHeight;
+  hungerOn_ = options.hungerEnabled;
+
+  const bool canFly = options.flightAllowed;
+  if (!canFly && flying_) {
+    flying_ = false;
+    vel_.y = 0.0f;
+  }
+
+  // Fly toggles on a double tap of space. Timed against accumulated simulation
+  // time, not wall clock, so a paused menu cannot swallow or fake the second tap.
+  if (input.pressed(Key::Space)) {
+    if (canFly && lastSpaceTime_ >= 0.0 && simTime - lastSpaceTime_ < kDoubleTapSeconds) {
+      flying_ = !flying_;
+      vel_.y = 0.0f;
+    }
+    lastSpaceTime_ = simTime;
+  }
+
+  const float sinYaw = std::sin(yaw_);
+  const float cosYaw = std::cos(yaw_);
+  float fx = 0.0f, fz = 0.0f;
+  if (input.down(Key::W)) {
+    fx -= sinYaw;
+    fz -= cosYaw;
+  }
+  if (input.down(Key::S)) {
+    fx += sinYaw;
+    fz += cosYaw;
+  }
+  if (input.down(Key::A)) {
+    fx -= cosYaw;
+    fz += sinYaw;
+  }
+  if (input.down(Key::D)) {
+    fx += cosYaw;
+    fz -= sinYaw;
+  }
+  const float len = std::sqrt(fx * fx + fz * fz);
+  if (len > 0) {
+    fx /= len;
+    fz /= len;
+  }
+
+  const bool wasGround = onGround_;
+  swimming_ = !flying_ && inWater(world);
+  climbing_ = !flying_ && !swimming_ && onLadder(world);
+  const bool sneak = input.down(Key::ShiftLeft) && !flying_ && !swimming_;
+
+  float speed = flying_ ? kFly : (swimming_ ? kSwim : (sneak ? kWalk * kSneakScale : kWalk));
+  sprinting_ = !swimming_ && !sneak && len > 0 && input.down(Key::ControlLeft);
+  if (sprinting_) speed *= kSprintScale;
+
+  // Assigned, not accumulated: this is what makes horizontal motion exact at any
+  // frame rate.
+  vel_.x = fx * speed;
+  vel_.z = fz * speed;
+
+  if (flying_) {
+    float vy = 0.0f;
+    if (input.down(Key::Space)) vy += 1.0f;
+    if (input.down(Key::ShiftLeft)) vy -= 1.0f;
+    vel_.y = vy * kFly;
+  } else if (swimming_) {
+    // Buoyant: weak gravity, a gently capped sink, space rises and shift dives.
+    vel_.y -= kGravity * 0.22f * dt;
+    if (vel_.y < -kSwimSink) vel_.y = -kSwimSink;
+    if (input.down(Key::Space)) vel_.y = kSwimUp;
+    else if (input.down(Key::ShiftLeft)) vel_.y = -kSwimDown;
+  } else if (climbing_) {
+    // Cling to the ladder: climb with W or space, descend with shift, otherwise
+    // slide slowly rather than falling.
+    if (input.down(Key::W) || input.down(Key::Space)) vel_.y = kClimb;
+    else if (input.down(Key::ShiftLeft)) vel_.y = -kClimb;
+    else vel_.y = -kClimb * 0.25f;
+    falling_ = false;
+  } else {
+    vel_.y -= kGravity * dt;
+    if (input.down(Key::Space) && onGround_) {
+      vel_.y = kJump;
+      onGround_ = false;
+    }
+  }
+
+  // Fall tracking, which never accrues while flying, swimming or climbing.
+  if (!flying_ && !swimming_ && !climbing_) {
+    if (vel_.y < 0 && !falling_ && !onGround_) {
+      falling_ = true;
+      fallStartY_ = body_.pos.y;
+    }
+  } else {
+    falling_ = false;
+  }
+
+  // A water current drags the player downstream, wading or swimming. The world had
+  // no fluid-flow query until the entity milestone needed one for floating bodies;
+  // this call site is js/game/player.js:148-154 and had been left out with it.
+  if (!flying_) {
+    const int fcx = static_cast<int>(std::floor(body_.pos.x));
+    const int fcy = static_cast<int>(std::floor(body_.pos.y + 0.1f));
+    const int fcz = static_cast<int>(std::floor(body_.pos.z));
+    if (world.getBlock(fcx, fcy, fcz) == world::wk().water) {
+      float fx = 0.0f, fz = 0.0f;
+      world.waterFlow(fcx, fcy, fcz, fx, fz);
+      vel_.x += fx * kFlowPush;
+      vel_.z += fz * kFlowPush;
+    }
+  }
+
+  onGround_ = false;
+  const bool movingInto = len > 0;
+  stepMove(world, 0, vel_.x * dt, swimming_, movingInto, wasGround);
+  stepMove(world, 2, vel_.z * dt, swimming_, movingInto, wasGround);
+  const bool hitVertical = moveAxis(world, 1, vel_.y * dt);
+
+  if (hitVertical) {
+    if (vel_.y < 0) {
+      // Landing: the drop is measured before falling_ is cleared, because that is
+      // the only record of where the fall started.
+      const float dropped = falling_ ? fallStartY_ - body_.pos.y : 0.0f;
+      onGround_ = true;
+      falling_ = false;
+      // The thud scales with the drop, and starts well below the height that hurts.
+      if (dropped > survivalConst::kLandThud) {
+        audio::sfx::land(std::min(1.0f, (dropped - survivalConst::kLandThud) / 10.0f));
+      }
+      if (options.fallDamageEnabled && dropped > survivalConst::kFallSafe) {
+        float dmg = std::floor(dropped - survivalConst::kFallSafe);
+        dmg = std::max(0.0f, dmg - options.defense * 0.5f);
+        if (dmg > 0.0f) damage(dmg, options);
+      }
+    }
+    // Landing or bonking the head both stop vertical motion.
+    vel_.y = 0.0f;
+  }
+
+  survival(dt, world, options);
+
+  // View bob, only while actually walking on the ground.
+  const float hspeed = std::sqrt(vel_.x * vel_.x + vel_.z * vel_.z);
+  const bool bobbing = !flying_ && !swimming_ && onGround_ && hspeed > 0.5f;
+  const float target = bobbing ? std::min(1.4f, hspeed / kWalk) : 0.0f;
+  bobMagnitude_ += (target - bobMagnitude_) * std::min(1.0f, dt * 8.0f);
+  if (bobbing) bobPhase_ += hspeed * dt * 1.65f;
+}
+
+// js/game/player.js:198-235. Kept in one function, in the same order, because the
+// three systems are coupled: drowning and starving both feed damage(), and damage()
+// is what stalls regeneration.
+void Player::survival(float dt, const world::World& world, const PlayerOptions& options) {
+  using namespace survivalConst;
+
+  if (headInWater(world)) {
+    breath_ -= dt;
+    if (breath_ <= 0.0f) {
+      breath_ = 0.0f;
+      drownTimer_ += dt;
+      if (drownTimer_ >= kDrownInterval) {
+        drownTimer_ = 0.0f;
+        damage(kDrownDamage, options, /*ignoreArmor=*/true);
+      }
+    }
+  } else {
+    breath_ = std::min(kMaxBreath, breath_ + dt * kBreathRefill);
+    drownTimer_ = 0.0f;
+  }
+
+  if (hungerOn_) {
+    float rate = kHungerBase;
+    if (sprinting_) rate += kHungerSprint;
+    if (swimming_) rate += kHungerSwim;
+    exhaustion_ += rate * dt;
+    while (exhaustion_ >= kExhaustionPerPoint) {
+      exhaustion_ -= kExhaustionPerPoint;
+      if (saturation_ > 0.0f) saturation_ = std::max(0.0f, saturation_ - 1.0f);
+      else hunger_ = std::max(0.0f, hunger_ - 1.0f);
+    }
+    if (hunger_ <= 0.0f) {
+      starveTimer_ += dt;
+      if (starveTimer_ >= kStarveInterval) {
+        starveTimer_ = 0.0f;
+        // Starvation ignores armour, so it cannot chew through your gear.
+        damage(1.0f, options, /*ignoreArmor=*/true);
+      }
+    } else {
+      starveTimer_ = 0.0f;
+    }
+  }
+
+  if (regenDelay_ > 0.0f) regenDelay_ -= dt;
+  const bool wellFed = !hungerOn_ || hunger_ >= kWellFed;
+  if (regenDelay_ <= 0.0f && wellFed && health_ > 0.0f && health_ < kMaxHealth) {
+    regenTimer_ += dt;
+    if (regenTimer_ >= kRegenInterval) {
+      regenTimer_ = 0.0f;
+      heal(1.0f);
+      if (hungerOn_) exhaustion_ += kRegenExhaustion;
+    }
+  } else {
+    regenTimer_ = 0.0f;
+  }
+}
+
+void Player::damage(float amount, const PlayerOptions& options, bool ignoreArmor) {
+  if (!ignoreArmor && options.defense > 0.0f) {
+    amount *= 1.0f - std::min(0.7f, options.defense * 0.04f);
+  }
+  if (amount <= 0.0f) return;
+  const bool wasAlive = health_ > 0.0f;
+  health_ = std::max(0.0f, health_ - amount);
+  regenDelay_ = survivalConst::kRegenDelay;
+  audio::sfx::hurt();
+  if (!ignoreArmor && onArmorDamage) onArmorDamage(1);
+  if (onHurt) onHurt();
+  if (wasAlive && health_ <= 0.0f && onDeath) onDeath();
+}
+
+void Player::heal(float amount) {
+  health_ = std::min(survivalConst::kMaxHealth, health_ + amount);
+}
+
+void Player::addFood(float food, float saturation) {
+  hunger_ = std::min(survivalConst::kMaxHunger, hunger_ + food);
+  saturation_ = std::min(hunger_, saturation_ + saturation);
+}
+
+bool Player::eat(const FoodEffect& food) {
+  if (!hungerOn_) {
+    // Hunger disabled: food just heals a bit, and a full bar refuses so the stack is
+    // not wasted.
+    if (health_ >= survivalConst::kMaxHealth) return false;
+    const float amount =
+        food.risky ? (randomUnit() < 0.5 ? 1.0f : 0.0f) : std::ceil(food.food / 2.0f);
+    heal(amount);
+    return true;
+  }
+  if (food.risky) {
+    // The gamble is symmetric around the tooltip's number.
+    if (randomUnit() < 0.5) {
+      addFood(food.food, 0.0f);
+    } else {
+      hunger_ = std::max(0.0f, hunger_ - food.food);
+      saturation_ = std::min(saturation_, hunger_);
+    }
+    return true;
+  }
+  if (hunger_ >= survivalConst::kMaxHunger) return false;
+  addFood(food.food, food.food * 0.6f);
+  return true;
+}
+
+void Player::teleport(const Vec3& p) {
+  body_.pos = p;
+  vel_ = {0, 0, 0};
+  falling_ = false;
+  fallStartY_ = p.y;
+}
+
+void Player::reviveFull() {
+  health_ = survivalConst::kMaxHealth;
+  hunger_ = survivalConst::kMaxHunger;
+  saturation_ = 5.0f;
+  exhaustion_ = 0.0f;
+  breath_ = survivalConst::kMaxBreath;
+  starveTimer_ = drownTimer_ = regenTimer_ = regenDelay_ = 0.0f;
+}
+
+void Player::setHealth(float v) {
+  health_ = std::min(survivalConst::kMaxHealth, std::max(0.0f, v));
+}
+
+PlayerState Player::state() const {
+  PlayerState s;
+  s.pos = body_.pos;
+  s.yaw = yaw_;
+  s.pitch = pitch_;
+  s.health = health_;
+  s.hunger = hunger_;
+  s.saturation = saturation_;
+  s.flying = flying_;
+  return s;
+}
+
+void Player::loadState(const PlayerState& s) {
+  // A NaN compares false against every bound, so each clamp below is written as
+  // "keep only a value that is provably in range" rather than "reject what is
+  // provably out of it" — the difference matters, because one NaN reaching the
+  // physics spreads through the camera, the raycast and the chunk streamer within a
+  // frame and the world simply stops drawing.
+  const auto sane = [](float v, float limit, float fallback) {
+    return (v >= -limit && v <= limit) ? v : fallback;
+  };
+  body_.pos = {sane(s.pos.x, 3.0e7f, 0.0f), sane(s.pos.y, 1.0e4f, 80.0f),
+               sane(s.pos.z, 3.0e7f, 0.0f)};
+  yaw_ = sane(s.yaw, 1.0e4f, 0.0f);
+  pitch_ = sane(s.pitch, kPi, 0.0f);
+  health_ = (s.health > 0.0f && s.health <= survivalConst::kMaxHealth)
+                ? s.health
+                : survivalConst::kMaxHealth;
+  hunger_ = (s.hunger >= 0.0f && s.hunger <= survivalConst::kMaxHunger)
+                ? s.hunger
+                : survivalConst::kMaxHunger;
+  saturation_ = (s.saturation >= 0.0f && s.saturation <= survivalConst::kMaxHunger)
+                    ? s.saturation
+                    : 5.0f;
+  flying_ = s.flying;
+  // Not saved, and all of them settle within seconds of loading.
+  breath_ = survivalConst::kMaxBreath;
+  exhaustion_ = 0.0f;
+  starveTimer_ = drownTimer_ = regenTimer_ = regenDelay_ = 0.0f;
+  vel_ = {0, 0, 0};
+  falling_ = false;
+  fallStartY_ = body_.pos.y;
+}
+
+Vec3 Player::viewBobOffset() const {
+  if (bobMagnitude_ <= 0.001f) return {0, 0, 0};
+  const float vert = std::sin(bobPhase_ * 2.0f) * 0.05f * bobMagnitude_;  // a dip per footfall
+  const float horiz = std::cos(bobPhase_) * 0.045f * bobMagnitude_;       // sway side to side
+  // Camera right, from yaw alone: the bob should not tilt with pitch.
+  const float rx = std::cos(yaw_);
+  const float rz = -std::sin(yaw_);
+  return {rx * horiz, vert, rz * horiz};
+}
+
+}  // namespace hr::game

@@ -1,0 +1,152 @@
+// The authoritative host, ported from js/net/host.js.
+//
+// TRUST MODEL, unchanged: guests are untrusted. Every message has already passed
+// the protocol's shape and range validator; this layer adds the semantics — a
+// version gate at the handshake, movement speed checks, reach checks on edits and
+// combat, per-action token buckets, and block and item whitelists. A guest that
+// fails a check gets a correction — a rollback or a teleport — not a disconnect
+// and never a crash.
+//
+// What the host shares: the world being played, and player poses. Nothing else.
+// The world payload is `save::WorldSave`, which is exactly what would be written
+// to disk, so there is no second serialisation to keep honest.
+
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "net/ghosts.h"
+#include "net/protocol.h"
+#include "net/session.h"
+#include "net/transport.h"
+#include "save/format.h"
+
+namespace hr::net {
+
+inline constexpr int kMaxGuests = 7;
+
+class Host {
+ public:
+  bool start(std::uint16_t port, const std::string& playerId, const std::string& name,
+             const GameRefs& game, SessionHooks hooks, std::string* error);
+  void stop();
+  bool running() const { return transport_.active(); }
+
+  void update(double dt, double now);
+
+  // --- things the local player does that guests must be told about ------------
+  void onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta);
+  void onLocalSfx(const std::string& kind, const Vec3& pos);
+  // The host's own vote. Everyone in the world has to want it before the night
+  // is skipped, which is the whole point of a vote rather than a button.
+  void onLocalSleep(bool on);
+
+  // Guest progress to write into the save, and progress read back out of one.
+  std::vector<save::GuestSave> guestsForSave() const;
+  void restoreGuests(const std::vector<save::GuestSave>& guests);
+
+  std::vector<RosterEntry> roster() const;
+  const Ghosts& ghosts() const { return ghosts_; }
+  Ghosts& ghosts() { return ghosts_; }
+  std::uint16_t port() const { return transport_.port(); }
+  int guestCount() const;
+
+  // Guest progress, keyed by player id, for the host's save. The web build called
+  // this remotePlayersStore and wrote it into the save file; the native save has
+  // no section for it yet, so it lives for the session and is documented as the
+  // one field M11 still owes M9.
+  struct StoredGuest {
+    std::string name;
+    PlayerStateMsg state;
+    bool valid = false;
+  };
+  const std::unordered_map<std::string, StoredGuest>& storedGuests() const { return stored_; }
+
+ private:
+  struct PeerState {
+    PeerId peer = kNoPeer;
+    std::string playerId;
+    std::string name;
+    bool active = false;   // has applied the world snapshot
+    bool greeted = false;  // has sent a valid hello
+    Vec3 lastPose;
+    bool havePose = false;
+    double lastPoseTime = 0;
+    float health = 20.0f;
+    // Per-action rate limits, from js/net/host.js:102.
+    Bucket edit{40, 120};
+    Bucket hit{5, 10};
+    Bucket toss{8, 20};
+    Bucket be{6, 12};
+    Bucket pose{40, 80};
+    Bucket misc{10, 20};
+  };
+
+  PeerState* peerFor(PeerId id);
+  PeerState* peerForPlayer(const std::string& playerId);
+  void drop(PeerState& st, const std::string& reason);
+  // Removes a peer and tells everyone else. Called both when ENet reports the
+  // connection gone and when the guest says goodbye — a goodbye is the guest
+  // telling us it has already stopped listening, so waiting for ENet's own
+  // handshake to time out would leave a ghost in the roster for seconds.
+  // Invalidates `st`.
+  void forget(PeerState& st);
+
+  void onMessage(PeerState& st, const std::uint8_t* data, std::size_t size, double now);
+  void onHello(PeerState& st, const HelloMsg& m);
+  void onReady(PeerState& st);
+  void onPose(PeerState& st, const PoseMsg& m, double now);
+  void onEdit(PeerState& st, const EditMsg& m, double now);
+  void onHit(PeerState& st, const HitMsg& m, double now);
+  void onPlayerHit(PeerState& st, const PlayerHitMsg& m, double now);
+  void onBoatMount(PeerState& st, const BoatMountMsg& m, double now);
+  void onBoatSpawn(PeerState& st, const BoatSpawnMsg& m, double now);
+  void onToss(PeerState& st, const TossMsg& m, double now);
+  void onSleep(PeerState& st, const SleepMsg& m);
+  void onBeRequest(PeerState& st, const BeRequestMsg& m, double now);
+  void onBeState(PeerState& st, const BeStateMsg& m, double now);
+  void onPlayerState(PeerState& st, const PlayerStateMsg& m);
+
+  void denyEdit(PeerState& st, const EditMsg& m);
+  void sendWorld(PeerState& st);
+  void sendSnapshot();
+  void flushEdits();
+  void spillBlockEntity(int x, int y, int z);
+
+  template <typename T>
+  void sendTo(PeerId peer, MsgType type, const T& msg, Channel channel = Channel::Reliable);
+  void sendEmpty(PeerId peer, MsgType type, Channel channel = Channel::Reliable);
+  template <typename T>
+  void broadcast(MsgType type, const T& msg, PeerId except = kNoPeer,
+                 Channel channel = Channel::Reliable);
+
+  Transport transport_;
+  GameRefs game_;
+  SessionHooks hooks_;
+  Ghosts ghosts_;
+
+  std::string playerId_;
+  std::string name_;
+  std::vector<PeerState> peers_;
+  std::vector<TransportEvent> events_;
+
+  // Edits are batched: a player mining a tree produces a burst, and one packet
+  // per cell is a packet per millisecond.
+  std::vector<EditMsg> pendingEdits_;
+  double editTimer_ = 0;
+  double snapTimer_ = 0;
+  double timeTimer_ = 0;
+
+  // Containers a guest has open, so two people cannot stir the same forge.
+  std::unordered_map<std::uint64_t, std::string> beLocks_;
+  std::unordered_map<std::string, StoredGuest> stored_;
+  // Who currently wants to sleep, by player id, including the host.
+  std::unordered_set<std::string> sleepVotes_;
+  void tallySleep();
+};
+
+}  // namespace hr::net

@@ -1,7 +1,15 @@
-worlds
-.claude
-_backups
-video_frames
-screenshots
-# release zips + notes built by tools/release.py
-dist
+# CMake build trees (all configurations) and the dependencies FetchContent pulls
+# into them. Everything here is reproducible from a clean checkout by build.bat.
+build/
+
+# Runtime data the game creates beside the executable in a portable install:
+# worlds, screenshots, exports, settings.json, player.txt.
+data/
+
+# Release zips and notes built by tools/release.py.
+dist/
+
+# Local Claude Code state, except the launch configuration, which is project
+# setup rather than anybody's personal preference.
+.claude/*
+!.claude/launch.json

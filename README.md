@@ -4,13 +4,26 @@
 
 # Hollowreach — a vibecoded voxel sandbox
 
-A 3D first-person Minecraft-like, built from scratch in the browser: its **own
-WebGL2 voxel engine, procedural world with real biomes, procedural textures
-and item models, deferred lighting pipeline, sound engine, mob AI, an in-game
-world atlas, and peer-to-peer multiplayer** — all with **zero external
-libraries**. Mine, smelt, craft, tier up tools/armour, build, chart the map,
-survive the night, and play with a friend over a copy-pasted invite code, all
-in **persistent, shareable worlds**.
+A 3D first-person Minecraft-like, built from scratch in C++: its **own OpenGL
+voxel engine, procedural world with real biomes, procedural textures and item
+models, deferred lighting pipeline, synthesised sound engine, mob AI, an
+in-game world atlas, and host-authoritative multiplayer**. Mine, smelt, craft,
+tier up tools/armour, build, chart the map, survive the night, and play with a
+friend over the LAN, all in **persistent, shareable worlds**.
+
+It is a native application: one executable, no runtime, no installer, and
+nothing that phones home.
+
+> [!NOTE]
+> **This repository is a fork.** Hollowreach began life as a dependency-free
+> WebGL2 game in ~18k lines of ES modules, and this is a full C++ port of it —
+> the same renderer, the same world generator, the same gameplay constants,
+> rewritten. The original is archived at
+> [Anonymous-Floof/Hollow-Reach](https://github.com/Anonymous-Floof/Hollow-Reach)
+> and its history is the first seventeen commits here. The port is verified
+> *against* that code: `tools/compare_golden.py` runs both implementations and
+> diffs 610 values, so the terrain a seed produces here is the terrain it
+> produced in the browser.
 
 <table>
 <tr>
@@ -33,21 +46,34 @@ in **persistent, shareable worlds**.
 
 ## Running it
 
-The easiest way is a [release](https://github.com/Anonymous-Floof/Hollow-Reach/releases):
-one zip for every platform — download the latest, unzip, and launch. Running
-from a clone of this repo is exactly the same, just from the repo folder.
+Download a release, unzip it anywhere, and run **`Hollowreach.exe`**. There is
+nothing to install: the assets are baked into the executable and everything
+links statically apart from your graphics driver. The game creates a `data/`
+folder beside itself on first run and keeps your worlds, screenshots, exports
+and settings there, so the whole thing stays portable — move the folder to a
+USB stick and it moves with you.
 
-- **Windows** — double-click **`run.bat`**
-- **Linux / macOS** — run **`./run.sh`**
+Requirements: a GPU and driver supporting **OpenGL 3.3** (anything from about
+2010 onward). Nothing else.
 
-Either one starts a tiny local Python server (ES modules can't load over
-`file://`) and opens your browser automatically. That's it — no terminal
-navigation, nothing installed, nothing leaves your machine.
+### Building it
 
-Requirements: Python 3 (any recent version — preinstalled on most Linux
-distros and on macOS via the developer tools) and a browser with WebGL2
-(recent Chrome, Edge, or Firefox). To stop the server, close its window or
-press Ctrl+C.
+One command, from a clean checkout, with no environment set up by hand:
+
+- **Windows** — **`build.bat`** finds Visual Studio through `vswhere`, sets up
+  the MSVC environment, and uses the CMake and Ninja that ship inside VS. You
+  need **Visual Studio 2022** with the C++ workload; you do not need CMake or
+  Ninja on `PATH`.
+- **Linux / macOS** — **`./build.sh`**, with CMake ≥ 3.21, Ninja and a C++20
+  compiler.
+
+The build fetches GLFW and ENet itself; everything else is vendored in
+`third_party/`. The result is `build/RelWithDebInfo/bin/Hollowreach`.
+
+`Hollowreach --help` lists the harness flags the port was verified with —
+`--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
+`--selftest` and the rest. `--selftest` runs 265 assertions with no window at
+all and is the fastest way to know a change did not break something.
 
 ## Controls
 
@@ -69,19 +95,22 @@ press Ctrl+C.
 | World map (needs an **Atlas**) | M |
 | Minimap toggle (needs an **Atlas**) | N |
 | Screenshot | F2 |
-| Capture menu panorama | F8 |
+| Fullscreen | Alt+Enter |
 | Pause | Esc |
 | Debug overlay | F3 |
 
-**Settings** (pause or main menu) are grouped into Graphics / Controls / Gameplay
-/ Audio tabs — render distance and quality preset, shadow/reflection/cloud/AO
-toggles, mouse sensitivity, fall-damage/hunger/monster/flight toggles, and
-volume sliders. The in-game **About** screen (main menu) has a quick feature
-rundown if you want the highlight reel instead of reading this whole file.
+**Settings** (pause or main menu) are grouped into Graphics / Controls /
+Gameplay / Audio tabs — render distance and quality preset,
+shadow/reflection/cloud/AO toggles, fullscreen, mouse sensitivity and raw-input,
+interface scale, fall-damage/hunger/monster/flight toggles, and volume sliders.
+Every one applies live, with no restart. **Quit to Desktop** sits in the
+settings footer and saves the open world on the way out. The in-game **About**
+screen (main menu) has a quick feature rundown if you want the highlight reel
+instead of reading this whole file.
 
-**Screenshots & panorama (F2 / F8):** captures land in an in-game gallery
-(Gallery button on the main or pause menu) where you can view them, delete
-them, or set one as the main menu's background.
+**Screenshots (F2):** captures land in an in-game gallery (Gallery button on
+the main or pause menu) where you can view them, delete them, or reveal them in
+your file manager. They are ordinary PNGs in `data/screenshots/`.
 
 **Bed** — craft from 3 planks + 3 wool (from a sheep), place it (it lays out two cells, pillow
 always at the head whichever way you face), then right-click at night to
@@ -90,12 +119,6 @@ time-of-day mechanics (like grass spreading) move forward while you sleep. **Boa
 craft from 5 planks, right-click to set it on water (or ground); right-click it
 to ride (look where you want to go, W/S throttle, A/D strafe), **Shift** to
 dismount, and left-click an empty boat to pick it back up.
-
-While you're in a world, browser shortcuts (reload, new/close/switch tab,
-bookmark, find, print, save, history, downloads, back/forward, zoom — including
-**Ctrl+scroll** page zoom) are swallowed so a stray key can't yank you out or
-zoom the page while you sprint-scroll — and closing the tab asks first. Going
-fullscreen (F11) lets the game capture even the reserved combos.
 
 **Inventory (Mouse-Tweaks style):** Left-click picks up / places a stack,
 right-click takes half / places one. **Shift-click** instantly moves a stack to
@@ -227,38 +250,41 @@ durability, armour defense, fuel time).
    Anchor** to move your spawn, and keep a **Wayshard** in your pocket for the
    trip back up.
 
-Worlds are saved as plain `.json` files in the **`worlds/` folder** next to
-`run.bat` (the server reads/writes them over a small `/api/world` endpoint).
-This means they're shared no matter which port the server happens to use — unlike
-browser storage, which is per-port and used to make worlds seem to vanish. Any
-worlds you had in older (localStorage) builds are migrated into `worlds/`
-automatically the first time you open the world list. You can still **export a
-`.world` file** to share with friends (Pause → Export World; import from the
-world-select screen).
+Worlds are saved as `.hrw` files in **`data/worlds/`** beside the executable —
+a compact binary format: a checksummed header over a list of tag-dispatched
+sections, so a new section costs no version bump and an unknown one is skipped
+rather than fatal. Writes are atomic (written to a temporary file and renamed),
+so losing power mid-save costs the save and not the world. A truncated, corrupt
+or hostile file is rejected with a reason instead of loading as nonsense, and
+`Hollowreach --save-info <id>` will tell you which reason.
+
+There is an autosave every fifteen minutes and another on a clean shutdown, so
+closing the window does not cost you the session. To share a world, **Pause →
+Export World** writes it to `data/exports/`, and the world-select screen imports
+anything sitting in that same folder — one folder is both outbox and inbox,
+which is a smaller cost than a native file dialog for two buttons.
+`--export-world` and `--import-world` take real paths for anything scripted.
 
 ## Multiplayer
 
-Two people running the same build can play together with nothing to host or
-expose — connections are direct, peer-to-peer WebRTC, set up by pasting a
-short invite code (and a reply code) through any chat app you already use.
+Up to eight people on the same network can play together, over UDP, with no
+server to run and nothing to sign up for.
 
-- **Host:** Pause → Multiplayer → Start Hosting → Create Invite Code, then
-  send that code to a friend however you like.
-- **Join:** from the main menu, pick **Join a Friend**, paste the invite code,
-  and send back the reply code it generates. The host pastes that reply and
-  hits Accept.
+- **Host:** Pause → **Open to LAN**. The button then reads *Stop Hosting* and
+  shows an invite code and how many guests are connected.
+- **Join:** from the main menu, pick **Join a Friend**. Games on your network
+  announce themselves and appear in the list, so usually there is nothing to
+  type at all — click one. The field below takes an invite code or a plain
+  `address` / `address:port` if you would rather.
 
-Connections hole-punch a direct peer-to-peer path via public STUN. Some
-strict home routers (symmetric NAT) block every direct path — the standard
-fix is a **TURN relay**, and the Multiplayer panel has an optional **Relay
-server** section for exactly that: make a free account at a provider like
-[metered.ca](https://www.metered.ca/stun-turn) or
-[expressturn.com](https://www.expressturn.com) (a web sign-up — nothing to
-install), paste the TURN URL + username + credential, and save. Only **one**
-side of a connection needs a relay configured, and it only ever carries the
-already-encrypted stream. Brief network blips don't drop the session either:
-the connection gets a ~12-second grace window to recover before anyone is
-declared gone.
+The invite code is the same `HRW1…HRW1` envelope the browser build used, so it
+still survives being lowercased, broken up by a chat client, or read out loud —
+it is Crockford base32, with the letters that look like digits left out.
+
+**Known limit:** this is LAN-first. The browser build got NAT traversal for free
+from WebRTC; UDP does not, so playing with someone outside your network needs a
+forwarded port (default **25565/udp**) on the host's router. The transport layer
+has an explicit seam for a relay or hole-punch backend if that ever changes.
 
 The host's world is authoritative — they simulate mobs, water, forges and
 time; guests generate the same terrain locally from the shared seed and stay
@@ -274,106 +300,167 @@ restored if they reconnect. While connected as a guest, the world-list
 "Export World" button becomes **Leave World** instead, since it's the host's
 save, not yours.
 
-Known limits (for now): both players need to be on the same version of the
-game, and a strict-NAT/strict-NAT pairing won't connect until one side
-configures a relay (see above).
+Guests are untrusted, and the host says so with more than good manners: every
+message is range-checked before it reaches the game, edits and combat are reach-
+checked, movement is speed-checked, and each action has its own token bucket per
+peer. A guest that fails a check gets a correction — a rollback or a teleport —
+not a disconnect and never a crash.
+
+Known limits (for now): both players need the same version of the game, and the
+native build cannot play with the browser one — different transport, different
+wire format.
 
 ## Architecture (built to be extended)
 
-Everything is a small ES module under `js/`, grouped by concern:
+Roughly 40k lines of C++20 under `src/`, one directory per concern. The layout
+deliberately mirrors the web build's `js/` folder for folder, so any file in the
+archived repository maps to an obvious file here.
 
-- `core/` — WebGL context, shaders, matrix math, seeded RNG, input.
-- `world/` — `blocks.js` (the master data table), `noise.js`, `worldgen.js`
+- `core/` — GL loading, shaders, matrix math (`mat4` ported rather than
+  replaced with GLM, to keep the same conventions), seeded RNG, input, the
+  worker pool (`jobs`), and `bytes` — a **fail-closed** binary reader that
+  latches on the first read past the end, which is what lets both the save
+  loader and the network protocol be checked once instead of field by field.
+- `platform/` — the GLFW window, pointer capture, clipboard, and `paths`, which
+  decides where `data/` lives.
+- `resource/` — `identifier` + `packstack` (an ordered provider list), the
+  procedural `painters`, and the `atlas` builder.
+- `world/` — `blocks` (the master data table), `noise`, `worldgen`
   (biomes/terrain/caves/ravines/ores/trees — **versioned**, so old worlds keep
-  generating exactly as they did when created), `chunk.js`, `mesher.js`, `lighting.js`,
-  `shapes.js` (non-cube collision/mesh geometry), `water.js` (the flowing-water
-  automaton), `world.js` (chunk streaming + GL buffers), `genpool.js` +
-  `genworker.js` (threaded gen).
-- `render/` — `texatlas.js` (procedural textures), `sky.js` (day/night +
-  clouds), `gbuffer.js` + `renderer.js` (deferred lighting: shadows, SSAO,
-  god-rays, water reflections), `entityrenderer.js` (mob/player meshes + walk
-  animation), `panorama.js` (menu background skybox).
-- `game/` — `player.js`, `physics.js` (shared swept-AABB collision), `raycast.js`,
-  `interact.js`, `items.js`, `inventory.js`, `recipes.js`, `crafting.js`,
-  `blockentities.js` (chest/forge state), `entities/` (entity framework:
-  `registry.js`, `manager.js`, one def per kind — `drop.js`, `boat.js`,
-  `sheep.js`, `pig.js`, `cow.js`, `zombie.js` — a shared movement brain in `ai.js`, and an
-  `ai/` subfolder — `path.js`, `senses.js`, `fsm.js`, `steering.js`,
-  `services.js` — a pathfinding/perception/state-machine backend most mobs
-  today only lean on part of).
-- `net/` — `protocol.js` (validated message schemas), `signal.js`
-  (invite/reply code codec), `transport.js` (WebRTC data channels), `host.js` /
-  `client.js` (session logic), `ghosts.js` (remote entity interpolation).
-- `audio/` — `engine.js` (Web Audio buses/mixing), `sfx.js`, `ambience.js`,
-  `director.js` (hooks sound into gameplay events).
-- `ui/` — `menu.js`, `hud.js`, `inventoryui.js`, `recipebook.js`, `settings.js`,
-  `notify.js`, `mpui.js` (multiplayer host/join panels + player nameplates),
-  `map.js` (the Atlas: world map, waypoints, minimap).
-- `save/` — `serialize.js`, `storage.js`, `migrate.js`, `transfer.js`,
-  `gallery.js` (screenshot/panorama gallery).
+  generating as they did), `chunk`, `mesher`, `lighting`, `shapes`, `water`
+  (the flowing-water automaton), `world` (chunk streaming).
+- `render/` — `renderer` + `gbuffer` (deferred lighting: shadows, SSAO,
+  god-rays, water reflections), `sky`, `chunkmesh`, `entityrenderer`,
+  `itemmodel`/`itemmesh`/`viewmodel`, `iconatlas` (a CPU rasteriser for the
+  isometric inventory icons).
+- `game/` — `player`, `physics` (shared swept-AABB collision), `raycast`,
+  `interact`, `items`, `inventory`, `recipes`, `crafting`, `blockentities`,
+  and `entities/` (the framework: `registry`, `manager`, one def per kind, a
+  shared movement brain in `ai`, and an `ai/` subfolder for pathing, perception
+  and state machines).
+- `net/` — `protocol` (binary messages, every number range-checked),
+  `transport` (ENet, addressing peers by integer id rather than `ENetPeer*`,
+  because ENet recycles that pointer), `host`/`client`, `ghosts` (150 ms
+  interpolation), `discovery` (LAN beacons and the invite-code codec).
+- `audio/` — `dsp` (band-limited oscillators, cookbook biquads, envelopes, a
+  soft-knee compressor), `engine` (the bus graph on miniaudio), then `sfx`,
+  `ambience` and `director`. Every generator and filter is ours: the recipes
+  were tuned against Chrome's Web Audio nodes, so miniaudio is only a device
+  abstraction.
+- `ui/` — a custom immediate-mode 2D layer with two-pass layout, a font atlas
+  and a tween store, then the screens: `menu`, `hud`, `inventoryui`,
+  `recipebook`, `settingsui`, `notify`, `gallery`, `map` (the Atlas).
+- `save/` — `format` (the binary encoder, deterministic so a round-trip test can
+  diff every byte), `storage`, `migrate`, `transfer`, `gallery`.
+- `dev/` — `selftest` and the golden-vector dumpers behind `--dump-golden`.
+
+**Assets** (`assets/shaders/`) are baked into the executable by
+`cmake/embed_assets.cmake`, with an on-disk override in Debug so a shader edit
+hot-reloads without a rebuild.
 
 **Entities:** a small, data-driven framework (`game/entities/`) mirroring the
-block/item/recipe tables. `world.entities` (an `EntityManager`) owns instances;
-each dispatches lifecycle hooks (`update`, `onInteract`, `serialize`) to its
-type definition, and shares the player's collision (`game/physics.js`). Player
-and entities are both just a `body{pos,hw,h}`. The **item drop** was the first
-entity: mined blocks and spilled container contents pop out as drops, vacuumed
-into your inventory the moment there's room (so mining feels instant) and only
-lingering physically when it's full. The **boat** (`boat.js`) is the first
-*rideable*: it floats on water via a buoyancy spring, carries the player in its
-seat, steers toward your look direction, and breaks back into an item.
-**Sheep, pigs, cows and zombies** use the same `update`/`onInteract`/health hooks the
-framework always had room for, plus the shared `ai.js` brain for hill-climbing
-and water-avoidance; the zombie additionally uses true line-of-sight and
-budgeted A* pathfinding (`entities/ai/senses.js`, `path.js`) instead of
-aggroing blindly through walls. In multiplayer, a sixth type, `remote_player`,
-mirrors other players as a locally-simulated "ghost" driven by network
-snapshots instead of physics. Any entity with a walk cycle — mobs and remote
-players alike — animates through a small GPU bone system in
-`entityrenderer.js`, driven purely by how its position changes frame to frame,
-so it works identically for local mobs and networked ones with zero extra
-sync. Entities are saved with the world (ghosts excluded — they're rebuilt
-from the network each session).
+block/item/recipe tables. An `EntityManager` owns instances; each dispatches
+lifecycle hooks (`update`, `interact`, `load`) to its type definition, and
+shares the player's collision (`game/physics.h`). Player and entities are both
+just a `Body{pos, hw, h}`. The **item drop** was the first entity: mined blocks
+and spilled container contents pop out as drops, vacuumed into your inventory
+the moment there's room (so mining feels instant) and only lingering physically
+when it's full. The **boat** is the first *rideable*: it floats on water via a
+buoyancy spring, carries the player in its seat, steers toward your look
+direction, and breaks back into an item. **Sheep, pigs, cows and zombies** use
+the same hooks plus the shared `ai` brain for hill-climbing and water-avoidance;
+the zombie additionally uses true line-of-sight and budgeted A* pathfinding
+(`entities/senses`, `path`) instead of aggroing blindly through walls. In
+multiplayer a sixth type, `remote_player`, mirrors other players as a
+locally-simulated "ghost" driven by network snapshots instead of physics. Any
+entity with a walk cycle animates through a small GPU bone system, driven purely
+by how its position changes frame to frame, so it works identically for local
+mobs and networked ones with zero extra sync.
 
-**Threaded generation:** terrain generation runs on a pool of Web Workers
-(`genpool.js` → `genworker.js`), so streaming new or loaded chunks never stalls
-the render loop. `worldgen.js` was always a pure function of `(chunk, seed)` with
-no DOM/GL — which is exactly what makes it safe to run off-thread. The spawn area
-is still generated synchronously so you never fall through on load. Lighting and
-meshing remain main-thread but are count-budgeted per frame; the same pool
-pattern is the intended home for future threaded lighting / mob AI.
+Per-type state lives in a **flat struct** rather than a variant. That looks
+wasteful next to a variant until you count what it buys: the tick loop touches
+these fields every frame for every mob, the serializer can whitelist per type
+with no reflection, and the whole thing stays trivially copyable — which is what
+lets a network snapshot be taken cheaply.
+
+**Threading:** generation, lighting and meshing all run on **one** pool with
+three priority lanes, so a remesh burst cannot starve generation. There is **no
+lock in the chunk pipeline**: chunk data is copy-on-write behind a
+`shared_ptr`, and `use_count() > 1` is the entire test — only the main thread
+hands a snapshot to a job, so the count can only ever fall behind our back and
+cloning when we needn't is harmless. Staleness is the dirty flag and nothing
+else: a job clears it at submit, anything that invalidates the chunk sets it
+again, and a result returning to a dirty chunk is stale by definition.
+
+An **unstarted pool runs every job inline on the calling thread**. That is not a
+fallback — it is what makes `--threads 0` a one-flag switch, keeps every
+headless tool working, and means the threaded and single-threaded builds run the
+*same* pipeline rather than two that can drift. `--selftest` asserts that 0, 1,
+4 and 8 workers produce byte-identical worlds.
 
 ### Common extension points
 
-- **New block:** add one entry to `js/world/blocks.js` and a matching painter in
-  `js/render/texatlas.js`. Saves stay valid because blocks are stored by stable
-  string key, not numeric id.
-- **New recipe:** add a row to `js/game/recipes.js`. It appears in the in-game
-  Recipe Book (press **R**) automatically — the browser is generated from the data.
-- **New entity** (mob, boat, projectile…): add a definition to
-  `js/game/entities/` and register it in `registry.js` — give it a `size`, set
-  `physics`, and implement the hooks you need (`update`, `onInteract`, …). For
-  perception or pathing, reach for `entities/ai/` (`senses.js`, `path.js`)
-  rather than rolling your own.
-- **New setting:** add a row to `SCHEMA` in `js/ui/settings.js` — the UI and
-  persistence pick it up automatically.
-- **Save format change:** bump `SAVE_VERSION` in `js/save/serialize.js` and add a
-  migration function in `js/save/migrate.js` (`vN → vN+1`).
-- **Shipping a release:** the public version lives in `js/version.js`; changes
-  are outlined in `CHANGELOG.md` and `tools/release.py` bumps, packages, and
-  publishes the GitHub release — the whole flow is three commands, see
+- **New block:** add one entry to `src/world/blocks.cpp` and a matching painter
+  in `src/resource/painters.cpp`. Saves stay valid because blocks are stored by
+  stable string key, not numeric id.
+- **New recipe:** add a row to `src/game/recipes.cpp`. It appears in the in-game
+  Recipe Book (press **R**) automatically — the book is generated from the data.
+- **New entity** (mob, boat, projectile…): add a definition under
+  `src/game/entities/` and register it in `registry.cpp` — give it a size, set
+  `physics`, and implement the hooks you need. For perception or pathing, reach
+  for `senses.h` / `path.h` rather than rolling your own.
+- **New setting:** add a row to the schema in `src/ui/settings.cpp` — the
+  settings screen and the persistence pick it up with no edit to either.
+- **Save format change:** a *new section* costs nothing — pick a four-character
+  tag and write it; unknown tags are skipped. A *changed* section layout bumps
+  `kSaveVersion` in `src/save/format.h` and needs a migration in
+  `src/save/migrate.cpp`. Both halves are required: a version-guarded read so
+  the old file parses, and a migration so the loaded world is correct rather
+  than merely parsed.
+- **Verifying a worldgen change:** `python tools/compare_golden.py`. It needs a
+  checkout of the archived web repo — see the note at the top of that file.
+- **Shipping a release:** the public version is `project(... VERSION x.y.z)` in
+  `CMakeLists.txt`; changes are outlined in `CHANGELOG.md` and
+  `tools/release.py` bumps, packages and publishes the GitHub release — see
   [docs/RELEASING.md](docs/RELEASING.md).
+
+### Built with a resource pack loader in mind
+
+None of it is implemented, but several things are shaped for it rather than
+against it, because retrofitting them would mean rewriting the atlas, the
+mesher and the item pipeline: textures are addressed by a namespaced identifier
+through a variable layer (`#side`) with model `parent` chaining; the atlas
+builder handles variable tile resolution, gutters and per-tile mipmaps and keeps
+its CPU pixels; the mesher emits a generic quad list from an MC-shaped
+`BlockModel` in 0..16 space; the vertex format carries a real per-vertex tint
+channel; items go through one `ItemModel` with display transforms instead of
+being smeared across four files; and entity meshes have genuine UVs rather than
+colour smuggled through the UV slot.
 
 ## Deliberately deferred (foundation already in place)
 
 More mob types & deeper combat variety (sheep, pigs, cows and zombies are in,
 and the zombie already has real line-of-sight and pathfinding), farming/crops
-(hunger, eating, milk and cooking are in — planting and growing isn't),
-Web-Worker *meshing* specifically (generation is already threaded; lighting
-and meshing are still main-thread, just frame-budgeted), greedy meshing, fully
-smooth (non-voxel) global lighting, and future uses for the newest ores —
-**Gloamite** is earmarked for more teleport/void tech beyond the Wayshard, and
-**Verdanite** for growth and alchemy once farming lands.
+(hunger, eating, milk and cooking are in — planting and growing isn't), greedy
+meshing, fully smooth (non-voxel) global lighting, resource packs (the seven
+abstractions above are in place and inert), and future uses for the newest
+ores — **Gloamite** is earmarked for more teleport/void tech beyond the
+Wayshard, and **Verdanite** for growth and alchemy once farming lands.
 
-The health + fall-damage system is wired in (toggle in Settings) as the seed for a
-future full survival mode — armour defense already feeds it.
+### What the port does not carry over
+
+- **WAN multiplayer without a forwarded port.** WebRTC traversed NAT for free;
+  UDP does not. LAN discovery and the invite-code UX survive, and there is a
+  seam for a relay backend.
+- **Cross-play with the browser build**, and **worlds saved by it** — the save
+  format is binary and starts fresh. The archived repo still plays those.
+- **The menu panorama** (F8 in the web build). Until it lands the menu draws the
+  stylesheet's own no-panorama fallback, which is what the browser showed with
+  the setting off, and the gallery has no panorama slot for the same reason.
+- **Pixel-identical inventory icons.** All 67 sprite icons and every
+  cross-rendered block icon are bit-exact against the browser; the 120
+  cube/shape icons differ only along the one-pixel antialiased silhouette, where
+  the browser's rasteriser blends edge coverage its own way. They are also
+  deliberately centred here, where the browser's sat two pixels up and left.
+- **The audio compressor**, which is a documented approximation of Chrome's
+  rather than a reproduction — within 0.2 dB across the range the game uses.
