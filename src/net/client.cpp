@@ -432,6 +432,11 @@ void Client::sendSleep(bool on) {
   send(MsgType::Sleep, m);
 }
 
+void Client::sendWarp() {
+  if (state_ != State::Playing) return;
+  sendEmpty(MsgType::Warp);
+}
+
 void Client::sendBlockEntityRequest(int x, int y, int z, std::uint8_t kind) {
   if (state_ != State::Playing) return;
   BeRequestMsg m;

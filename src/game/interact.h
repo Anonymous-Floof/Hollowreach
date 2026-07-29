@@ -40,6 +40,10 @@ struct InteractHooks {
   std::function<bool(const ItemDef&)> onEat;
   // Used a wayshard; returns false when there is no open sky to warp to.
   std::function<bool()> onWarp;
+  // Placed a boat. Returns false when it could not be created, which leaves the
+  // item in hand. A hook rather than a direct spawn because a guest's boat is the
+  // host's to create — the same division relayEntity draws for hitting a mob.
+  std::function<bool(const Vec3&)> spawnBoat;
 
   // Multiplayer guest only. The host owns every entity, so hitting a cow or
   // boarding a boat is a request, not a decision — a guest that applied it

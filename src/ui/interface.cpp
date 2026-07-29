@@ -33,7 +33,7 @@ bool Interface::init(ShaderCache& shaders, const render::IconAtlas* icons) {
   settingsScreen_.onBack = [this] {
     if (callbacks.closeScreen) callbacks.closeScreen();
   };
-  settingsScreen_.onQuit = [this] {
+  menu_.actions.quitGame = [this] {
     if (callbacks.quitGame) callbacks.quitGame();
   };
   menu_.actions.resume = [this] {

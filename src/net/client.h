@@ -55,6 +55,10 @@ class Client {
   void sendBoatSpawn(const Vec3& pos);
   void sendBoatMount(int entityId, bool on);
   void sendSleep(bool on);
+  // A wayshard moved the player straight up, further in one step than the host's
+  // movement check allows. Without this the host reads it as a speed hack and
+  // teleports them back underground, which looks exactly like the item failing.
+  void sendWarp();
   void sendBlockEntityRequest(int x, int y, int z, std::uint8_t kind);
   void sendBlockEntityState(const BeStateMsg& state);
 

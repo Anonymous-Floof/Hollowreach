@@ -26,10 +26,6 @@ class SettingsScreen {
   // everything into its subsystem, which is what makes the change live.
   std::function<void(const std::string& key)> onChange;
   std::function<void()> onBack;
-  // Leaves the game entirely. It lives in the footer beside Back rather than as a
-  // schema row because it is not a setting — nothing about it has a value to store,
-  // and it belongs on every tab rather than on whichever one it was filed under.
-  std::function<void()> onQuit;
 
   // Remembers the open tab across visits, like the module-scoped `activeTab` did.
   void onShow();

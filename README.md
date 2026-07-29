@@ -103,10 +103,10 @@ all and is the fastest way to know a change did not break something.
 Gameplay / Audio tabs — render distance and quality preset,
 shadow/reflection/cloud/AO toggles, fullscreen, mouse sensitivity and raw-input,
 interface scale, fall-damage/hunger/monster/flight toggles, and volume sliders.
-Every one applies live, with no restart. **Quit to Desktop** sits in the
-settings footer and saves the open world on the way out. The in-game **About**
-screen (main menu) has a quick feature rundown if you want the highlight reel
-instead of reading this whole file.
+Every one applies live, with no restart. The in-game **About** screen (main
+menu) has a quick feature rundown if you want the highlight reel instead of
+reading this whole file, and **Quit** is at the bottom of that same menu — it
+saves the open world on the way out.
 
 **Screenshots (F2):** captures land in an in-game gallery (Gallery button on
 the main or pause menu) where you can view them, delete them, or reveal them in

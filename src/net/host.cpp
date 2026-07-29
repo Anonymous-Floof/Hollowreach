@@ -7,6 +7,7 @@
 #include "game/blockentities.h"
 #include "game/entities/ai.h"
 #include "game/entities/manager.h"
+#include "game/entities/types.h"
 #include "game/inventory.h"
 #include "game/items.h"
 #include "game/player.h"
@@ -25,7 +26,6 @@ constexpr float kBeReach = 8.0f;
 constexpr double kSnapPeriod = 0.100;   // entity snapshots, 10 Hz
 constexpr double kEditFlush = 0.090;    // outgoing edit batches
 constexpr double kTimePeriod = 2.0;     // authoritative clock
-constexpr float kBoatSeatY = 0.25f;
 
 float dist3(const Vec3& a, const Vec3& b) {
   const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
@@ -236,6 +236,14 @@ void Host::onMessage(PeerState& st, const std::uint8_t* data, std::size_t size, 
       break;
     }
     case MsgType::Ready: onReady(st); break;
+    // A wayshard. The guest is about to arrive somewhere the movement check would
+    // refuse, so the next pose is compared against nothing rather than against
+    // where they were standing underground. It grants exactly one exemption and it
+    // still costs a token, so a peer that spams it hits its own rate limit rather
+    // than gaining free teleports.
+    case MsgType::Warp:
+      if (st.active && st.misc.take(now)) st.havePose = false;
+      break;
     case MsgType::Pose: {
       PoseMsg m;
       if (decode(r, m)) onPose(st, m, now);
@@ -605,7 +613,8 @@ void Host::onBoatMount(PeerState& st, const BoatMountMsg& m, double now) {
 void Host::onBoatSpawn(PeerState& st, const BoatSpawnMsg& m, double now) {
   if (!st.active || !st.misc.take(now) || !st.havePose || !game_.entities) return;
   if (dist3(st.lastPose, m.pos) > kHitReach) return;
-  game_.entities->spawn(game::EntityType::Boat, Vec3{m.pos.x, m.pos.y + kBoatSeatY, m.pos.z});
+  game_.entities->spawn(game::EntityType::Boat,
+                        Vec3{m.pos.x, m.pos.y + game::kBoatSeatY, m.pos.z});
 }
 
 void Host::onToss(PeerState& st, const TossMsg& m, double now) {

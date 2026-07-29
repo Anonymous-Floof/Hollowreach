@@ -373,9 +373,16 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
   const ItemDef* item = getItem(slot.key);
   if (!item) return;
 
-  // Boats are not blocks — using one spawns a rideable entity in the empty cell.
-  // That entity arrives with the entity milestone.
-  if (item->type == ItemType::Boat) return;
+  // Boats are not blocks — using one spawns a rideable entity in the empty cell,
+  // which floats if that cell is water and otherwise falls and rests on the ground.
+  if (item->type == ItemType::Boat) {
+    if (hooks.spawnBoat &&
+        hooks.spawnBoat(Vec3{hit.nx + 0.5f, static_cast<float>(hit.ny), hit.nz + 0.5f})) {
+      inventory.consumeSelected();
+      audio::sfx::splash(false);
+    }
+    return;
+  }
   if (item->type != ItemType::Block) return;
 
   // Aiming at a replaceable plant (grass, a flower) places into that cell and

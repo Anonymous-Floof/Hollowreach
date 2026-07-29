@@ -98,6 +98,11 @@ class World {
 
   // --- block access, world coordinates ---
   BlockId getBlock(int wx, int wy, int wz) const;
+  // y of the topmost solid block in a column — the ground surface — or -1 when
+  // the chunk is not loaded or the column holds nothing solid. Mob spawning wants
+  // somewhere to stand and the wayshard wants somewhere to surface, so both ask
+  // the same question of the same code.
+  int topSolidY(int wx, int wz) const;
   int getMeta(int wx, int wy, int wz) const;
   int getSky(int wx, int wy, int wz) const;
   int getBlockLight(int wx, int wy, int wz) const;

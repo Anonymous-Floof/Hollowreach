@@ -207,15 +207,11 @@ namespace {
 
 inline float R(float a, float b) { return a + static_cast<float>(randomUnit()) * (b - a); }
 
-// y of the topmost solid block in a column — the ground surface — or -1 when the
-// chunk is not loaded or the column is empty.
-int topSolidY(const world::World& world, int wx, int wz) {
-  if (!world.chunkReady(wx >> 4, wz >> 4)) return -1;
-  for (int y = world::WH - 1; y >= 1; --y) {
-    if (world::blocks().solid(world.getBlock(wx, y, wz))) return y;
-  }
-  return -1;
-}
+// Was a copy of the same walk; it lives on World now, because the wayshard asks
+// the same question and two answers to "where is the ground here" is one too many.
+// Note the old copy used `wx >> 4` for the chunk, which is right for negatives by
+// accident of arithmetic shift and wrong the moment anyone changes CX.
+int topSolidY(const world::World& world, int wx, int wz) { return world.topSolidY(wx, wz); }
 
 }  // namespace
 

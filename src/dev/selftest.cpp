@@ -375,6 +375,83 @@ void testPlacing() {
   frame(in, false, true);
   shoreTest.update(0.016f, in, player, *shore, reeds, noticing);
   check(shore->getBlock(px, py, pz) == wk.papyrus, "papyrus accepts a wet shore");
+
+  // --- the two items that are not blocks ---------------------------------------
+  //
+  // Both of these shipped inert: tryPlace returned early for a boat, and onWarp was
+  // hardcoded to false. Neither failure was visible anywhere — the click simply did
+  // nothing — which is exactly the kind of thing that needs an assertion rather
+  // than a play-test.
+  {
+    auto boatWorld = makeWorld();
+    boatWorld->setBlock(11, kEyeLevel, 8, wk.greystone, 0);
+    game::Interact boatTest;
+    game::Inventory bag;
+    bag.give("boat", 2);
+    bag.setSelected(0);
+    player.setLook(kYawPlusX, kAimLow);
+
+    Vec3 asked {0, 0, 0};
+    int calls = 0;
+    game::InteractHooks boatHooks = silentHooks();
+    boatHooks.spawnBoat = [&](const Vec3& at) {
+      asked = at;
+      ++calls;
+      return true;
+    };
+    frame(in, false, true);
+    boatTest.update(0.016f, in, player, *boatWorld, bag, boatHooks);
+    check(calls == 1, "using a boat asks for one to be spawned");
+    checkf(std::fabs(asked.x - (px + 0.5f)) < 0.001f &&
+               std::fabs(asked.y - static_cast<float>(py)) < 0.001f &&
+               std::fabs(asked.z - (pz + 0.5f)) < 0.001f,
+           "the boat is asked for at the centre of the empty cell, got (%.2f, %.2f, %.2f)",
+           asked.x, asked.y, asked.z);
+    check(bag.countOf("boat") == 1, "and the item is spent");
+    check(boatWorld->getBlock(px, py, pz) == world::kAir, "a boat places no block");
+
+    // A refusal — no room, or a host that said no — leaves the item in hand.
+    boatHooks.spawnBoat = [](const Vec3&) { return false; };
+    frame(in, false, true);
+    boatTest.update(0.016f, in, player, *boatWorld, bag, boatHooks);
+    check(bag.countOf("boat") == 1, "a refused boat is not consumed");
+  }
+
+  {
+    game::Interact warpTest;
+    game::Inventory bag;
+    bag.give("wayshard", 3);
+    bag.setSelected(0);
+
+    // silentHooks refuses, which is what the shipped build did permanently.
+    game::InteractHooks warpHooks = silentHooks();
+    frame(in, false, true);
+    warpTest.update(0.016f, in, player, *world, bag, warpHooks);
+    check(bag.countOf("wayshard") == 3, "a wayshard with nowhere to go is not spent");
+
+    warpHooks.onWarp = [] { return true; };
+    frame(in, false, true);
+    warpTest.update(0.016f, in, player, *world, bag, warpHooks);
+    check(bag.countOf("wayshard") == 2, "a wayshard that warps is spent");
+  }
+
+  // The query the warp is built on. The pocket makeWorld carves runs kY-2..kY+2 in
+  // an otherwise open column far above the terrain, so the ground is the real
+  // surface, well below, and never the air the player is standing in.
+  {
+    auto ground = makeWorld();
+    const int surface = ground->topSolidY(static_cast<int>(kOriginX),
+                                          static_cast<int>(kOriginZ));
+    checkf(surface > 0 && surface < kY - 2, "topSolidY finds the surface below the pocket (%d)",
+           surface);
+    check(world::blocks().solid(ground->getBlock(static_cast<int>(kOriginX), surface,
+                                                 static_cast<int>(kOriginZ))),
+          "and the block it names is solid");
+    check(!world::blocks().solid(ground->getBlock(static_cast<int>(kOriginX), surface + 1,
+                                                 static_cast<int>(kOriginZ))),
+          "with nothing solid above it");
+    check(ground->topSolidY(100000, 100000) == -1, "an unloaded column reports no ground");
+  }
 }
 
 // --- block entities ----------------------------------------------------------

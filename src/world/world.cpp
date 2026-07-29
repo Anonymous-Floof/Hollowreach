@@ -525,6 +525,16 @@ BlockId World::getBlock(int wx, int wy, int wz) const {
   return d->voxels[localIdx(wx & 15, wy, wz & 15)];
 }
 
+int World::topSolidY(int wx, int wz) const {
+  if (!chunkReady(floorDiv16(wx), floorDiv16(wz))) return -1;
+  // From the sky down, so the first hit is the surface rather than the floor of a
+  // cave. Stops at 1: bedrock is not somewhere to stand or surface.
+  for (int y = WH - 1; y >= 1; --y) {
+    if (blocks().solid(getBlock(wx, y, wz))) return y;
+  }
+  return -1;
+}
+
 int World::getMeta(int wx, int wy, int wz) const {
   if (wy < 0 || wy >= WH) return 0;
   const ChunkData* d = dataFor(floorDiv16(wx), floorDiv16(wz));

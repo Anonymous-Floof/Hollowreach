@@ -20,6 +20,7 @@ enum : int {
   kTagGallery,
   kTagSettings,
   kTagAbout,
+  kTagQuit,
   kTagBack,
   kTagNewWorld,
   kTagImport,
@@ -224,6 +225,10 @@ void Menu::buildPageMain(const UiEvent& event, TweenStore& tweens) {
       {kTagGallery, "Gallery", widget::ButtonKind::Normal},
       {kTagSettings, "Settings", widget::ButtonKind::Normal},
       {kTagAbout, "About", widget::ButtonKind::Normal},
+      // Last, and the only Danger button here. Escape has always quit from this
+      // screen; this is the same exit with a label on it, since nothing else says
+      // the game can be left at all.
+      {kTagQuit, "Quit", widget::ButtonKind::Danger},
   };
   for (const Item& item : items) {
     const bool hovered = hoveredTag_ == item.tag;
@@ -663,6 +668,9 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
     case kTagPlay: setPage(MenuPage::Worlds); break;
     case kTagJoin: setPage(MenuPage::Join); break;
     case kTagAbout: setPage(MenuPage::About); break;
+    case kTagQuit:
+      if (actions.quitGame) actions.quitGame();
+      break;
     case kTagBack:
     case kTagCancel:
       setPage(page_ == MenuPage::NewWorld ? MenuPage::Worlds : MenuPage::Main);

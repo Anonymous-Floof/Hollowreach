@@ -16,6 +16,7 @@
 #include "core/jsmath.h"
 #include "core/log.h"
 #include "core/prng.h"
+#include "game/entities/types.h"
 #include "platform/paths.h"
 #include "resource/image.h"
 #include "resource/packstack.h"
@@ -446,9 +447,45 @@ game::InteractHooks App::makeInteractHooks() {
     if (ok) audio::sfx::eat();
     return ok;
   };
-  // The wayshard's daylight warp belongs with the sleep and spawn systems, which are
-  // still to come; refusing keeps the item rather than consuming it for nothing.
-  hooks.onWarp = [] { return false; };
+  // The wayshard: one use, straight up to the open sky. js/main.js:785.
+  hooks.onWarp = [this] {
+    if (!world_ || !player_) return false;
+    if (player_->mount() != 0) {
+      interface_.notify().push("Not while riding \xE2\x80\x94 dismount first");
+      return false;
+    }
+    const Vec3 p = player_->pos();
+    const int ts = world_->topSolidY(static_cast<int>(std::floor(p.x)),
+                                     static_cast<int>(std::floor(p.z)));
+    if (ts < 0) {
+      interface_.notify().push("The wayshard can't find the sky here");
+      return false;
+    }
+    if (p.y >= ts - 0.5f) {
+      interface_.notify().push("You're already under the open sky");
+      return false;
+    }
+    // teleport rather than setPos: the trip up must not be charged as the fall it
+    // is not, which is the same trap the respawn path has.
+    player_->teleport(Vec3{p.x, static_cast<float>(ts + 1), p.z});
+    // Tell the host this vertical jump was a wayshard and not a speed hack, or its
+    // movement check snaps the player straight back underground.
+    if (netGuest()) netClient_.sendWarp();
+    audio::sfx::warp();
+    interface_.notify().push("The wayshard shatters \xE2\x80\x94 daylight.");
+    return true;
+  };
+  // A guest's boat belongs to the host: consume the item locally so the click
+  // feels instant, ask for the entity, and let the next snapshot deliver it.
+  hooks.spawnBoat = [this](const Vec3& at) {
+    if (!world_) return false;
+    if (netGuest()) {
+      netClient_.sendBoatSpawn(at);
+      return true;
+    }
+    return entities_.spawn(game::EntityType::Boat, Vec3{at.x, at.y + game::kBoatSeatY, at.z}) !=
+           nullptr;
+  };
   hooks.relayEntity = [this](const game::Entity& e, game::InteractButton button) {
     if (!netGuest()) return false;
     if (e.type == game::EntityType::Boat && button == game::InteractButton::Right) {

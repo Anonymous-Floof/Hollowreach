@@ -15,7 +15,6 @@ enum : int {
   kTagTrack = 202,    // index = schema row
   kTagBack = 203,
   kTagPanel = 204,
-  kTagQuit = 205,
 };
 
 // .setting .val { min-width: 48px; text-align: right }
@@ -139,27 +138,16 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
   }
   doc_.end();
 
-  // The footer: Quit at the far left, Back at the far right, so the destructive one is
-  // nowhere near where the pointer already is.
-  Style footRow = Doc::row(0, Justify::SpaceBetween, Align::Center);
-  footRow.margin = Edges(14, 0, 0, 0);
-  doc_.begin(footRow);
-  {
-    const bool hovered = hoveredTag_ == kTagQuit;
-    Style s = widget::btn(hovered, false, widget::ButtonKind::Danger);
-    s.width = kAuto;
-    doc_.begin(s, kTagQuit);
-    doc_.label("Quit to Desktop", widget::btnText(hovered, widget::ButtonKind::Danger));
-    doc_.end();
-  }
-  {
-    const bool hovered = hoveredTag_ == kTagBack;
-    Style s = widget::btn(hovered, false, widget::ButtonKind::Normal);
-    s.width = kAuto;
-    doc_.begin(s, kTagBack);
-    doc_.label("Back", widget::btnText(hovered, widget::ButtonKind::Normal));
-    doc_.end();
-  }
+  // .row.end with the Back button.
+  Style backRow = Doc::row(0, Justify::End, Align::Center);
+  backRow.margin = Edges(14, 0, 0, 0);
+  doc_.begin(backRow);
+  const bool hovered = hoveredTag_ == kTagBack;
+  Style s = widget::btn(hovered, false, widget::ButtonKind::Normal);
+  s.width = kAuto;
+  doc_.begin(s, kTagBack);
+  doc_.label("Back", widget::btnText(hovered, widget::ButtonKind::Normal));
+  doc_.end();
   doc_.end();
 
   doc_.end();
@@ -223,10 +211,6 @@ void SettingsScreen::handle(const UiEvent& event) {
   }
   if (hoveredTag_ == kTagBack) {
     if (onBack) onBack();
-    return;
-  }
-  if (hoveredTag_ == kTagQuit) {
-    if (onQuit) onQuit();
     return;
   }
   if (hoveredTag_ == kTagTrack) {
