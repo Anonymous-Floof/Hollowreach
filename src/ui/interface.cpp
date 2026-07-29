@@ -152,7 +152,7 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
 
   // The HUD shows over the world and over the screens that overlay it — exactly the set
   // the web build passed to hud.show() (js/main.js:212).
-  const bool hudVisible = frame.player && frame.inventory &&
+  const bool hudVisible = hudEnabled_ && frame.player && frame.inventory &&
                           (screen_ == Screen::None || screen_ == Screen::Pause ||
                            screen_ == Screen::Inventory);
   if (hudVisible) {

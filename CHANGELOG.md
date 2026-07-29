@@ -37,8 +37,10 @@ version heading when it's time to ship.
   accident. Turn it back on under Settings → Gameplay.
 
 ### Added
-- **Fullscreen** and **Quit to Desktop** in Settings. Alt+Enter toggles
+- **Fullscreen** in Settings, and **Quit** on the main menu. Alt+Enter toggles
   fullscreen too, and the game remembers which you chose.
+- **F1 hides the interface** — hotbar, hearts, crosshair, minimap and the block
+  outline — for a clean screenshot.
 - **Interface scale** and **raw mouse input** settings, neither of which the
   browser build needed.
 
@@ -46,6 +48,8 @@ version heading when it's time to ship.
 - **You can die.** Fall damage, drowning and starvation all emptied the hearts
   and then did nothing at all. Dying now drops what you were carrying where you
   fell, pins a death waypoint on the Atlas, and wakes you at your Soul Anchor.
+- **Boats can be placed** and **wayshards work.** Both did nothing at all when
+  used — the click was simply swallowed.
 - Block icons sit centred in their inventory slots instead of two pixels up and
   to the left.
 - Graphics quality and render distance are no longer quietly reset to their

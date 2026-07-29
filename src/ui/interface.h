@@ -147,6 +147,12 @@ class Interface {
   float uiScale() const { return scale_; }
   void setUiScale(float s) { scale_ = s > 0.1f ? s : 1.0f; }
 
+  // Hides the hotbar, hearts, crosshair and minimap without touching any screen.
+  // F1 in game, --no-hud for a scripted capture: the README's shots are of the
+  // world, and a hotbar across the bottom of every one of them is not the world.
+  void setHudVisible(bool on) { hudEnabled_ = on; }
+  bool hudVisible() const { return hudEnabled_; }
+
  private:
   UiEvent gatherEvent(const Window& window, const Input& input, double dt) const;
 
@@ -166,6 +172,7 @@ class Interface {
 
   Screen screen_ = Screen::None;
   float scale_ = 1.0f;
+  bool hudEnabled_ = true;
   double dt_ = 0;
 };
 

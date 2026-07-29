@@ -53,6 +53,8 @@ void printUsage() {
       "  --quality <preset>  low | medium | high | ultra (default: the saved setting)\n"
       "  --threads <n>       chunk worker threads (default: cores-1; 0 = inline)\n"
       "  --debug-view <n>    1 = ambient occlusion term, 2 = sun shadow term\n"
+      "  --no-hud            hide the hotbar, hearts and crosshair (F1 in game)\n"
+      "  --freeze            no player physics, so --at is held exactly\n"
       "  --give <list>       start holding items: key[:count][,key[:count]...]\n"
       "  --spawn <list>      place entities near spawn: type[:count][,...]\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
@@ -207,6 +209,12 @@ int main(int argc, char** argv) {
       wantsWorld = true;
     } else if (std::strcmp(arg, "--quality") == 0) {
       if (!takeValue(argc, argv, i, arg, options.quality)) return 2;
+    } else if (std::strcmp(arg, "--no-hud") == 0) {
+      options.hideHud = true;
+      wantsWorld = true;
+    } else if (std::strcmp(arg, "--freeze") == 0) {
+      options.freezePlayer = true;
+      wantsWorld = true;
     } else if (std::strcmp(arg, "--debug-view") == 0) {
       if (!takeValue(argc, argv, i, arg, value)) return 2;
       options.debugView = std::atoi(value.c_str());

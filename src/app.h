@@ -90,6 +90,12 @@ struct AppOptions {
   int threads = -1;
   // --debug-view 1 = AO term, 2 = sun shadow term
   int debugView = 0;
+  // --no-hud: the same thing F1 does, for a capture of the world alone.
+  bool hideHud = false;
+  // --freeze: no player physics, so --at is honoured exactly rather than being a
+  // starting position to fall from. The world still streams and the sky still
+  // turns; only the body is held still.
+  bool freezePlayer = false;
 
   // --give <key>[:count][,...]: fill hotbar slots at startup. The interface
   // milestone brings the inventory screen and the recipe book; until then this is

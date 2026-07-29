@@ -155,6 +155,7 @@ int App::run(const AppOptions& options) {
   // store to the window.
   if (options.fullscreen) ui::settings().setFlag("fullscreen", true, /*persist=*/false);
   applySettings();
+  if (options.hideHud) interface_.setHudVisible(false);
   renderer_.setDebugView(options.debugView);
   if (options.skyTime >= 0.0f) {
     sky_.time = options.skyTime;
@@ -1333,10 +1334,17 @@ void App::updatePlaying(double dt) {
 
   // The player and entities are the only things substepped: a long frame is split
   // so a fast body cannot pass through a block. Everything else takes the whole dt.
-  double step = 0;
-  const int steps = clock_.substeps(step);
-  for (int i = 0; i < steps; ++i) {
-    player_->update(static_cast<float>(step), in, *world_, playerOptions_, clock_.simTime());
+  //
+  // --freeze skips it entirely, which is what makes `--at` mean what it says. The
+  // flag has always claimed to be "an exact camera placement", and for anything
+  // above the ground it was not: gravity ran for the two hundred frames the world
+  // needs to stream in, and the capture happened wherever the player landed.
+  if (!options_.freezePlayer) {
+    double step = 0;
+    const int steps = clock_.substeps(step);
+    for (int i = 0; i < steps; ++i) {
+      player_->update(static_cast<float>(step), in, *world_, playerOptions_, clock_.simTime());
+    }
   }
 
   handleHotbarInput(in);
@@ -1499,8 +1507,12 @@ void App::renderWorld() {
 
   render::Renderer::Selection selection {interact_.selectionX(), interact_.selectionY(),
                                          interact_.selectionZ()};
+  // The selection outline goes with the HUD: it is an aiming affordance, not part
+  // of the world, and a wireframe box in the middle of a screenshot is exactly
+  // what F1 is being pressed to get rid of.
+  const bool showSelection = interact_.hasSelection() && interface_.hudVisible();
   renderer_.render(*world_, camera_, sky_, window_.width(), window_.height(),
-                   interact_.hasSelection() ? &selection : nullptr,
+                   showSelection ? &selection : nullptr,
                    inventory_.selectedSlot().key, underwater_, clock_.simTime());
 
   static Interval statsLog {2.0};
@@ -1570,6 +1582,7 @@ void App::handleGlobalKeys() {
     }
   }
 
+  if (in.pressed(Key::F1)) interface_.setHudVisible(!interface_.hudVisible());
   if (in.pressed(Key::F3)) interface_.hud().toggleDebug();
 
   if (in.pressed(Key::F2)) {

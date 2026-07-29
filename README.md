@@ -27,20 +27,20 @@ nothing that phones home.
 
 <table>
 <tr>
-<td width="50%"><img src="screenshots/reflections.png" width="100%" alt="Calm water reflecting the shoreline and sky"><br><sub>Real-time water reflections mirror the shoreline and sky.</sub></td>
-<td width="50%"><img src="screenshots/shadows.png" width="100%" alt="Sunlight and cast shadows under a tree"><br><sub>Cast shadows dapple the grass beneath a tree.</sub></td>
+<td width="50%"><img src="screenshots/dawn.png" width="100%" alt="Sunrise over the sea, with dawn fog on the water and layered cloud"><br><sub>Dawn over the sea — the sun low through layered cloud, with the morning fog that burns off as it climbs.</sub></td>
+<td width="50%"><img src="screenshots/shore.png" width="100%" alt="A papyrus shoreline reflected in still water under a bright sky"><br><sub>Real-time water reflections mirror the shoreline, the papyrus and the sky.</sub></td>
 </tr>
 <tr>
-<td><img src="screenshots/godrays.png" width="100%" alt="God-rays filtering through a forest canopy"><br><sub>Sunlight and god-rays filtering through the canopy.</sub></td>
-<td><img src="screenshots/night-2.png" width="100%" alt="A moonlit bay with drifting clouds and stars"><br><sub>Moonlight over a quiet bay, with drifting clouds and stars.</sub></td>
+<td><img src="screenshots/forest.png" width="100%" alt="A forested landscape seen from the air, with a ravine and a distant beach"><br><sub>Biomes run to the horizon: forest, meadow, beach and a ravine cutting through.</sub></td>
+<td><img src="screenshots/ravine.png" width="100%" alt="A deep ravine splitting a forest, under volumetric clouds"><br><sub>Ravines crack the surface open — and volumetric clouds cast moving shadows on the ground.</sub></td>
 </tr>
 <tr>
-<td><img src="screenshots/house.png" width="100%" alt="A torch-lit stone cottage interior"><br><sub>A torch-lit stone cottage, with chests, a bed and glass windows.</sub></td>
-<td><img src="screenshots/night-1.png" width="100%" alt="A lakeside cottage at night, lit and reflected on the water"><br><sub>A cottage lit against the night, reflected on still water.</sub></td>
+<td><img src="screenshots/night.png" width="100%" alt="A moonlit palm shoreline at night with drifting cloud"><br><sub>Moonlight over a palm shore, with drifting cloud and a sky full of stars.</sub></td>
+<td><img src="screenshots/grassland.png" width="100%" alt="Grass terraces and trees beside a beach, with a cave mouth in the hillside"><br><sub>A cave mouth in the hillside. They widen into proper caverns the deeper you go.</sub></td>
 </tr>
 <tr>
-<td><img src="screenshots/sheep.png" width="100%" alt="A sheep on a coastal meadow"><br><sub>A sheep grazes a coastal meadow.</sub></td>
-<td><img src="screenshots/pig.png" width="100%" alt="A pig on a sunlit beach beneath volumetric clouds"><br><sub>A pig wanders a sunlit beach beneath volumetric clouds.</sub></td>
+<td><img src="screenshots/inventory.png" width="100%" alt="The inventory screen over the world, with item icons and a held pickaxe"><br><sub>Every icon and held model is generated at runtime — no image files ship with the game.</sub></td>
+<td><img src="screenshots/menu.png" width="100%" alt="The Hollowreach main menu"><br><sub>The interface is its own 2D layer: no toolkit, no dependency, drawn in one batched pass.</sub></td>
 </tr>
 </table>
 
@@ -95,6 +95,7 @@ all and is the fastest way to know a change did not break something.
 | World map (needs an **Atlas**) | M |
 | Minimap toggle (needs an **Atlas**) | N |
 | Screenshot | F2 |
+| Hide the interface | F1 |
 | Fullscreen | Alt+Enter |
 | Pause | Esc |
 | Debug overlay | F3 |
