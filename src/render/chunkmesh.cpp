@@ -35,14 +35,18 @@ ChunkMeshBuffer& ChunkMeshBuffer::operator=(ChunkMeshBuffer&& other) noexcept {
     vbo_ = other.vbo_;
     count_ = other.count_;
     capacityBytes_ = other.capacityBytes_;
+    sections_ = other.sections_;
     other.vao_ = other.vbo_ = 0;
     other.count_ = 0;
     other.capacityBytes_ = 0;
+    other.sections_ = world::MeshSections{};
   }
   return *this;
 }
 
-void ChunkMeshBuffer::upload(const std::vector<world::TerrainVertex>& verts) {
+void ChunkMeshBuffer::upload(const std::vector<world::TerrainVertex>& verts,
+                             const world::MeshSections& sections) {
+  sections_ = sections;
   if (verts.empty()) {
     destroy();
     return;
@@ -87,12 +91,45 @@ void ChunkMeshBuffer::destroy() {
   }
   count_ = 0;
   capacityBytes_ = 0;
+  sections_ = world::MeshSections{};
 }
 
 void ChunkMeshBuffer::draw() const {
   if (count_ == 0) return;
   glBindVertexArray(vao_);
   glDrawArrays(GL_TRIANGLES, 0, count_);
+}
+
+void ChunkMeshBuffer::drawSectionMask(unsigned mask) const {
+  if (mask == 0 || count_ == 0) return;
+  GLint first[world::kSections];
+  GLsizei counts[world::kSections];
+  GLsizei n = 0;
+  for (int i = 0; i < world::kSections; ++i) {
+    if (!(mask & (1u << i)) || sections_.count[i] == 0) continue;
+    // Merge with the previous range when they abut, which they usually do: the
+    // visible sections of a chunk are contiguous far more often than not.
+    if (n > 0 && first[n - 1] + counts[n - 1] == static_cast<GLint>(sections_.first[i])) {
+      counts[n - 1] += static_cast<GLsizei>(sections_.count[i]);
+      continue;
+    }
+    first[n] = static_cast<GLint>(sections_.first[i]);
+    counts[n] = static_cast<GLsizei>(sections_.count[i]);
+    ++n;
+  }
+  if (n == 0) return;
+  // One bind, then the merged ranges. glMultiDrawArrays is not in the loader's
+  // set, and it would save little here: the merge above usually leaves one or
+  // two ranges, and the bind was the part being repeated six times per chunk.
+  glBindVertexArray(vao_);
+  for (GLsizei i = 0; i < n; ++i) glDrawArrays(GL_TRIANGLES, first[i], counts[i]);
+}
+
+void ChunkMeshBuffer::drawSection(int index) const {
+  const GLsizei n = static_cast<GLsizei>(sections_.count[index]);
+  if (n == 0) return;
+  glBindVertexArray(vao_);
+  glDrawArrays(GL_TRIANGLES, static_cast<GLint>(sections_.first[index]), n);
 }
 
 }  // namespace hr::render

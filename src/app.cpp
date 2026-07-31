@@ -76,6 +76,7 @@ int App::run(const AppOptions& options) {
   cfg.width = options.width;
   cfg.height = options.height;
   cfg.title = "Hollowreach";
+  cfg.vsync = !options.noVsync;
   std::string error;
   if (!window_.create(cfg, error)) {
     log::error("%s", error.c_str());
@@ -1532,8 +1533,12 @@ void App::renderWorld() {
   static Interval statsLog {2.0};
   if (statsLog.due(clock_.dt())) {
     const game::ItemStack& held = inventory_.selectedSlot();
-    log::debug("%.0f fps | %d/%zu chunks | %zu pending | pos %.1f %.1f %.1f | %s | held %s x%d",
-               clock_.fps(), renderer_.drawnChunks(), world_->loadedChunkCount(),
+    log::debug("%.0f fps (%.1f ms) | %d/%zu chunks | %.2fM draw / %.2fM shadow / %.2fM loaded "
+               "tris | %zu pending | pos %.1f %.1f %.1f | %s | held %s x%d",
+               clock_.fps(), clock_.frameMs(), renderer_.drawnChunks(),
+               world_->loadedChunkCount(),
+               renderer_.drawnTris() / 1e6, renderer_.shadowTris() / 1e6,
+               renderer_.loadedTris() / 1e6,
                world_->pendingCount(), player_->pos().x, player_->pos().y, player_->pos().z,
                sky_.clockString().c_str(), held.empty() ? "-" : held.key.c_str(), held.count);
   }

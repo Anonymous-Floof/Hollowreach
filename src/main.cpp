@@ -212,6 +212,8 @@ int main(int argc, char** argv) {
     } else if (std::strcmp(arg, "--no-hud") == 0) {
       options.hideHud = true;
       wantsWorld = true;
+    } else if (std::strcmp(arg, "--no-vsync") == 0) {
+      options.noVsync = true;
     } else if (std::strcmp(arg, "--freeze") == 0) {
       options.freezePlayer = true;
       wantsWorld = true;

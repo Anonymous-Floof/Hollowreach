@@ -40,10 +40,16 @@ class FrameClock {
     dt_ = dt;
     simTime_ += dt;
 
-    fpsAccum_ += dt;
+    // The RAW delta, deliberately. Accumulating the clamped one makes the meter
+    // saturate: once every frame is over 50 ms the sum is frames * kMaxDt and the
+    // readout sticks at exactly 20 fps no matter how bad it gets. A performance
+    // gauge that cannot show you the bottom of the range is worse than none, and
+    // this one hid a five-fold difference behind a single number.
+    fpsAccum_ += raw_;
     ++fpsFrames_;
     if (fpsAccum_ >= 0.5) {
       fps_ = static_cast<float>(fpsFrames_ / fpsAccum_);
+      frameMs_ = static_cast<float>(1000.0 * fpsAccum_ / fpsFrames_);
       fpsAccum_ = 0.0;
       fpsFrames_ = 0;
     }
@@ -54,6 +60,8 @@ class FrameClock {
   // Unclamped delta, for diagnostics only — never feed it to simulation.
   double rawDt() const { return raw_; }
   float fps() const { return fps_; }
+  // Mean wall-clock milliseconds per frame over the last window.
+  float frameMs() const { return frameMs_; }
 
   // Monotonic accumulated simulation seconds. Used anywhere the web build
   // reached for performance.now(), so behaviour does not depend on wall clock —
@@ -76,6 +84,7 @@ class FrameClock {
   double fpsAccum_ = 0.0;
   int fpsFrames_ = 0;
   float fps_ = 0.0f;
+  float frameMs_ = 0.0f;
 };
 
 // Rate limiter for the sub-frame work the web build ran off accumulators.

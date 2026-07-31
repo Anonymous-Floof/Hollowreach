@@ -77,9 +77,38 @@ struct MeshNeighbourhood {
   const ChunkData* centre() const { return grid[4]; }
 };
 
+// Vertical slices of a chunk, for culling. A chunk is a 16 x WH x 16 column, and
+// treating it as one indivisible lump was affordable when WH was 128 and terrain
+// filled a third of it. At 192, with caverns opening from bedrock to y=84, a
+// visible column carries around ninety layers of cave wall that nothing on the
+// surface can see -- and it was being submitted twice a frame, once to the
+// g-buffer and once to the shadow map.
+//
+// The split costs nothing to produce: meshChunk walks y outermost, so vertices
+// already come out in ascending y and a section is a contiguous RANGE of the same
+// vertex array. One VBO per chunk still, one glDrawArrays per visible section.
+inline constexpr int kSectionHeight = 32;
+inline constexpr int kSections = WH / kSectionHeight;
+static_assert(WH % kSectionHeight == 0, "sections must tile the column exactly");
+
+struct MeshSections {
+  // first[i] is the vertex offset of section i; count[i] its length. Empty
+  // sections have count 0 and are never drawn or tested.
+  std::uint32_t first[kSections] {};
+  std::uint32_t count[kSections] {};
+  // Whether any face in the section carries skylight. This is the exact answer to
+  // "can the sun reach this geometry", not an approximation of it: the lighting
+  // pass has already flooded skylight down every open column, so a face with sky 0
+  // is one the sun provably cannot see, and it cannot cast a shadow anybody can.
+  // A section of pure cave wall is therefore skipped by the shadow pass outright.
+  bool sunlit[kSections] {};
+};
+
 struct MeshResult {
   std::vector<TerrainVertex> opaque;
   std::vector<TerrainVertex> water;
+  MeshSections opaqueSections;
+  MeshSections waterSections;
 };
 
 // `climate` may be null; it is only consulted for tinted blocks, of which there

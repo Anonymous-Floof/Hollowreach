@@ -92,6 +92,11 @@ struct AppOptions {
   int debugView = 0;
   // --no-hud: the same thing F1 does, for a capture of the world alone.
   bool hideHud = false;
+  // --no-vsync: uncap the frame rate. With vsync on, frame time quantises to
+  // refresh divisors (60, 30, 20, 15 on a 60 Hz panel), which hides what a change
+  // actually cost -- a pass that got 40% cheaper can leave the number at 20 and
+  // look like it did nothing.
+  bool noVsync = false;
   // --freeze: no player physics, so --at is honoured exactly rather than being a
   // starting position to fall from. The world still streams and the sky still
   // turns; only the body is held still.

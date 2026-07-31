@@ -97,6 +97,13 @@ class Renderer {
 
   // Chunks that passed the frustum test in the last frame, for the debug overlay.
   int drawnChunks() const { return drawnChunks_; }
+  // Triangles actually submitted for terrain last frame, and how many the loaded
+  // chunks hold in total. You cannot tune what a chunk mesh costs without these:
+  // "fps is bad" does not distinguish a fill-rate problem from submitting a
+  // hundred layers of cave wall nobody can see.
+  long long drawnTris() const { return drawnTris_; }
+  long long loadedTris() const { return loadedTris_; }
+  long long shadowTris() const { return shadowTris_; }
 
  private:
   void drawHeld(const world::World& world, const Camera& camera, const Sky& sky,
@@ -164,6 +171,9 @@ class Renderer {
 
   std::vector<const world::LoadedChunk*> visible_;
   int drawnChunks_ = 0;
+  long long drawnTris_ = 0;
+  long long loadedTris_ = 0;
+  long long shadowTris_ = 0;
 };
 
 }  // namespace hr::render

@@ -302,24 +302,41 @@ void Renderer::renderShadowMap(world::World& world, const Camera& camera, const 
   // contribute nothing and the map output is unchanged.
   const float cull = range + world::CX * 2.0f;
   const float cull2 = cull * cull;
-  const float hy = world::WH * 0.5f;
+  // Half a SECTION, not half the world. This is what broke when WH went 128 -> 192:
+  // the test modelled every chunk as a box centred at WH/2 with a half-height of
+  // WH/2, so the pad grew by |s.y| * 32 on each light axis and, with the sun low,
+  // stopped rejecting anything. The shadow pass was redrawing nearly every loaded
+  // chunk's full column, twice the geometry of the g-buffer pass, at a cost that
+  // does not care what resolution you run — which is exactly the symptom.
+  const float hy = world::kSectionHeight * 0.5f;
   // One block of slack, because the shadow vertex shader sways leaves past the AABB.
   const float padS =
       range + 1 + std::abs(s.x) * 8 + std::abs(s.y) * hy + std::abs(s.z) * 8;
   const float padU =
       range + 1 + std::abs(u.x) * 8 + std::abs(u.y) * hy + std::abs(u.z) * 8;
 
+  shadowTris_ = 0;
   for (const auto& [key, lc] : world.chunks()) {
     if (lc->opaqueMesh.empty()) continue;
     const float dx = lc->chunk.cx * world::CX + world::CX * 0.5f - camera.pos().x;
     const float dz = lc->chunk.cz * world::CZ + world::CZ * 0.5f - camera.pos().z;
     if (dx * dx + dz * dz > cull2) continue;
     const float mx = lc->chunk.cx * world::CX + 8 - centre.x;
-    const float my = hy - centre.y;
     const float mz = lc->chunk.cz * world::CZ + 8 - centre.z;
-    if (std::abs(mx * s.x + my * s.y + mz * s.z) > padS) continue;
-    if (std::abs(mx * u.x + my * u.y + mz * u.z) > padU) continue;
-    lc->opaqueMesh.draw();
+    unsigned mask = 0;
+    for (int i = 0; i < world::kSections; ++i) {
+      if (lc->opaqueMesh.sectionCount(i) == 0) continue;
+      // The sun cannot see a face with no skylight on it, so it cannot be
+      // shadowed by one either. This is what stops a hundred blocks of cave
+      // wall rasterising into an alpha-tested depth map every single frame.
+      if (!lc->opaqueMesh.sectionSunlit(i)) continue;
+      const float my = (i + 0.5f) * world::kSectionHeight - centre.y;
+      if (std::abs(mx * s.x + my * s.y + mz * s.z) > padS) continue;
+      if (std::abs(mx * u.x + my * u.y + mz * u.z) > padU) continue;
+      shadowTris_ += lc->opaqueMesh.sectionCount(i) / 3;
+      mask |= 1u << i;
+    }
+    lc->opaqueMesh.drawSectionMask(mask);
   }
 
   // Mobs, boats and drops cast shadows too. Drawn after the terrain so they share
@@ -625,17 +642,38 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
 
   visible_.clear();
   bool anyWater = false;
+  drawnTris_ = 0;
+  loadedTris_ = 0;
   const Frustum& frustum = camera.frustum();
   for (const auto& [key, lc] : world.chunks()) {
+    loadedTris_ += lc->opaqueMesh.count() / 3;
+    if (lc->opaqueMesh.empty() && lc->waterMesh.empty()) continue;
     const float minx = static_cast<float>(lc->chunk.cx * world::CX);
     const float minz = static_cast<float>(lc->chunk.cz * world::CZ);
+    // Column test first: one cheap reject for the whole 192 blocks, so a chunk
+    // behind the camera never pays for six section tests.
     if (!frustum.testAabb(minx, 0.0f, minz, minx + world::CX,
                           static_cast<float>(world::WH), minz + world::CZ)) {
       continue;
     }
     visible_.push_back(lc.get());
     if (!lc->waterMesh.empty()) anyWater = true;
-    lc->opaqueMesh.draw();
+    // Then per section. This is where the underground stops being drawn: standing
+    // on the surface, the sections below are outside the frustum for every chunk
+    // but the few directly underfoot.
+    unsigned mask = 0;
+    for (int i = 0; i < world::kSections; ++i) {
+      const GLsizei n = lc->opaqueMesh.sectionCount(i);
+      if (n == 0) continue;
+      const float y0 = static_cast<float>(i * world::kSectionHeight);
+      if (!frustum.testAabb(minx, y0, minz, minx + world::CX,
+                            y0 + world::kSectionHeight, minz + world::CZ)) {
+        continue;
+      }
+      drawnTris_ += n / 3;
+      mask |= 1u << i;
+    }
+    lc->opaqueMesh.drawSectionMask(mask);
   }
   drawnChunks_ = static_cast<int>(visible_.size());
 

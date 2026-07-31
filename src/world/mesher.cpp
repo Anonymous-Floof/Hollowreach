@@ -220,7 +220,17 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
     return count ? sum / count : kWaterFull;
   };
 
+  // Section bookkeeping: y is the outermost loop, so everything emitted while y
+  // is inside a section belongs to that section and the ranges are contiguous by
+  // construction. Recorded as we go rather than sorted afterwards.
+  int section = -1;
   for (int y = 0; y < WH; ++y) {
+    const int sec = y / kSectionHeight;
+    if (sec != section) {
+      section = sec;
+      result.opaqueSections.first[sec] = static_cast<std::uint32_t>(result.opaque.size());
+      result.waterSections.first[sec] = static_cast<std::uint32_t>(result.water.size());
+    }
     for (int z = 0; z < CZ; ++z) {
       for (int x = 0; x < CX; ++x) {
         const BlockId id = centre->voxels[localIdx(x, y, z)];
@@ -565,6 +575,36 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
       }
     }
   }
+
+  // One pass over the finished vertices to mark which sections the sun reaches.
+  // Done here rather than in the emit loop so the inner loop stays untouched.
+  auto markSunlit = [](const std::vector<TerrainVertex>& verts, MeshSections& sec) {
+    for (int i = 0; i < kSections; ++i) {
+      const std::uint32_t end = sec.first[i] + sec.count[i];
+      for (std::uint32_t v = sec.first[i]; v < end; ++v) {
+        if (verts[v].sky > 0) {
+          sec.sunlit[i] = true;
+          break;
+        }
+      }
+    }
+  };
+
+  // Counts fall out of the offsets: a section runs to the start of the next
+  // non-empty one, and the last runs to the end.
+  for (int i = 0; i < kSections; ++i) {
+    const std::uint32_t opaqueEnd = i + 1 < kSections
+                                        ? result.opaqueSections.first[i + 1]
+                                        : static_cast<std::uint32_t>(result.opaque.size());
+    const std::uint32_t waterEnd = i + 1 < kSections
+                                       ? result.waterSections.first[i + 1]
+                                       : static_cast<std::uint32_t>(result.water.size());
+    result.opaqueSections.count[i] = opaqueEnd - result.opaqueSections.first[i];
+    result.waterSections.count[i] = waterEnd - result.waterSections.first[i];
+  }
+
+  markSunlit(result.opaque, result.opaqueSections);
+  markSunlit(result.water, result.waterSections);
 
   return result;
 }

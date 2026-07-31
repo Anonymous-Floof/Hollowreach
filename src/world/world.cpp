@@ -325,8 +325,8 @@ bool World::installResults(double deadlineMs) {
     if (!lc) continue;
     lc->chunk.meshInFlight = false;
     if (lc->chunk.meshDirty) continue;  // stale, as above
-    lc->opaqueMesh.upload(r.mesh.opaque);
-    lc->waterMesh.upload(r.mesh.water);
+    lc->opaqueMesh.upload(r.mesh.opaque, r.mesh.opaqueSections);
+    lc->waterMesh.upload(r.mesh.water, r.mesh.waterSections);
   }
 
   // Whatever did not fit goes back at the front, so the oldest results are the

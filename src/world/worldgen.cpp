@@ -164,10 +164,18 @@ bool isCave(const NoiseSet& n, int wx, int wy, int wz, int ver) {
   // proper caverns while the near-surface stays tight.
   const double blob = n.cave.fbm3(wx * 0.045, wy * 0.06, wz * 0.045, 3);
   double th = 0.55;
-  // Where the caverns start opening up, measured from the sea like everything
-  // else: 46 - 16 = 30 reproduces v2. In v3 that is y=84, so the whole deep half
-  // of the world is cavern country rather than a thin seam above bedrock.
-  const int deepStart = seaLevel(ver) - 16;
+  // Where the caverns start opening up. Measured from BEDROCK, not from the sea:
+  // this is a "how close to the bottom of the world" feature, and the first version
+  // of v3 scaled it with sea level, which turned eighty blocks of the new depth
+  // into maximum-density sponge instead of the thin seam v2 had above bedrock.
+  //
+  // That was the whole performance regression. Cave surface is the most expensive
+  // geometry in the game -- it is all interior faces, none of it is visible from
+  // anywhere, and there was five times as much of it as v2 had. It also worked
+  // against the point of the deeper world: rare ore is supposed to be something you
+  // mine toward, not something lying in an open cavern.
+  constexpr int kDeepCavernStart = 30;
+  const int deepStart = kDeepCavernStart;
   if (ver >= 2 && wy < deepStart) {
     const double lowered = 0.55 - (deepStart - wy) * 0.005;
     th = lowered > 0.42 ? lowered : 0.42;
