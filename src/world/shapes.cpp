@@ -122,4 +122,30 @@ std::vector<Box> displayBoxes(RenderKind kind) {
   return boxes;
 }
 
+bool crossMountDir(int meta, int& dx, int& dz) {
+  // Index 0 is the floor mount and is never returned; it is present so the table
+  // can be indexed by the meta directly.
+  static constexpr int kMount[5][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+  dx = 0;
+  dz = 0;
+  const int m = meta & 7;
+  if (m < 1 || m > 4) return false;
+  dx = kMount[m][0];
+  dz = kMount[m][1];
+  return true;
+}
+
+void supportOffset(RenderKind kind, int meta, int& dx, int& dy, int& dz) {
+  dx = 0;
+  dy = -1;
+  dz = 0;
+  if (kind != RenderKind::Cross) return;
+  int mx = 0, mz = 0;
+  if (!crossMountDir(meta, mx, mz)) return;
+  // The wall is behind the lean, not under the flame.
+  dx = -mx;
+  dy = 0;
+  dz = -mz;
+}
+
 }  // namespace hr::world

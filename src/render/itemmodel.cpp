@@ -17,14 +17,25 @@ const HoldStyle& tool() {
   // Pick, axe and hoe: handle butt in the hand at the bottom right, head leaning
   // up toward the crosshair and reaching into the scene.
   //
-  // Stood up and turned edge-on relative to the browser's framing, which held all
-  // four tools at the same shallow angle and so swung the FLAT of the head into
-  // the block. A pickaxe strikes with its point and an axe with its edge, and both
-  // read wrong when the sprite plane faces the camera through the swing. The roll
-  // is steeper (0.52 -> 0.78) so the haft stands nearer vertical, and the yaw is
-  // deeper (-0.46 -> -0.86) so what leads the arc is the extruded edge rather than
-  // the face. The shovel deliberately keeps the old framing — see shovel().
-  static const HoldStyle s {{-0.30f, -0.86f, 0.78f}, 0.62f, -1.02f, 0.56f, 0.62f, {0, 0, 0},
+  // The yaw is what makes a tool strike with its point rather than its face, and
+  // there is one value that does it: an item mesh is its sprite extruded a texel
+  // along local +z, so the flat leads the swing exactly when that normal still
+  // points down the view axis. The swing travels into the screen, so the normal
+  // has to be square to it — cos(yaw)*cos(pitch) = 0, which is yaw = -pi/2 for
+  // this pitch, and -1.55 is that.
+  //
+  // Turning a sprite fully side-on ought to make it invisible, and it does not,
+  // because the hand sits far enough to the right that the ray out to it is
+  // already 38 degrees off the view axis: side-on to the SWING is still 50 degrees
+  // off side-on to the EYE, and two thirds of the art's width survives. That
+  // margin is the whole reason this works, and it is why an earlier pass at this
+  // stopped at -0.86 — from the geometry alone, going further looks like it must
+  // end in a black sliver, and at the centre of the screen it would.
+  //
+  // The roll then stands the haft up (0.78 -> 0.55 reads as MORE vertical here,
+  // because after a quarter-turn of yaw the roll no longer tips the tool in the
+  // plane of the screen). The shovel keeps the old framing entirely — see below.
+  static const HoldStyle s {{-0.30f, -1.55f, 0.55f}, 0.62f, -1.02f, 0.56f, 0.62f, {0, 0, 0},
                             false};
   return s;
 }
@@ -39,10 +50,13 @@ const HoldStyle& shovel() {
 }
 
 const HoldStyle& sword() {
-  // A sword stands closer to upright than a tool. Its art is drawn on the diagonal,
-  // so the roll here is NEGATIVE — it cancels most of the 45 degrees the sprite
-  // already has and lifts the blade up the screen.
-  static const HoldStyle s {{-0.22f, -0.46f, -0.48f}, 0.62f, -1.06f, 0.58f, 0.62f,
+  // Same quarter-turn as tool(), and for the same reason — a sword that cuts with
+  // the flat of the blade is the most obviously wrong of the four. The roll went
+  // the other way with it: at the old shallow yaw it had to be negative to undo
+  // the 45 degrees the sprite art is drawn on, and at this one a small positive
+  // roll is what lays the blade over toward the crosshair instead of standing it
+  // straight up the right-hand edge of the screen.
+  static const HoldStyle s {{-0.22f, -1.55f, 0.30f}, 0.62f, -1.06f, 0.58f, 0.62f,
                             {0.30f, 0.06f, 0}, true};
   return s;
 }

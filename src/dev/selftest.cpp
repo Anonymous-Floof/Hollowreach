@@ -457,6 +457,65 @@ void testPlacing() {
           "with nothing solid above it");
     check(ground->topSolidY(100000, 100000) == -1, "an unloaded column reports no ground");
   }
+
+  // --- pick block ------------------------------------------------------------
+  //
+  // Aiming at the same wall the placing checks above use. There is no creative
+  // mode, so every case here is about WHERE a block you already own ends up, and
+  // the one that matters is the last: with a full bar it must swap, because
+  // overwriting would destroy whatever you were holding.
+  {
+    game::Interact pick;
+    game::Inventory bag;
+    game::InteractHooks hooks2 = silentHooks();
+    const auto middleClick = [&] {
+      in.endFrame();
+      in.feedMouseButton(MouseButton::Middle, false);
+      in.endFrame();
+      in.feedMouseButton(MouseButton::Middle, true);
+      pick.update(0.016f, in, player, *world, bag, hooks2);
+    };
+    // The wall is greystone; make sure the target is what these checks assume.
+    world->setBlock(11, kEyeLevel, 8, wk.greystone, 0);
+    player.setLook(kYawPlusX, kAimLow);
+
+    std::string notice;
+    hooks2 = silentHooks(&notice);
+    middleClick();
+    check(!notice.empty(), "picking a block you do not own says so rather than conjuring one");
+    check(bag.slots()[0].empty(), "and leaves the bar alone");
+
+    // In the pack: it comes to a free bar slot, and the pack slot empties.
+    bag.slots()[20] = game::ItemStack{"greystone", 12, -1};
+    bag.setSelected(3);
+    middleClick();
+    check(bag.slots()[20].empty(), "one from the pack moves to the bar");
+    checkf(bag.selectedSlot().key == "greystone" && bag.selectedSlot().count == 12,
+           "and is selected, whole (%s x%d)", bag.selectedSlot().key.c_str(),
+           bag.selectedSlot().count);
+
+    // Already on the bar: selected, not moved.
+    bag.setSelected(7);
+    middleClick();
+    checkf(bag.selectedSlot().key == "greystone" && bag.countOf("greystone") == 12,
+           "picking one already on the bar just selects it (%d in all)",
+           bag.countOf("greystone"));
+
+    // A full bar swaps rather than overwrites, so nothing is destroyed.
+    game::Inventory full;
+    for (int i = 0; i < game::kHotbarSlots; ++i) full.slots()[i] = {"planks", 1, -1};
+    full.slots()[15] = game::ItemStack{"greystone", 3, -1};
+    full.setSelected(4);
+    game::Interact pick2;
+    in.endFrame();
+    in.feedMouseButton(MouseButton::Middle, false);
+    in.endFrame();
+    in.feedMouseButton(MouseButton::Middle, true);
+    pick2.update(0.016f, in, player, *world, full, hooks2);
+    check(full.selectedSlot().key == "greystone", "with a full bar the picked block takes the hand");
+    check(full.slots()[15].key == "planks" && full.slots()[15].count == 1,
+          "and what it displaced goes back where it came from rather than being lost");
+  }
 }
 
 // --- block entities ----------------------------------------------------------
@@ -1757,6 +1816,105 @@ void testWorldgenDepth() {
   }
 }
 
+// --- where a new world puts you ----------------------------------------------
+//
+// Checked against real generated voxels rather than against the fields findSpawn
+// consults, because the bug this exists to catch was precisely a check that
+// consulted the wrong field: ravines are carved after the heightmap, out of ground
+// heightAt still calls solid, so a spawn chosen on height alone can be the lip of a
+// thirty-block drop and every heightmap-shaped test of it will pass.
+void testSpawnChoice() {
+  std::printf("spawn selection\n");
+  constexpr int kSeeds = 24;
+  constexpr int kVer = 3;
+  const int sea = world::seaLevel(kVer);
+
+  // Topmost solid cell of a real generated column. Chunks are generated once and
+  // kept, since the probe grid revisits the same few.
+  struct Ground {
+    const world::NoiseSet& noise;
+    std::unordered_map<std::uint64_t, std::shared_ptr<world::ChunkData>> chunks;
+
+    int topSolid(int wx, int wz) {
+      const int cx = world::World::floorDiv16(wx), cz = world::World::floorDiv16(wz);
+      const std::uint64_t key = (static_cast<std::uint64_t>(static_cast<std::uint32_t>(cx)) << 32) |
+                                static_cast<std::uint32_t>(cz);
+      auto it = chunks.find(key);
+      if (it == chunks.end()) {
+        world::Chunk chunk;
+        chunk.cx = cx;
+        chunk.cz = cz;
+        chunk.data = std::make_shared<world::ChunkData>();
+        world::generate(chunk, noise, kVer);
+        it = chunks.emplace(key, chunk.data).first;
+      }
+      const int lx = wx - cx * world::CX, lz = wz - cz * world::CZ;
+      for (int y = world::WH - 1; y >= 0; --y) {
+        if (world::blocks().solid(it->second->voxels[world::localIdx(lx, y, lz)])) return y;
+      }
+      return 0;
+    }
+  };
+
+  // A drop is "worth dying down" when it can kill outright from full health:
+  // damage is floor(fallen - kFallSafe), so that is kFallSafe + kMaxHealth. Taken
+  // from the survival constants rather than picked, because the point is not that
+  // spawn is flat — cliffs are scenery — but that it is not a death loop.
+  const int kLethal =
+      static_cast<int>(game::survivalConst::kFallSafe + game::survivalConst::kMaxHealth);
+
+  int wet = 0, holed = 0, moved = 0, originWet = 0, originCracked = 0;
+  int worstDrop = 0;
+  for (int i = 0; i < kSeeds; ++i) {
+    // Spread out with a 32-bit odd multiplier so consecutive seeds are unrelated
+    // worlds, and above INT32_MAX often enough to exercise the unsigned paths.
+    const std::uint32_t seed = 1013904223u + static_cast<std::uint32_t>(i) * 2654435761u;
+    world::World w(seed, 4, kVer);
+    const Vec3 spot = w.findSpawn(8.5f, 8.5f);
+    const int sx = static_cast<int>(std::floor(spot.x));
+    const int sz = static_cast<int>(std::floor(spot.z));
+
+    world::NoiseSet noise(seed);
+    Ground ground{noise, {}};
+    const int here = ground.topSolid(sx, sz);
+    if (here < sea + 1) ++wet;
+    if (sx != 8 || sz != 8) ++moved;
+
+    // Nothing within eight blocks may be a long way below the ground you land on.
+    int drop = 0;
+    for (int dz = -8; dz <= 8; dz += 2) {
+      for (int dx = -8; dx <= 8; dx += 2) {
+        const int d = here - ground.topSolid(sx + dx, sz + dz);
+        if (d > drop) drop = d;
+      }
+    }
+    if (drop > worstDrop) worstDrop = drop;
+    if (drop >= kLethal) ++holed;
+
+    // And the same questions of the origin column, which is where a death used to
+    // put you back however far the spawn had been moved from it.
+    if (world::heightAt(noise, 8, 8, kVer) < sea + 1) ++originWet;
+    bool cracked = false;
+    for (int dz = -8; dz <= 8 && !cracked; dz += 2) {
+      for (int dx = -8; dx <= 8 && !cracked; dx += 2) {
+        cracked = world::ravineAt(noise, 8 + dx, 8 + dz, kVer);
+      }
+    }
+    if (cracked) ++originCracked;
+  }
+
+  checkf(wet == 0, "%d seeds all start on dry land (%d in water)", kSeeds, wet);
+  checkf(holed == 0, "and none beside a drop that could kill outright (%d over %d, worst %d)",
+         holed, kLethal, worstDrop);
+  // None of the above is evidence of anything if every seed already put you
+  // somewhere good. These three say the hazards are real at the rate a player
+  // meets them, and that the search is what avoids them.
+  checkf(moved > 0, "and the search moves off the origin to manage it (%d/%d seeds)", moved,
+         kSeeds);
+  checkf(originWet > 0, "while the origin column itself is under water on %d of them", originWet);
+  checkf(originCracked > 0, "and has a ravine within eight blocks on %d", originCracked);
+}
+
 // Water anywhere on the floor, for the "it all dried up" check.
 bool anyWaterOnFloor(const world::World& w) {
   for (int x = kPondMin; x <= kPondMax; ++x) {
@@ -1841,6 +1999,33 @@ void testBlockSupport() {
     w->setBlock(6, kY, 6, world::kAir, 0);
     settleBlocks(*w);
     check(w->getBlock(6, kY + 1, 6) == world::kAir, "and drops when the stone is mined");
+  }
+
+  // --- a torch on a WALL asks the wall, not the floor ---------------------------
+  //
+  // The first version of this system only ever looked down, so every wall torch in
+  // the world broke the moment anything scheduled it — with nothing beneath one by
+  // definition, the check could not come out any other way.
+  {
+    auto w = makeWorld();
+    // A wall at x=6, and a torch on its -x face at x=5: meta 2 leans toward -x, so
+    // the wall it hangs on is the cell at +x.
+    w->setBlock(6, kY + 1, 11, stone, 0);
+    w->setBlock(5, kY + 1, 11, torch, 2);
+    settleBlocks(*w);
+    check(w->getBlock(5, kY + 1, 11) == torch, "a wall torch stays up with nothing under it");
+
+    // Its own floor coming and going is none of its business.
+    w->setBlock(5, kY, 11, stone, 0);
+    settleBlocks(*w);
+    w->setBlock(5, kY, 11, world::kAir, 0);
+    settleBlocks(*w);
+    check(w->getBlock(5, kY + 1, 11) == torch, "and is unmoved by the floor beneath it changing");
+
+    // The wall is what holds it.
+    w->setBlock(6, kY + 1, 11, world::kAir, 0);
+    settleBlocks(*w);
+    check(w->getBlock(5, kY + 1, 11) == world::kAir, "but falls when its wall is mined");
   }
 
   // --- a slab-like non-opaque solid still counts as ground ----------------------
@@ -2700,6 +2885,7 @@ int runSelfTest() {
   testEntities();
   testSaves();
   testWorldgenDepth();
+  testSpawnChoice();
   testWater();
   testBlockSupport();
   testNet();

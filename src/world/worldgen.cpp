@@ -52,11 +52,17 @@ Biome biomeOf(double T, double M) {
 // Ravines (v2): a thin band of a low-frequency field carves a canyon from the
 // surface into the deeps. Returns 0 for none, or the canyon floor y.
 constexpr double kRavineBand = 0.016;
+// The low-frequency band that decides WHERE a ravine runs, split out from the
+// depth so a caller can ask the cheap half on its own — spawn selection probes
+// eighty columns per candidate and wants nothing to do with a heightmap for the
+// seventy-nine of them that are nowhere near a canyon.
+bool inRavineBand(const NoiseSet& n, int wx, int wz) {
+  return std::abs(n.ravine.fbm2(wx * 0.0045 + 7, wz * 0.0045 - 3, 2)) < kRavineBand;
+}
 int ravineFloor(const NoiseSet& n, int wx, int wz, int h, int ver) {
   const int sea = seaLevel(ver);
   if (h <= sea + 2) return 0;  // never crack open the sea floor
-  const double rv = n.ravine.fbm2(wx * 0.0045 + 7, wz * 0.0045 - 3, 2);
-  if (std::abs(rv) >= kRavineBand) return 0;
+  if (!inRavineBand(n, wx, wz)) return 0;
   // Depth varies along the crack so the floor undulates. Measured down from the
   // sea rather than up from bedrock, so a v3 ravine is the same canyon in a
   // deeper world instead of one that reaches four times further toward the ore.
@@ -525,6 +531,15 @@ int heightAt(const NoiseSet& n, int wx, int wz, int ver) {
 Biome biomeAt(const NoiseSet& n, int wx, int wz, int ver) {
   if (ver < 2) return Biome::Meadow;
   return biomeOf(climateT(n, wx, wz), climateM(n, wx, wz));
+}
+
+bool ravineAt(const NoiseSet& n, int wx, int wz, int ver) {
+  if (ver < 2) return false;  // v1 has no ravines at all
+  // Band first, height second — the order that makes probing a neighbourhood of
+  // this affordable. Both must hold, so asking them in either order is the same
+  // answer; only the cost differs.
+  if (!inRavineBand(n, wx, wz)) return false;
+  return ravineFloor(n, wx, wz, heightAt(n, wx, wz, ver), ver) != 0;
 }
 
 void generate(Chunk& chunk, const NoiseSet& n, int ver) {

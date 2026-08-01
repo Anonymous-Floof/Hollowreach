@@ -90,11 +90,13 @@ class Interact {
                 const world::BlockDef& block, const ItemDef* tool, const InteractHooks& hooks);
   void tryPlace(world::World& world, Inventory& inventory, Player& player, const RayHit& hit,
                 const InteractHooks& hooks);
+  static void pickBlock(Inventory& inventory, const world::BlockDef& block,
+                        const InteractHooks& hooks);
 
   // Cardinal the player is facing: 0:+x 1:-x 2:+z 3:-z.
   static int facingOf(const Player& player);
   // Orientation / state metadata for a freshly placed shaped block.
-  static int placementMeta(world::RenderKind render, const Player& player, const RayHit& hit);
+  static int placementMeta(const world::BlockDef& def, const Player& player, const RayHit& hit);
   static bool intersectsPlayer(int cx, int cy, int cz, const Player& player);
 
   bool hasSelection_ = false;

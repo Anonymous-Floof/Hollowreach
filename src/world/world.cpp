@@ -834,10 +834,27 @@ Vec3 World::findSpawn(float preferX, float preferZ) const {
   const auto dryEnough = [&](int x, int z) {
     return heightAt(noise_, x, z, genVersion_) >= sea + 3;
   };
-  // Flat enough not to be a ravine lip or a cliff edge. Sampling the four
-  // neighbours a few blocks out catches both: a ravine at spawn shows up as a
-  // large drop within a short distance, which is exactly what makes it feel like
-  // the world dumped you in a hole.
+  // Clear of ravines, which is the one check that is not about comfort. A ravine
+  // is carved after the heightmap out of ground the heightmap still calls solid,
+  // so no amount of sampling heightAt can see one — the first version of this
+  // function tried, and a canyon at spawn survived it untouched. What that costs
+  // a player is not an ugly view: you spawn on the lip, fall thirty blocks, die,
+  // and respawn on the same lip. The crack itself is only two or three blocks
+  // across, so the grid steps 2 rather than 3 — at 3 a ravine can pass clean
+  // between two probes — and reaches 8 out, which is roughly how far you drift
+  // before you have taken stock of where you are.
+  const auto clearOfRavines = [&](int x, int z) {
+    constexpr int kReach = 8;
+    constexpr int kStepP = 2;
+    for (int dz = -kReach; dz <= kReach; dz += kStepP) {
+      for (int dx = -kReach; dx <= kReach; dx += kStepP) {
+        if (ravineAt(noise_, x + dx, z + dz, genVersion_)) return false;
+      }
+    }
+    return true;
+  };
+  // Flat enough not to be a cliff edge: a large drop within a short distance is
+  // what makes ground feel like a hole even when it is not one.
   const auto settled = [&](int x, int z) {
     const int h = heightAt(noise_, x, z, genVersion_);
     int lo = h, hi = h;
@@ -855,6 +872,8 @@ Vec3 World::findSpawn(float preferX, float preferZ) const {
   // Two passes: the first insists on flat dry ground, the second settles for dry.
   // Splitting them rather than scoring in one pass keeps "as close to origin as
   // possible" the tie-break, which a combined score would quietly trade away.
+  // The ravine test is in BOTH passes: flatness is a preference the fallback can
+  // trade away, and a lethal drop is not.
   constexpr int kMaxRing = 24;   // chunks
   constexpr int kStep = 8;       // blocks between candidates
   for (int pass = 0; pass < 2; ++pass) {
@@ -865,8 +884,10 @@ Vec3 World::findSpawn(float preferX, float preferZ) const {
           // Only the perimeter of this ring; the inside was covered already.
           if (ring > 0 && std::abs(dx) != r && std::abs(dz) != r) continue;
           const int x = px + dx, z = pz + dz;
+          // Cheapest first: one column, then five, then eighty-one.
           if (!dryEnough(x, z)) continue;
           if (pass == 0 && !settled(x, z)) continue;
+          if (!clearOfRavines(x, z)) continue;
           return Vec3{x + 0.5f, static_cast<float>(spawnHeight(x, z)), z + 0.5f};
         }
       }

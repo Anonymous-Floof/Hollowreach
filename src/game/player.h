@@ -37,6 +37,13 @@ inline constexpr float kFlowPush = 7.0f;  // how hard a current shoves the playe
 inline constexpr float kClimb = 3.2f;     // ladder climb and descend speed
 inline constexpr float kStep = 0.6f;      // auto-step height on land
 inline constexpr float kSneakScale = 0.45f;
+// Camera catch-up after an auto-step. Exponential, so the eye is never left
+// visibly low, with a linear floor in blocks per second so it actually arrives
+// instead of asymptoting for the rest of the walk. A cap, because the swimming
+// climb-out lifts a whole block and a full block of lag reads as falling.
+inline constexpr float kStepSmoothRate = 14.0f;
+inline constexpr float kStepSmoothFloor = 1.2f;
+inline constexpr float kStepSmoothMax = 1.0f;
 inline constexpr float kSprintScale = 1.3f;
 // The window for a second press of space to mean "fly".
 inline constexpr double kDoubleTapSeconds = 0.3;
@@ -140,8 +147,10 @@ class Player {
   Vec3 eye() const {
     return {body_.pos.x, body_.pos.y + playerConst::kEyeHeight, body_.pos.z};
   }
-  // Added to the render camera only.
-  Vec3 viewBobOffset() const;
+  // Added to the render camera only: the walk bob, plus whatever is left of the
+  // last auto-step's rise. Both are presentation, which is why the aiming eye
+  // above does not see either of them.
+  Vec3 viewOffset() const;
   // The same walk cycle the camera bob rides on, so the held item can sway in step
   // with the head instead of on a clock of its own.
   float bobPhase() const { return bobPhase_; }
@@ -208,6 +217,8 @@ class Player {
   void stepMove(const world::World& world, int axis, float delta, bool swimming,
                 bool movingInto, bool wasGround);
   bool moveAxis(const world::World& world, int axis, float delta);
+  // Hands the camera the vertical distance an auto-step just moved the body.
+  void noteStepRise(float rise);
 
   Body body_;
   Vec3 vel_;
@@ -237,6 +248,11 @@ class Player {
   // sways while moving and settles when still.
   float bobPhase_ = 0.0f;
   float bobMagnitude_ = 0.0f;
+
+  // How much of the last auto-step's rise the camera has yet to catch up on. An
+  // auto-step moves the body a whole half-block in one frame, and without this the
+  // eye teleports with it — every stair tread a visible jolt.
+  float stepSmooth_ = 0.0f;
 
   float health_ = survivalConst::kMaxHealth;
   float hunger_ = survivalConst::kMaxHunger;

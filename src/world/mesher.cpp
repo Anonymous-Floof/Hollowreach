@@ -40,10 +40,6 @@ constexpr float kWaterFull = 0.875f;
 // always points the way the bed is laid.
 constexpr int kBedTopRot[4] = {1, 3, 0, 2};
 
-// Torch mounting: meta 0 stands on the floor, 1-4 hug a wall with the given
-// into-the-room direction.
-constexpr int kTorchDir[5][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
 std::uint8_t quant(float v) {
   if (v <= 0.0f) return 0;
   if (v >= 1.0f) return 255;
@@ -307,9 +303,8 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
             constexpr double hw = 0.09, H = 0.625;
             double bx = wx + 0.5, bz = wz + 0.5, by = wy;
             double tx = wx + 0.5, tz = wz + 0.5, ty = wy + H;
-            const int m = centre->meta[localIdx(x, y, z)] & 7;
-            if (m >= 1 && m <= 4) {
-              const int dx = kTorchDir[m][0], dz = kTorchDir[m][1];
+            int dx = 0, dz = 0;
+            if (crossMountDir(centre->meta[localIdx(x, y, z)], dx, dz)) {
               by = wy + 0.18;                 // sit up the wall a little
               bx = wx + 0.5 - dx * 0.42;      // base against the wall
               bz = wz + 0.5 - dz * 0.42;

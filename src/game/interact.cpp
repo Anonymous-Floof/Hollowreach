@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "audio/sfx.h"
 #include "game/blockentities.h"
@@ -143,6 +144,9 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
 
   const world::BlockId id = world.getBlock(hit.x, hit.y, hit.z);
   const world::BlockDef& b = world::blocks().def(id);
+
+  // ---- pick block ----
+  if (input.clicked(MouseButton::Middle)) pickBlock(inventory, b, hooks);
 
   // ---- breaking ----
   if (input.buttonDown(MouseButton::Left) && b.breakable) {
@@ -423,7 +427,7 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
   }
 
   // bit0 marks a player-placed leaf, exempting it from natural leaf decay.
-  const int meta = placed.isLeaf ? 1 : placementMeta(placed.render, player, hit);
+  const int meta = placed.isLeaf ? 1 : placementMeta(placed, player, hit);
 
   // Beds occupy two horizontal cells: foot plus head, extending away from the
   // player.
@@ -463,13 +467,66 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
   audio::sfx::blockPlace(placed, Vec3{cx + 0.5f, cy + 0.5f, cz + 0.5f});
 }
 
+// Middle click. There is no creative mode here, so this cannot conjure a block
+// out of nothing — it finds one you already own and brings it to hand, which is
+// the half of Minecraft's pick block that a survival game can have and, on a
+// build halfway up a wall, the half that was doing the work anyway.
+void Interact::pickBlock(Inventory& inventory, const world::BlockDef& block,
+                         const InteractHooks& hooks) {
+  // Item keys and block keys are the same string by construction. Air, water and
+  // bedrock deliberately have no item, and pick returns nothing for them.
+  const ItemDef* item = getItem(block.key);
+  if (!item || item->type != ItemType::Block) return;
+
+  auto holds = [&](int slot) {
+    const ItemStack& s = inventory.slots()[slot];
+    return !s.empty() && s.key == block.key;
+  };
+
+  // Already on the bar: just select it, and leave the arrangement alone. Moving
+  // a stack that was already reachable is the one thing this must not do.
+  for (int i = 0; i < kHotbarSlots; ++i) {
+    if (holds(i)) {
+      inventory.setSelected(i);
+      return;
+    }
+  }
+
+  int from = -1;
+  for (int i = kHotbarSlots; i < kInventorySlots; ++i) {
+    if (holds(i)) {
+      from = i;
+      break;
+    }
+  }
+  if (from < 0) {
+    if (hooks.notify) hooks.notify("No " + item->name + " in your pack");
+    return;
+  }
+
+  // An empty bar slot first, so picking a block never costs you the pickaxe you
+  // are holding. With a full bar it swaps rather than overwrites, which puts the
+  // displaced stack where the picked one came from instead of destroying it.
+  int to = -1;
+  for (int i = 0; i < kHotbarSlots; ++i) {
+    if (inventory.slots()[i].empty()) {
+      to = i;
+      break;
+    }
+  }
+  if (to < 0) to = inventory.selected();
+  std::swap(inventory.slots()[from], inventory.slots()[to]);
+  inventory.setSelected(to);
+}
+
 int Interact::facingOf(const Player& player) {
   const Vec3 f = player.forward();
   if (std::fabs(f.x) >= std::fabs(f.z)) return f.x >= 0 ? 0 : 1;
   return f.z >= 0 ? 2 : 3;
 }
 
-int Interact::placementMeta(RenderKind render, const Player& player, const RayHit& hit) {
+int Interact::placementMeta(const world::BlockDef& def, const Player& player, const RayHit& hit) {
+  const RenderKind render = def.render;
   const int f = facingOf(player);
   const int fnx = hit.nx - hit.x, fny = hit.ny - hit.y, fnz = hit.nz - hit.z;
   // Where on the clicked cell the cursor landed: the top half if we clicked the
@@ -491,7 +548,10 @@ int Interact::placementMeta(RenderKind render, const Player& player, const RayHi
       return kFaceThePlayer[f];
     }
     case RenderKind::Cross: {
-      // Torch: a wall mount faces into the room.
+      // Torch: a wall mount faces into the room. A plant never takes one — its
+      // billboard is drawn standing whatever the meta says, so a wall meta would
+      // leave a flower rooted in mid-air while the support check watched the wall.
+      if (def.isPlant) return 0;
       if (fnx == 1) return 1;
       if (fnx == -1) return 2;
       if (fnz == 1) return 3;

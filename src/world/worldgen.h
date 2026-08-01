@@ -89,6 +89,16 @@ ColumnInfo columnInfo(const NoiseSet& n, int wx, int wz, int ver);
 int heightAt(const NoiseSet& n, int wx, int wz, int ver = kGenVersion);
 Biome biomeAt(const NoiseSet& n, int wx, int wz, int ver = kGenVersion);
 
+// True when a ravine has carved this column open from the surface down.
+//
+// Exposed because ravines are cut *after* the heightmap, out of ground heightAt
+// has already reported as solid — so a column over a canyon still reports its
+// uncarved surface, and anything choosing a place to stand on height alone will
+// happily pick the lip of a thirty-block drop. Cheap to ask in bulk: the
+// low-frequency band that decides where a ravine runs is tested first, and the
+// column height only worked out for the few that fall inside it.
+bool ravineAt(const NoiseSet& n, int wx, int wz, int ver = kGenVersion);
+
 // Fills chunk.data->voxels. Metadata, lighting and entities are not produced here,
 // exactly as in the JS — which is why this function is safe to run off-thread.
 void generate(Chunk& chunk, const NoiseSet& n, int ver = kGenVersion);

@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "world/blocks.h"
+#include "world/shapes.h"
 #include "world/world.h"
 
 namespace hr::world {
@@ -73,11 +74,23 @@ bool BlockUpdateSim::process(int x, int y, int z) {
 
   const BlockId below = y > 0 ? world_.getBlock(x, y - 1, z) : wk().bedrock;
 
-  // Lost its ground. Solid rather than opaque is the right test: a slab, a stair
-  // or a pane of glass all hold a torch up, while water and air do not.
-  if (def.needsGround && !blocks().solid(below)) {
-    world_.breakBlockInto(x, y, z);
-    return true;
+  // Lost its support. Which cell that is comes from the block's own metadata: a
+  // torch on a wall is held by the wall, and asking the floor about it is what
+  // dropped every wall torch in the world the first time this ran.
+  if (def.needsGround) {
+    int dx = 0, dy = -1, dz = 0;
+    supportOffset(def.render, world_.getMeta(x, y, z), dx, dy, dz);
+    const int sx = x + dx, sy = y + dy, sz = z + dz;
+    // A wall mount reaches sideways, which can be into a chunk that has not
+    // arrived — and an absent chunk reads as air, the same trap as above.
+    if (!world_.chunkReady(World::floorDiv16(sx), World::floorDiv16(sz))) return false;
+    // Solid rather than opaque is the right test: a slab, a stair or a pane of
+    // glass all hold a torch up, while water and air do not.
+    const BlockId support = sy < 0 ? wk().bedrock : world_.getBlock(sx, sy, sz);
+    if (!blocks().solid(support)) {
+      world_.breakBlockInto(x, y, z);
+      return true;
+    }
   }
 
   // Falls. Air below only. Landing *into* water is what builds a beach, and sand

@@ -87,6 +87,7 @@ all and is the fastest way to know a change did not break something.
 | Sneak (slow) | Left Shift |
 | Break block / attack | Left mouse (hold) |
 | Place / use station / open door / sleep / **eat** | Right mouse |
+| Pick block (bring one you own to hand) | Middle mouse |
 | Drop item | Q (one) · Ctrl+Q (whole stack) |
 | Climb ladder | Walk into it + W/Space (Shift = down) |
 | Select hotbar | 1–9 / scroll |

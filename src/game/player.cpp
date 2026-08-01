@@ -67,6 +67,11 @@ bool Player::moveAxis(const world::World& world, int axis, float delta) {
   return sweepAxis(world, body_, axis, delta);
 }
 
+void Player::noteStepRise(float rise) {
+  if (rise <= 0.0f) return;
+  stepSmooth_ = std::min(kStepSmoothMax, stepSmooth_ + rise);
+}
+
 void Player::stepMove(const world::World& world, int axis, float delta, bool swimming,
                       bool movingInto, bool wasGround) {
   const bool blocked = moveAxis(world, axis, delta);
@@ -84,7 +89,20 @@ void Player::stepMove(const world::World& world, int axis, float delta, bool swi
     return;
   }
   if (!moveAxis(world, axis, delta)) {
-    if (!swimming) return;  // stepped onto a ledge; gravity reseats us
+    if (!swimming) {
+      // Stepped onto the ledge. Settle straight down onto it rather than leaving
+      // the body floating at the full step height and letting gravity find the
+      // surface: that fall takes several frames during which onGround_ is false,
+      // which stops the walk cycle dead and starts it again on landing. Once per
+      // tread, that flicker is what a staircase felt like.
+      //
+      // The sweep can only find the thing that blocked us in the first place: it
+      // overlaps our new footprint, and its top must lie between the old height
+      // and the raised one, or we would still be blocked up here.
+      moveAxis(world, 1, -(stepH + EPS));
+      noteStepRise(body_.pos.y - savedY);
+      return;
+    }
     // Only climb out of water if the head would surface into open air, otherwise
     // you would swim up through an overhang.
     const bool headAir =
@@ -93,6 +111,7 @@ void Player::stepMove(const world::World& world, int axis, float delta, bool swi
                        static_cast<int>(std::floor(body_.pos.z))) == world::kAir;
     if (headAir) {
       vel_.y = std::max(vel_.y, 0.0f);
+      noteStepRise(body_.pos.y - savedY);
       return;
     }
   }
@@ -248,6 +267,13 @@ void Player::update(float dt, const Input& input, const world::World& world,
   const float target = bobbing ? std::min(1.4f, hspeed / kWalk) : 0.0f;
   bobMagnitude_ += (target - bobMagnitude_) * std::min(1.0f, dt * 8.0f);
   if (bobbing) bobPhase_ += hspeed * dt * 1.65f;
+
+  // Work off whatever the last auto-step owes the camera.
+  if (stepSmooth_ > 0.0f) {
+    const float ease = stepSmooth_ * std::min(1.0f, dt * kStepSmoothRate);
+    stepSmooth_ -= std::max(ease, dt * kStepSmoothFloor);
+    if (stepSmooth_ < 0.0f) stepSmooth_ = 0.0f;
+  }
 }
 
 // js/game/player.js:198-235. Kept in one function, in the same order, because the
@@ -360,6 +386,9 @@ void Player::teleport(const Vec3& p) {
   vel_ = {0, 0, 0};
   falling_ = false;
   fallStartY_ = p.y;
+  // A warp is not a step, and easing the camera into one would drag the view up
+  // out of the ground you arrived on.
+  stepSmooth_ = 0.0f;
 }
 
 void Player::reviveFull() {
@@ -417,16 +446,21 @@ void Player::loadState(const PlayerState& s) {
   vel_ = {0, 0, 0};
   falling_ = false;
   fallStartY_ = body_.pos.y;
+  stepSmooth_ = 0.0f;
 }
 
-Vec3 Player::viewBobOffset() const {
-  if (bobMagnitude_ <= 0.001f) return {0, 0, 0};
+Vec3 Player::viewOffset() const {
+  // Negative: the body has already risen, so the eye trails behind it and catches
+  // up. Applied whether or not the walk cycle is running, because an auto-step is
+  // just as abrupt when you edge up a stair from a standstill.
+  const float step = -stepSmooth_;
+  if (bobMagnitude_ <= 0.001f) return {0, step, 0};
   const float vert = std::sin(bobPhase_ * 2.0f) * 0.05f * bobMagnitude_;  // a dip per footfall
   const float horiz = std::cos(bobPhase_) * 0.045f * bobMagnitude_;       // sway side to side
   // Camera right, from yaw alone: the bob should not tilt with pitch.
   const float rx = std::cos(yaw_);
   const float rz = -std::sin(yaw_);
-  return {rx * horiz, vert, rz * horiz};
+  return {rx * horiz, vert + step, rz * horiz};
 }
 
 }  // namespace hr::game

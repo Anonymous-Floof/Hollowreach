@@ -86,6 +86,7 @@ constexpr Control kControls[] = {
     {"Space", "Jump \xC2\xB7 double-tap to fly"},
     {"L-click", "Break block"},
     {"R-click", "Place / use / eat"},
+    {"M-click", "Pick block to hand"},
     // The en dash has to end its own literal: "\x939" would be read as one escape.
     {"1\xE2\x80\x93" "9 \xC2\xB7 Wheel", "Select hotbar"},
     {"E", "Inventory"},

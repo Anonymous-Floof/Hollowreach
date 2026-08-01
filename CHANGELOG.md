@@ -15,6 +15,43 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Pick block on middle click.** Aim at a block and click the wheel to bring one
+  to hand: it selects the stack if it is already on your bar, and otherwise pulls
+  it out of your pack into a free slot, swapping only if the bar is full. It
+  cannot conjure blocks — there is no creative mode here — so it finds one you
+  already own.
+
+### Fixed
+- **Wall torches stopped falling off walls.** The support rules that arrived in
+  2.1.0 only ever looked at the cell below, and a torch mounted on a wall has
+  nothing below it by definition, so every one of them broke the moment anything
+  disturbed it. A block now asks whichever cell actually holds it up.
+- **Walking up stairs no longer jolts the camera.** An auto-step moved you the
+  full step height in a single frame and left gravity to settle you onto the
+  tread, which took a few frames of not being on the ground — long enough to stop
+  the walk cycle and start it again. Once per stair, that read as jitter. You now
+  land on the tread directly and the eye eases up over about a tenth of a second.
+- **Spawn avoids ravines, and dying takes you back to where the world started
+  you.** Two separate faults with the same symptom, which together were a death
+  loop: the spawn search only consulted the surface heightmap, and a ravine is
+  carved *after* that heightmap out of ground it still reports as solid — so a
+  canyon was invisible to it and you could be placed on the lip of a thirty-block
+  drop. Meanwhile respawning ignored the chosen spawn entirely and sent you to the
+  world origin, which is exactly the spot the search exists to move you off. Over
+  twenty-four test seeds the old rule left seven starts beside a drop that could
+  kill outright, the worst of them fifty-seven blocks; there are now none.
+- **Tools and swords lead with their edge.** They were still swinging the flat of
+  the head into the block. A held item is its sprite extruded a texel, and the
+  flat leads exactly while that face still points down the view axis — so the
+  turn needed to be a full quarter, not the half-measure of the last attempt. The
+  art stays readable because the hand sits far enough to the right that side-on to
+  the swing is nowhere near side-on to the eye. The shovel is unchanged: it digs
+  with its blade face, and always did.
+- **The map's own key legend says M**, which is what the map has opened with since
+  2.1.0 rebound it; and the recipe book's Back button and the multiplayer status
+  line no longer show a stray `Â` where a separator dot belongs.
+
 ## [2.1.0] - 2026-08-01
 
 ### Added

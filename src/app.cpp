@@ -599,7 +599,7 @@ ui::UiFrame App::uiFrame() {
       f.nameplates.push_back(ui::UiFrame::Nameplate{plate.pos, plate.name, plate.health});
     }
     const int others = static_cast<int>(ghosts->playerCount());
-    f.netLine = (netHosting() ? "hosting Â· " : "guest Â· ") +
+    f.netLine = (netHosting() ? "hosting \xC2\xB7 " : "guest \xC2\xB7 ") +
                 std::to_string(others + 1) + " player" + (others == 0 ? "" : "s");
   }
   return f;
@@ -966,14 +966,18 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
                         static_cast<int>(std::floor(sz)), world_->genVersion())) +
          2.0f;
   }
+  // Where this world calls home: dry, reasonably flat, clear of ravines, and as
+  // near the origin as all that allows. Computed for every world and not only for
+  // a new one, because it is also where you come back after dying without a soul
+  // anchor — and it is a pure function of the seed and the generator version, so
+  // asking it again on load gives a saved world exactly the home it was created
+  // with, and no save format has to carry it.
+  worldSpawn_ = world_->findSpawn(kSpawnX, kSpawnZ);
   if (!options.haveSpawnOverride && !loaded) {
-    // A NEW world picks its own spot: dry, reasonably flat, as near the origin as
-    // that allows. A loaded world keeps the one it was saved with, and --at still
-    // overrides both.
-    const Vec3 spot = world_->findSpawn(sx, sz);
-    sx = spot.x;
-    sz = spot.z;
-    sy = spot.y;
+    // A saved world keeps wherever the player was left, and --at overrides both.
+    sx = worldSpawn_.x;
+    sz = worldSpawn_.z;
+    sy = worldSpawn_.y;
   }
 
   // Synchronous, so the player never spawns inside unloaded space and fall through.
@@ -1235,11 +1239,11 @@ void App::leaveWorld() {
 
 Vec3 App::spawnPoint() const {
   if (hasSpawn_) return spawn_;
-  // Nothing bound: the world origin column, on the surface or on the sea above it.
-  return Vec3{kSpawnX,
-              static_cast<float>(world_->spawnHeight(static_cast<int>(std::floor(kSpawnX)),
-                                                     static_cast<int>(std::floor(kSpawnZ)))),
-              kSpawnZ};
+  // Nothing bound: back to where the world started you. This used to be the origin
+  // column whatever was there, which is not the same place — so a world whose home
+  // had been moved off a beach or a canyon put you back on it the first time you
+  // died, and if the origin was a ravine lip that was a loop you could not leave.
+  return worldSpawn_;
 }
 
 void App::respawnPlayer() {
@@ -1594,7 +1598,7 @@ void App::tossStack(const std::string& key, int count, int dura) {
 void App::renderWorld() {
   // The eye used for rendering carries the head bob; the one used for aiming does
   // not, so the crosshair never drifts while walking.
-  const Vec3 eye = player_->eye() + player_->viewBobOffset();
+  const Vec3 eye = player_->eye() + player_->viewOffset();
   camera_.update(eye, player_->yaw(), player_->pitch());
 
   // Submerged post-effect, eased rather than snapped so breaking the surface is a

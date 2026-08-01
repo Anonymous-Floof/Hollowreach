@@ -350,7 +350,7 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
     s.width = kAuto;
     s.margin = Edges(0);
     doc_.begin(s, kTagBack);
-    doc_.label("Back Â· H", widget::btnSmallText(hovered, widget::ButtonKind::Normal));
+    doc_.label("Back \xC2\xB7 H", widget::btnSmallText(hovered, widget::ButtonKind::Normal));
     doc_.end();
   }
   doc_.end();

@@ -278,10 +278,14 @@ class App {
   bool worldOnDisk_ = false;
   float autosaveT_ = 0.0f;
 
-  // The player-set spawn point, from a bound Soul Anchor. Absent means "derive the
-  // default from the terrain", which is why it is a flag and not a sentinel value.
+  // The player-set spawn point, from a bound Soul Anchor. Absent means "fall back
+  // to the world's own home", which is why it is a flag and not a sentinel value.
   bool hasSpawn_ = false;
   Vec3 spawn_;
+  // The world's home: what findSpawn chose on entry, and where an unbound player
+  // respawns. Derived from the seed rather than saved, so it is the same place for
+  // a world made today and one loaded from before this field existed.
+  Vec3 worldSpawn_;
 
   // --- multiplayer ---
   // Exactly one of these is live at a time, or neither. A guest's world is never

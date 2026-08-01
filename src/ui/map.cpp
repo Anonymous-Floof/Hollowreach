@@ -384,7 +384,7 @@ void Atlas::buildPanel(Ui2D& ui, Text& text, const UiEvent& event) {
   hint.margin = Edges(8, 0, 0, 0);
   hint.maxWidth = 212;
   panel_.label("Click: add \xC2\xB7 right-click: remove \xC2\xB7 drag: pan \xC2\xB7 "
-               "scroll: zoom \xC2\xB7 N/Esc: close",
+               "scroll: zoom \xC2\xB7 M/Esc: close",
                widget::muted(11.5f), hint);
   panel_.end();
 
