@@ -97,6 +97,14 @@ struct AppOptions {
   // actually cost -- a pass that got 40% cheaper can leave the number at 20 and
   // look like it did nothing.
   bool noVsync = false;
+  // --perf: bracket every render pass with a GL_TIME_ELAPSED query and every
+  // main-thread phase with a timer, publish a rolling mean, and print a breakdown
+  // at exit. Implies --no-vsync. This exists because every performance number
+  // this project produced before it was a single wall-clock figure with no
+  // attribution, and two separate diagnoses drawn from one turned out to be
+  // wrong. Off by default: the queries cost two GL calls per pass, and a
+  // profiler nobody asked for should not be in a player's frame.
+  bool perf = false;
   // --freeze: no player physics, so --at is honoured exactly rather than being a
   // starting position to fall from. The world still streams and the sky still
   // turns; only the body is held still.

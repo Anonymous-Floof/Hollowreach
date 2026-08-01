@@ -121,6 +121,8 @@ int App::run(const AppOptions& options) {
   }
   icons_.upload();
 
+  // Before init: the query ring is allocated there, and only when asked for.
+  renderer_.profiler().setEnabled(options.perf);
   if (!renderer_.init(shaders_, &atlas_)) {
     log::error("Renderer initialisation failed; see the log above.");
     return 1;
@@ -271,6 +273,7 @@ int App::run(const AppOptions& options) {
               streamFrames_, streamTotal_ / streamFrames_, streamWorst_, streamWorstFrame_,
               jobs::system().threadCount());
   }
+  renderer_.profiler().logReport();
   log::info("shutting down");
   // Closing the window is the native equivalent of closing the browser tab, and the
   // web build lost everything since its last autosave when that happened. Here the
@@ -1376,7 +1379,10 @@ void App::updatePlaying(double dt) {
   if (!netGuest()) world_->tickWater(fdt);
 
   refreshEntityContext();
-  entities_.tick(fdt, entityContext_);
+  {
+    render::CpuScope cs(renderer_.profiler(), render::CpuPhase::Entities);
+    entities_.tick(fdt, entityContext_);
+  }
 
   // Passive grazers on nearby grass in daylight, zombies on nearby ground at
   // night, both capped and both on a four-second cadence. The host owns every
@@ -1429,6 +1435,7 @@ void App::updatePlaying(double dt) {
     const double t0 = nowMillis();
     world_->update(player_->pos().x, player_->pos().z);
     const double ms = nowMillis() - t0;
+    renderer_.profiler().addCpu(render::CpuPhase::WorldUpdate, ms);
     streamTotal_ += ms;
     ++streamFrames_;
     if (ms > streamWorst_) {
@@ -1526,9 +1533,20 @@ void App::renderWorld() {
   // of the world, and a wireframe box in the middle of a screenshot is exactly
   // what F1 is being pressed to get rid of.
   const bool showSelection = interact_.hasSelection() && interface_.hudVisible();
-  renderer_.render(*world_, camera_, sky_, window_.width(), window_.height(),
-                   showSelection ? &selection : nullptr,
-                   inventory_.selectedSlot().key, underwater_, clock_.simTime());
+  {
+    // Everything in render() that is not one of the bracketed GPU passes: the
+    // uniform setting, the state changes and the driver's own submission cost.
+    render::CpuScope cs(renderer_.profiler(), render::CpuPhase::Submit);
+    renderer_.render(*world_, camera_, sky_, window_.width(), window_.height(),
+                     showSelection ? &selection : nullptr,
+                     inventory_.selectedSlot().key, underwater_, clock_.simTime());
+  }
+  renderer_.profiler().endFrame(clock_.rawDt() * 1000.0);
+
+  if (renderer_.profiler().enabled()) {
+    static Interval perfLog {1.0};
+    if (perfLog.due(clock_.dt())) log::info("%s", renderer_.profiler().summaryLine());
+  }
 
   static Interval statsLog {2.0};
   if (statsLog.due(clock_.dt())) {

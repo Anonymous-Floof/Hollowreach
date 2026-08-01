@@ -350,10 +350,23 @@ int World::scanAndSubmit(int pcx, int pcz, int genBudget, int stageBudget, int m
   bool anyMissing = false;
 
   const std::vector<std::pair<int, int>>& ring = ringOffsets(renderDistance_);
+  // Generation reaches one chunk FURTHER than anything is ever lit, meshed or
+  // drawn. Lighting and meshing both refuse a chunk whose four cardinal
+  // neighbours are not all generated (below), and generation used to stop at the
+  // same radius the render distance did — so every chunk on the outer edge of the
+  // ring had a neighbour that could never exist, sat permanently lightDirty and
+  // meshDirty, and was never meshed at all. That cost three things: the outermost
+  // ring of the world had no geometry, its all-zero light arrays were sampled by
+  // the ring inside it and drew a dark seam there, and `pendingCount` could never
+  // reach zero (68 of 489 chunks at render distance 12, a floor that grew with
+  // the perimeter and so looked like a streamer that would not converge).
+  // unloadFar already keeps renderDistance_ + 2, so the apron is never unloaded
+  // out from under the ring it exists to serve.
+  const std::vector<std::pair<int, int>>& apron = ringOffsets(renderDistance_ + 1);
 
   // --- generation: only scanned when something might be missing --------------
   if (forceScan_) {
-    for (const auto& [dx, dz] : ring) {
+    for (const auto& [dx, dz] : apron) {
       const int cx = pcx + dx, cz = pcz + dz;
       if (chunkAt(cx, cz)) continue;
       if (generated >= genBudget || genInFlight_ >= maxInFlight) {
@@ -840,7 +853,17 @@ bool World::isExplored(int cx, int cz) const {
 
 std::size_t World::pendingCount() const {
   std::size_t n = 0;
+  // Only chunks inside the render distance count. The generation apron one ring
+  // further out exists purely so the outermost DRAWN ring has the four neighbours
+  // lighting and meshing require; an apron chunk is deliberately never lit or
+  // meshed, so its standing lightDirty/meshDirty flags are the intended state and
+  // not outstanding work. Counting them would leave this reading a permanent
+  // non-zero — which is exactly the false alarm the apron was added to remove.
+  const int r = renderDistance_;
   for (const auto& [key, lc] : chunks_) {
+    const int dx = lc->chunk.cx - lastPcx_;
+    const int dz = lc->chunk.cz - lastPcz_;
+    if (dx * dx + dz * dz > r * r) continue;
     const Chunk& c = lc->chunk;
     if (c.lightDirty || c.meshDirty || c.genInFlight || c.lightInFlight || c.meshInFlight) ++n;
   }

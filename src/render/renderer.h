@@ -19,6 +19,7 @@
 #include "core/shader.h"
 #include "render/entityrenderer.h"
 #include "render/gbuffer.h"
+#include "render/gputimer.h"
 #include "render/itemmesh.h"
 #include "render/screenquad.h"
 #include "render/sky.h"
@@ -105,6 +106,11 @@ class Renderer {
   long long loadedTris() const { return loadedTris_; }
   long long shadowTris() const { return shadowTris_; }
 
+  // Per-pass GPU timing. Off unless --perf asked for it, in which case it costs
+  // two GL calls a pass and never reads a result back on the frame that wrote it.
+  FrameProfiler& profiler() { return profiler_; }
+  const FrameProfiler& profiler() const { return profiler_; }
+
  private:
   void drawHeld(const world::World& world, const Camera& camera, const Sky& sky,
                 const std::string& itemKey, float aspect);
@@ -142,6 +148,7 @@ class Renderer {
 
   QualitySettings quality_;
   int debug_ = 0;
+  FrameProfiler profiler_;
 
   GLuint shadowTex_ = 0, shadowFbo_ = 0;
   int shadowSize_ = 0;
@@ -170,6 +177,15 @@ class Renderer {
   std::vector<LightCandidate> lightScratch_;
 
   std::vector<const world::LoadedChunk*> visible_;
+
+  // The opaque terrain draw list, built by the cull loop and then sorted near to
+  // far before any of it is submitted. Persistent so the sort allocates once.
+  struct DrawItem {
+    const world::LoadedChunk* chunk;
+    unsigned mask;  // which vertical sections survived the frustum test
+    float d2;       // squared horizontal distance from the camera, the sort key
+  };
+  std::vector<DrawItem> drawList_;
   int drawnChunks_ = 0;
   long long drawnTris_ = 0;
   long long loadedTris_ = 0;

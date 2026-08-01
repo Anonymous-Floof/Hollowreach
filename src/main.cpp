@@ -55,6 +55,8 @@ void printUsage() {
       "  --debug-view <n>    1 = ambient occlusion term, 2 = sun shadow term\n"
       "  --no-hud            hide the hotbar, hearts and crosshair (F1 in game)\n"
       "  --freeze            no player physics, so --at is held exactly\n"
+      "  --no-vsync          uncap the frame rate, for measurement\n"
+      "  --perf              per-pass GPU and CPU timing, and a report at exit\n"
       "  --give <list>       start holding items: key[:count][,key[:count]...]\n"
       "  --spawn <list>      place entities near spawn: type[:count][,...]\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
@@ -214,6 +216,9 @@ int main(int argc, char** argv) {
       wantsWorld = true;
     } else if (std::strcmp(arg, "--no-vsync") == 0) {
       options.noVsync = true;
+    } else if (std::strcmp(arg, "--perf") == 0) {
+      options.perf = true;
+      options.noVsync = true;  // a vsync-flattened frame time measures the display
     } else if (std::strcmp(arg, "--freeze") == 0) {
       options.freezePlayer = true;
       wantsWorld = true;

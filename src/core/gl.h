@@ -33,6 +33,7 @@ using GLdouble = double;
 using GLchar = char;
 using GLintptr = std::intptr_t;
 using GLsizeiptr = std::ptrdiff_t;
+using GLuint64 = std::uint64_t;
 using GLvoid = void;
 
 // --- constants (only what we use) ------------------------------------------
@@ -168,6 +169,13 @@ using GLvoid = void;
 #define GL_DEPTH_ATTACHMENT 0x8D00
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 
+// Timer queries. GL_TIME_ELAPSED brackets a pass and reports nanoseconds of GPU
+// time; the result is read back several frames later so asking for it never
+// stalls the pipeline the way glFinish or an immediate GL_QUERY_RESULT would.
+#define GL_TIME_ELAPSED 0x88BF
+#define GL_QUERY_RESULT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
@@ -301,7 +309,14 @@ using GLDEBUGPROC = void(
   X(void, ReadBuffer, (GLenum src))                                                                           \
   X(void, BlitFramebuffer,                                                                                   \
     (GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0, GLint dx1, GLint dy1,                  \
-     GLbitfield mask, GLenum filter))
+     GLbitfield mask, GLenum filter))                                                                        \
+  /* timer queries (core since 3.3) — see render/gputimer.h */                                               \
+  X(void, GenQueries, (GLsizei n, GLuint * out))                                                              \
+  X(void, DeleteQueries, (GLsizei n, const GLuint* q))                                                        \
+  X(void, BeginQuery, (GLenum target, GLuint q))                                                              \
+  X(void, EndQuery, (GLenum target))                                                                          \
+  X(void, GetQueryObjectuiv, (GLuint q, GLenum name, GLuint * out))                                           \
+  X(void, GetQueryObjectui64v, (GLuint q, GLenum name, GLuint64 * out))
 
 #define GL_DECL(ret, name, args) using PFN_gl##name = ret(GLAPI_CALL*) args;
 GL_FUNCS(GL_DECL)

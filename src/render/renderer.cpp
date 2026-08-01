@@ -122,10 +122,13 @@ bool Renderer::init(ShaderCache& shaders, const resource::Atlas* atlas) {
   lightRad_.assign(kMaxLights, 0.0f);
 
   ensureShadowFbo(quality_.shadowSize);
+  // No-op unless --perf set the flag before init.
+  profiler_.init();
   return true;
 }
 
 void Renderer::dispose() {
+  profiler_.dispose();
   entityRenderer_.dispose();
   gbuffer_.dispose();
   fullscreen_.destroy();
@@ -581,6 +584,10 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   const float aspect = static_cast<float>(screenWidth) / std::max(1, screenHeight);
   gbuffer_.resize(screenWidth, screenHeight, quality_.scale);
 
+  // Rotates the query ring and harvests results from four frames ago. Must come
+  // before any pass opens a query.
+  profiler_.beginFrame();
+
   // Entity walk cycles integrate against a real-time clock rather than the sky
   // clock, because the sky can be paused (--time) or run at any rate and a frozen
   // sky must not freeze a sheep mid-stride.
@@ -600,7 +607,10 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   const float fogFar = std::max(40.0f, far) * (1.0f - 0.42f * mf);
 
   // ===================== Pass 0: sun shadow map =====================
-  renderShadowMap(world, camera, sky, time);
+  {
+    GpuScope gs(profiler_, GpuPass::Shadow);
+    renderShadowMap(world, camera, sky, time);
+  }
 
   // ===================== Pass 1: scene G-buffer =====================
   gbuffer_.bindScene();
@@ -609,6 +619,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   // Sky fills the background with no depth, so any geometry overwrites it.
+  profiler_.begin(GpuPass::Sky);
   glDisable(GL_DEPTH_TEST);
   glDepthMask(GL_FALSE);
   skyProg_->use();
@@ -624,8 +635,10 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   skyProg_->set("uDayFactor", sky.dayFactor());
   skyProg_->set("uTime", t);
   fullscreen_.draw();
+  profiler_.end();
 
   // Opaque terrain.
+  profiler_.begin(GpuPass::Terrain);
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
@@ -641,10 +654,15 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   terrainProg_->set("uTime", t);
 
   visible_.clear();
+  drawList_.clear();
   bool anyWater = false;
   drawnTris_ = 0;
   loadedTris_ = 0;
   const Frustum& frustum = camera.frustum();
+  // Culling and submission together: this is the CPU cost of terrain, and the
+  // question it answers is whether the frame is submission bound or shading bound.
+  {
+  CpuScope csVisible(profiler_, CpuPhase::Visibility);
   for (const auto& [key, lc] : world.chunks()) {
     loadedTris_ += lc->opaqueMesh.count() / 3;
     if (lc->opaqueMesh.empty() && lc->waterMesh.empty()) continue;
@@ -673,18 +691,43 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
       drawnTris_ += n / 3;
       mask |= 1u << i;
     }
-    lc->opaqueMesh.drawSectionMask(mask);
+    if (mask == 0) continue;
+    const float dcx = minx + world::CX * 0.5f - camera.pos().x;
+    const float dcz = minz + world::CZ * 0.5f - camera.pos().z;
+    drawList_.push_back({lc.get(), mask, dcx * dcx + dcz * dcz});
   }
+
+  // Front to back, so the depth test rejects hidden fragments against depth that
+  // is already there rather than against whatever hash order happened to put down
+  // first. Measured honestly: while the chunk buffers were still DYNAMIC_DRAW this
+  // was worth exactly nothing (36.51 -> 36.35 ms, i.e. noise), because the pass
+  // was starved on PCIe vertex fetch and no amount of fragment rejection helps
+  // with that. With that fixed it is worth about 0.1 ms of a 1.1 ms pass. Kept at
+  // that size because it costs 0.06 ms of CPU and one sort, and because it is the
+  // half of the win that grows if the `discard` ever leaves the terrain shader.
+  std::sort(drawList_.begin(), drawList_.end(),
+            [](const DrawItem& a, const DrawItem& b) { return a.d2 < b.d2; });
+  for (const DrawItem& it : drawList_) it.chunk->opaqueMesh.drawSectionMask(it.mask);
+  }
+  profiler_.end();
   drawnChunks_ = static_cast<int>(visible_.size());
 
   // Entities share the opaque pass: they write the same three targets, so the
   // composite lights a sheep on exactly the curve it lights the grass under it.
-  if (entities_) entityRenderer_.drawGBuffer(world, *entities_, camera, animClock_);
+  {
+    GpuScope gs(profiler_, GpuPass::Entities);
+    if (entities_) entityRenderer_.drawGBuffer(world, *entities_, camera, animClock_);
+  }
 
   // ================ Pass 1b: screen-space AO, blurred ================
-  GBuffer::Aux* ssaoTarget = renderSSAO(camera, screenWidth, screenHeight);
+  GBuffer::Aux* ssaoTarget = nullptr;
+  {
+    GpuScope gs(profiler_, GpuPass::Ssao);
+    ssaoTarget = renderSSAO(camera, screenWidth, screenHeight);
+  }
 
   // ================= Pass 2: composite (lighting) ====================
+  profiler_.begin(GpuPass::Composite);
   gbuffer_.bindLitColor();
   glDisable(GL_DEPTH_TEST);
   glDepthMask(GL_FALSE);
@@ -752,7 +795,10 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
     const game::ItemDef* it = game::getItem(heldItem);
     if (it && it->type == game::ItemType::Block) heldBlock = it->blockId;
   }
-  collectLights(world, camera.pos(), heldBlock);
+  {
+    CpuScope cs(profiler_, CpuPhase::CollectLights);
+    collectLights(world, camera.pos(), heldBlock);
+  }
   compositeProg_->set("uLightCount", lightCount_);
   if (lightCount_ > 0) {
     compositeProg_->setVec3Array("uLightPos", lightPos_.data(), lightCount_);
@@ -760,8 +806,10 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
     compositeProg_->setFloatArray("uLightRad", lightRad_.data(), lightCount_);
   }
   fullscreen_.draw();
+  profiler_.end();
 
   // ========== Pass 2b: forward water with SSR, then selection ==========
+  profiler_.begin(GpuPass::Water);
   // The reflection blit, depth copy and water pass only run when a water mesh is
   // actually in view: skipping them draws nothing different and saves two full-res
   // blits on dry scenes.
@@ -832,11 +880,17 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
 
   if (selection) drawSelection(camera, *selection);
   if (!heldItem.empty()) drawHeld(world, camera, sky, heldItem, aspect);
+  profiler_.end();
 
   // ============ Pass 2c: god rays, half resolution =============
-  GBuffer::Aux* godray = renderGodrays(camera, sky);
+  GBuffer::Aux* godray = nullptr;
+  {
+    GpuScope gs(profiler_, GpuPass::Godray);
+    godray = renderGodrays(camera, sky);
+  }
 
   // ================= Pass 3: present to the screen =================
+  GpuScope gsPresent(profiler_, GpuPass::Present);
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glViewport(0, 0, screenWidth, screenHeight);
   glDisable(GL_DEPTH_TEST);
