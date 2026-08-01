@@ -72,7 +72,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 288 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 325 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -117,18 +117,30 @@ saves the open world on the way out.
 the main or pause menu) where you can view them, delete them, or reveal them in
 your file manager. They are ordinary PNGs in `data/screenshots/`.
 
-**Performance.** Measured at 1920×1080 on a Radeon RX 5700 XT, standing on the
-surface with the world settled, in milliseconds per frame:
+**Performance.** Milliseconds per frame at 1920×1080 on a Radeon RX 5700 XT:
 
 | Render distance | Low | High | Ultra |
 |---|---|---|---|
-| 4  | 1.05 (956 fps) | 2.02 (496 fps) | 2.26 (443 fps) |
-| 8  | 1.47 (680 fps) | 2.48 (404 fps) | 2.82 (354 fps) |
-| 12 | 1.85 (542 fps) | 2.90 (345 fps) | 3.11 (321 fps) |
+| 4  | 1.09 (914 fps) | 2.78 (360 fps) | 3.58 (279 fps) |
+| 8  | 1.38 (722 fps) | 3.11 (322 fps) | 3.87 (259 fps) |
+| 12 | 1.94 (515 fps) | 3.64 (275 fps) | 4.49 (223 fps) |
 
-Neither lever costs much any more. Render distance is nearly free past 8,
+Every cell comes from one command, so you can reproduce or dispute it:
+
+```
+Hollowreach --world --seed 3918175327 --at 0,0,0,0,0 --freeze --time 0.5 \
+  --quality ultra --render-distance 12 --no-vsync --perf --frames 2500
+```
+
+A fixed camera and a pinned midday sun, because both matter more than the
+settings do — how much sky is on screen sets what the cloud march costs, and
+that pass is about half the frame. An earlier version of this table quoted
+numbers a third lower with no camera attached to them, which made it impossible
+to tell a real change from a different place to stand.
+
+Neither lever costs much. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,
-and the whole spread from Low to Ultra at distance 12 is about 1.3 ms. If you do
+and the whole spread from Low to Ultra at distance 12 is about 2.6 ms. If you do
 need to claw some back, **Render Resolution** is the biggest single control —
 it draws the world at a fraction of the window and scales it up, leaving the
 interface sharp — and turning individual effects off (God Rays, Water
@@ -270,7 +282,7 @@ planks (any wood type), wooden tools, chests, boats, even torches — and the bu
 time is read straight from the item's recipe, so it scales with how much wood
 went in (no per-item bookkeeping).
 
-**Recipe book (press R):** categorised tabs (Building / Tools / Armour /
+**Recipe book (press H):** categorised tabs (Building / Tools / Armour /
 Materials / Smelting), a fuzzy **search** box, and grouped cards — near-identical
 recipes (every stairs material, every pickaxe tier, a torch's two fuels) collapse
 into one card you cycle with the **‹ ›** arrows. Hover any ingredient or result

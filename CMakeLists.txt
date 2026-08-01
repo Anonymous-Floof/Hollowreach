@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.21)
 #
 # Targets OpenGL 3.3 core, which is the desktop feature level matching WebGL2
 # one-for-one, so the ported shaders and render passes stay a direct translation.
-project(Hollowreach LANGUAGES C CXX VERSION 2.1.0)
+project(Hollowreach LANGUAGES C CXX VERSION 2.1.1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

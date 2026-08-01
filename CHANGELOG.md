@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.1.1] - 2026-08-01
+
 ### Added
 - **Pick block on middle click.** Aim at a block and click the wheel to bring one
   to hand: it selects the stack if it is already on your bar, and otherwise pulls
@@ -51,6 +53,13 @@ version heading when it's time to ship.
 - **The map's own key legend says M**, which is what the map has opened with since
   2.1.0 rebound it; and the recipe book's Back button and the multiplayer status
   line no longer show a stray `Â` where a separator dot belongs.
+- **The README's performance table is honest again.** It quoted numbers about a
+  third faster than this build measures, from a camera nobody wrote down — and
+  since roughly half a frame is the cloud march, where you stand changes the
+  answer more than the quality preset does. Every cell is re-measured, and the
+  exact command that produces it is printed underneath so it can be checked. The
+  renderer itself is untouched in this release: the old and new builds measure
+  the same frame, pass for pass, from the same spot.
 
 ## [2.1.0] - 2026-08-01
 
@@ -291,7 +300,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.1.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.0.0
 [1.2.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.2.0
