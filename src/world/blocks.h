@@ -143,6 +143,21 @@ struct BlockDef {
   bool shore = false;  // needs adjacent water to be placed
   bool isPlank = false;
 
+  // --- physical support, checked by BlockUpdateSim --------------------------
+  //
+  // These are what stop a torch hanging in mid-air after you mine the wall it was
+  // on, and they are deliberately data rather than a switch on block key: a
+  // resource pack that adds a plant should get the behaviour by declaring it.
+  //
+  // Breaks into its drop when the cell beneath stops being able to hold it. Every
+  // Cross-rendered block — torches, plants, mushrooms, pebbles — wants this.
+  bool needsGround = false;
+  // Breaks when water enters its own cell. A torch does not survive a flood, and
+  // nor does a tuft of grass.
+  bool washesAway = false;
+  // Falls as an entity when the cell beneath is air. Sand and anything like it.
+  bool falls = false;
+
   float plantHeight = 0.0f;  // billboard height in blocks
   float plantRadius = 0.0f;
 

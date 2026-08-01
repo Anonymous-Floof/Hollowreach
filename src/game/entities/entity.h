@@ -48,6 +48,7 @@ enum class EntityType : std::uint8_t {
   Cow,
   Zombie,
   RemotePlayer,
+  FallingBlock,
   Count,
 };
 

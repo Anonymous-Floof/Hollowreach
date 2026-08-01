@@ -1767,6 +1767,180 @@ bool anyWaterOnFloor(const world::World& w) {
   return false;
 }
 
+// --- block support, falling blocks, washaway ---------------------------------
+//
+// The scale claim is the one that has to be checked rather than asserted: a
+// generated world is full of grass and torches, and if generation scheduled any
+// of it the queue would start in the tens of thousands and never be free again.
+
+int settleBlocks(world::World& w, int maxTicks = 400) {
+  for (int i = 0; i < maxTicks; ++i) {
+    if (w.blockUpdates().pending() == 0) return i;
+    w.tickBlockUpdates(0.0625f);
+  }
+  return maxTicks;
+}
+
+void testBlockSupport() {
+  std::printf("block support\n");
+  const world::BlockId stone = world::wk().greystone;
+  const world::BlockId grass = world::wk().tall_grass;
+  const world::BlockId torch = world::wk().emberlight;
+  const world::BlockId sand = world::wk().sand;
+  const world::BlockId water = world::wk().water;
+
+  // --- a generated world schedules nothing -------------------------------------
+  //
+  // Deliberately NOT makeWorld(), which clears a 9x5x9 pocket and so performs 405
+  // edits of its own — those legitimately queue, and an earlier version of this
+  // check counted them and read as a failure of generation. Generation is the
+  // claim being tested, so nothing may touch the world first. This is the whole
+  // scalability argument: a chunk holds hundreds of plants and a loaded world tens
+  // of thousands, and none of them may cost anything until something moves.
+  {
+    world::World w(3918175327u, 2);
+    w.waitForIdle(kOriginX, kOriginZ);
+    checkf(w.blockUpdates().pending() == 0,
+           "generating a world full of grass and torches queues no block updates (%zu)",
+           w.blockUpdates().pending());
+    checkf(w.water().pending() == 0, "and no water updates either (%zu)", w.water().pending());
+  }
+
+  // --- and neither does simply loading more of it ------------------------------
+  {
+    world::World w(3918175327u, 3);
+    w.waitForIdle(kOriginX, kOriginZ);
+    w.update(64.0f, 64.0f);
+    w.waitForIdle(64.0f, 64.0f);
+    checkf(w.blockUpdates().pending() == 0,
+           "streaming further chunks in queues nothing either (%zu)",
+           w.blockUpdates().pending());
+  }
+
+  // --- a plant falls when its ground goes ---------------------------------------
+  {
+    auto w = makeWorld();
+    w->setBlock(4, kY, 4, stone, 0);
+    w->setBlock(4, kY + 1, 4, grass, 0);
+    settleBlocks(*w);
+    check(w->getBlock(4, kY + 1, 4) == grass, "grass stands on stone");
+
+    w->setBlock(4, kY, 4, world::kAir, 0);
+    const int ticks = settleBlocks(*w);
+    checkf(ticks > 0 && ticks < 400, "removing its ground settles in %d tick(s)", ticks);
+    check(w->getBlock(4, kY + 1, 4) == world::kAir, "and the grass is gone with it");
+  }
+
+  // --- a torch on a mined-out block goes too ------------------------------------
+  {
+    auto w = makeWorld();
+    w->setBlock(6, kY, 6, stone, 0);
+    w->setBlock(6, kY + 1, 6, torch, 0);
+    settleBlocks(*w);
+    check(w->getBlock(6, kY + 1, 6) == torch, "a torch stands on stone");
+    w->setBlock(6, kY, 6, world::kAir, 0);
+    settleBlocks(*w);
+    check(w->getBlock(6, kY + 1, 6) == world::kAir, "and drops when the stone is mined");
+  }
+
+  // --- a slab-like non-opaque solid still counts as ground ----------------------
+  {
+    auto w = makeWorld();
+    w->setBlock(9, kY, 9, world::wk().glass, 0);
+    w->setBlock(9, kY + 1, 9, grass, 0);
+    settleBlocks(*w);
+    check(w->getBlock(9, kY + 1, 9) == grass,
+          "glass is solid, so it holds a plant up even though it is not opaque");
+  }
+
+  // --- with no entity sink, the block stays put rather than vanishing -----------
+  {
+    auto w = makeWorld();
+    w->setBlock(12, kY, 12, stone, 0);
+    w->setBlock(12, kY + 1, 12, sand, 0);
+    w->setBlock(12, kY, 12, world::kAir, 0);
+    settleBlocks(*w);
+    check(w->getBlock(12, kY + 1, 12) == sand,
+          "a world with nothing to hand a falling block to keeps it rather than losing it");
+  }
+
+  // --- and with one, sand actually falls and lands ------------------------------
+  //
+  // The headline behaviour, and the only check here that exercises the whole
+  // chain: support rule -> beginFall -> entity -> physics -> written back into the
+  // grid. Everything else above stops at the world's edge.
+  {
+    auto w = makeWorld();
+    game::Player player(2.5f, static_cast<float>(kY), 2.5f);
+    game::Inventory inv;
+    game::EntityManager entities;
+    Input input;
+    game::EntityContext ctx;
+    ctx.world = w.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+    ctx.input = &input;
+
+    w->fallSink = [&](float fx, float fy, float fz, world::BlockId id, int meta) {
+      if (game::Entity* e = entities.spawn(game::EntityType::FallingBlock, Vec3{fx, fy, fz})) {
+        e->data.dura = static_cast<int>(id);
+        e->data.key = world::blocks().def(id).key;
+        e->data.count = meta;
+      }
+    };
+
+    // Floor at kY - 2, a pillar of sand three high starting two cells above it.
+    for (int x = 10; x <= 14; ++x) {
+      for (int z = 10; z <= 14; ++z) w->setBlock(x, kY - 2, z, stone, 0);
+    }
+    for (int i = 0; i < 3; ++i) w->setBlock(12, kY + i, 12, sand, 0);
+    settleBlocks(*w);
+    check(entities.count() > 0, "unsupported sand becomes a falling entity");
+
+    // Run the sim and the entities together, the way the game does.
+    for (int i = 0; i < 400; ++i) {
+      entities.tick(1.0f / 60.0f, ctx);
+      w->tickBlockUpdates(1.0f / 60.0f);
+    }
+
+    // All three land in a stack on the floor, in order, with nothing left over.
+    checkf(w->getBlock(12, kY - 1, 12) == sand, "the first one lands on the floor");
+    checkf(w->getBlock(12, kY, 12) == sand, "the second stacks on top of it");
+    checkf(w->getBlock(12, kY + 1, 12) == sand, "and the third on top of that");
+    check(w->getBlock(12, kY + 2, 12) == world::kAir,
+          "so the column ends up two cells lower than it started");
+    int stillFalling = 0;
+    for (const game::Entity& e : entities.all()) {
+      if (!e.dead && e.type == game::EntityType::FallingBlock) ++stillFalling;
+    }
+    checkf(stillFalling == 0, "and no falling block is left in the air (%d)", stillFalling);
+  }
+
+  // --- water washes a plant away, but only when it actually flows in ------------
+  {
+    auto w = makeWaterWorld();
+    w->setBlock(8, kY, 8, grass, 0);
+    settleWater(*w);
+    settleBlocks(*w);
+    check(w->getBlock(8, kY, 8) == grass, "grass beside still water is left alone");
+
+    // Now put a source next to it and let it spread.
+    w->setBlock(6, kY, 8, water, 0);
+    settleWater(*w);
+    check(w->getBlock(8, kY, 8) == water,
+          "but water flowing into its cell washes it away and takes the space");
+  }
+
+  // --- a settled world goes quiet again -----------------------------------------
+  {
+    auto w = makeWorld();
+    w->setBlock(3, kY, 3, stone, 0);
+    settleBlocks(*w);
+    check(w->blockUpdates().pending() == 0, "and the queue empties when everything has settled");
+  }
+}
+
 void testWater() {
   std::printf("water\n");
   const world::BlockId water = world::wk().water;
@@ -2505,6 +2679,7 @@ int runSelfTest() {
   testSaves();
   testWorldgenDepth();
   testWater();
+  testBlockSupport();
   testNet();
   testNetSession();
   testThreading();

@@ -14,6 +14,7 @@ extern const EntityDef kPigDef;
 extern const EntityDef kCowDef;
 extern const EntityDef kZombieDef;
 extern const EntityDef kRemotePlayerDef;
+extern const EntityDef kFallingBlockDef;
 
 // The boat's seat: how far above the hull origin the rider's feet sit.
 inline constexpr float kBoatSeatY = 0.25f;

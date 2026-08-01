@@ -16,7 +16,8 @@ namespace {
 // Indexed by EntityType, so `defOf` is an array lookup rather than a search.
 const std::array<const EntityDef*, static_cast<std::size_t>(EntityType::Count)> kDefs = {
     nullptr,  // None
-    &kDropDef, &kBoatDef, &kSheepDef, &kPigDef, &kCowDef, &kZombieDef, &kRemotePlayerDef,
+    &kDropDef,   &kBoatDef,          &kSheepDef,          &kPigDef,
+    &kCowDef,    &kZombieDef,        &kRemotePlayerDef,   &kFallingBlockDef,
 };
 
 }  // namespace

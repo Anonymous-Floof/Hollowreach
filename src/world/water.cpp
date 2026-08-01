@@ -111,8 +111,22 @@ void WaterSim::spread(int x, int y, int z, int level, bool falling) {
   // it: open air, or a shallow flowing cell. Full water below — a source, or a
   // column already falling — can accept none, and falling through to the sideways
   // case is what lets a sea-level source creep onto the adjacent shore.
+  // Washaway lives here rather than in BlockUpdateSim, and the distinction
+  // matters: a torch breaks when water FLOWS INTO its cell, not when water
+  // happens to be next to it. Testing adjacency instead would strip the grass off
+  // every generated shoreline the first time anything nearby was edited, because
+  // a settled ocean is adjacent to a great deal of grass and is never going
+  // anywhere. Only the two places water actually advances call this.
+  const auto clearFragile = [&](int cx, int cy, int cz) {
+    const BlockId id = world_.getBlock(cx, cy, cz);
+    if (id == kAir || id == water) return id == kAir;
+    if (!blocks().def(id).washesAway) return false;
+    world_.breakBlockInto(cx, cy, cz);
+    return true;
+  };
+
   const BlockId below = world_.getBlock(x, y - 1, z);
-  if (below == kAir) {
+  if (below == kAir || clearFragile(x, y - 1, z)) {
     world_.setWaterCell(x, y - 1, z, water, kWaterFalling);
     return;
   }
@@ -131,7 +145,7 @@ void WaterSim::spread(int x, int y, int z, int level, bool falling) {
   for (const auto& d : kHDirs) {
     const int nx = x + d[0], nz = z + d[1];
     const BlockId id = world_.getBlock(nx, y, nz);
-    if (id == kAir) {
+    if (id == kAir || clearFragile(nx, y, nz)) {
       world_.setWaterCell(nx, y, nz, water, next);
     } else if (id == water) {
       const int nm = world_.getMeta(nx, y, nz);

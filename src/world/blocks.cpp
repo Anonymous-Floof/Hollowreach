@@ -26,7 +26,21 @@ class Builder {
 
   Builder& render(RenderKind kind) { def_.render = kind; return *this; }
   Builder& cube() { def_.render = RenderKind::Cube; return *this; }
-  Builder& cross() { def_.render = RenderKind::Cross; return *this; }
+  // Cross-rendered blocks are billboards standing on the ground: torches, plants,
+  // mushrooms, pebbles. Every one of them wants to fall when its ground goes and
+  // to break when water reaches it, so the two flags come with the render kind
+  // rather than being repeated on twenty definitions and forgotten on the
+  // twenty-first. Either can still be turned back off afterwards.
+  Builder& cross() {
+    def_.render = RenderKind::Cross;
+    def_.needsGround = true;
+    def_.washesAway = true;
+    return *this;
+  }
+
+  Builder& needsGround(bool on = true) { def_.needsGround = on; return *this; }
+  Builder& washesAway(bool on = true) { def_.washesAway = on; return *this; }
+  Builder& falls(bool on = true) { def_.falls = on; return *this; }
 
   Builder& solid(bool on = true) { def_.solid = on; return *this; }
   Builder& opaque(bool on = true) { def_.opaque = on; return *this; }
@@ -172,7 +186,8 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "loam", "Dirt").cube().solidOpaque().tex("loam").hard(1.0f).shovel().drops("loam");
   Builder(B, "turf", "Grass Block").cube().solidOpaque().tex3("turf_top", "turf_side", "loam")
       .hard(1.0f).shovel().drops("loam");
-  Builder(B, "sand", "Sand").cube().solidOpaque().tex("sand").hard(0.8f).shovel().drops("sand");
+  Builder(B, "sand", "Sand").cube().solidOpaque().tex("sand").hard(0.8f).shovel().drops("sand")
+      .falls();
   Builder(B, "snowturf", "Snowy Grass").cube().solidOpaque()
       .tex3("snow_top", "snowturf_side", "loam").hard(1.0f).shovel().drops("loam");
   Builder(B, "sandstone", "Sandstone").cube().solidOpaque().tex("sandstone").hard(1.2f)

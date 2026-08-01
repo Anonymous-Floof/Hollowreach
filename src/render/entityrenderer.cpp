@@ -384,6 +384,23 @@ bool EntityRenderer::modelFor(const game::Entity& e, Model& out) {
       out.tint[0] = out.tint[1] = out.tint[2] = 0.8f;
       return true;
     }
+    case game::EntityType::FallingBlock: {
+      // The block's own item model, at full size and unrotated — it is the same
+      // cube that was in the grid a moment ago and has to read as that cube, not
+      // as a dropped item. `key` is carried purely so this lookup works; the
+      // BlockId the entity actually puts back down lives in `dura`.
+      const ItemMesh* m = itemMeshes_ ? itemMeshes_->get(e.data.key) : nullptr;
+      if (m && m->valid()) {
+        out.item = m;
+        out.textured = true;
+        out.scale = 1.0f;
+        out.yOff = kCubeHalf;
+        return true;
+      }
+      out.mesh = &unitCube();
+      out.yOff = kCubeHalf;
+      return true;
+    }
     case game::EntityType::Boat:
       out.mesh = &boatMesh();
       return true;

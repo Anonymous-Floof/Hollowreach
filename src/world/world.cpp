@@ -622,6 +622,7 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   if (lz == 15) dirtyMesh(cx, cz + 1);
 
   water_.onEdit(wx, wy, wz);
+  blockUpdates_.onEdit(wx, wy, wz);
   if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, id, meta & 0xFF);
 }
 
@@ -776,6 +777,33 @@ void World::tickBlockEntities(float dt) {
 void World::spawnDrop(float wx, float wy, float wz, const std::string& key, int count,
                       int dura) const {
   if (dropSink_) dropSink_(wx, wy, wz, key, count, dura);
+}
+
+void World::breakBlockInto(int wx, int wy, int wz) {
+  const BlockId id = getBlock(wx, wy, wz);
+  if (id == kAir) return;
+  const BlockDef& def = blocks().def(id);
+  // setBlock before the drop, so the drop lands in air rather than inside the
+  // block it came from and gets shoved out by the collision resolver.
+  setBlock(wx, wy, wz, kAir, 0);
+  if (!def.drop.empty()) {
+    spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, def.drop, def.dropCount);
+  }
+}
+
+void World::beginFall(int wx, int wy, int wz) {
+  const BlockId id = getBlock(wx, wy, wz);
+  if (id == kAir) return;
+  // Without a sink there is nothing to hand the block to, and clearing the cell
+  // would simply delete it. A headless world leaves the block standing, which is
+  // the honest outcome rather than a silent loss.
+  if (!fallSink) return;
+  const int meta = getMeta(wx, wy, wz);
+  setBlock(wx, wy, wz, kAir, 0);
+  // The cell is cleared FIRST. setBlock schedules its neighbours, which is what
+  // lets the block above this one notice it has lost its floor and follow it down
+  // — a column of sand collapses because of this ordering, not in spite of it.
+  fallSink(wx + 0.5f, static_cast<float>(wy), wz + 0.5f, id, meta);
 }
 
 int World::spawnHeight(int wx, int wz) const {

@@ -884,6 +884,18 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
                              int dura) {
     entities_.spawnDrop(Vec3{x, y, z}, key, count, dura);
   });
+  world_->fallSink = [this](float x, float y, float z, world::BlockId id, int meta) {
+    if (game::Entity* e = entities_.spawn(game::EntityType::FallingBlock, Vec3{x, y, z})) {
+      // `dura` is the BlockId it will put back down; `key` exists only so the
+      // renderer can find the right cube. See fallingblock.cpp.
+      e->data.dura = static_cast<int>(id);
+      e->data.key = world::blocks().def(id).key;
+      e->data.count = meta;
+      if (const game::EntityDef* def = game::defOf(game::EntityType::FallingBlock)) {
+        if (def->spawn) def->spawn(*e);
+      }
+    }
+  };
 
   interactHooks_ = makeInteractHooks();
   renderer_.setEntities(&entities_);
@@ -1409,7 +1421,12 @@ void App::updatePlaying(double dt) {
   // Water runs on its own accumulator at roughly six batches a second, and only
   // here: a multiplayer guest must not simulate it, because the host's edits are
   // what it will be told about (js/main.js:669 gates it the same way).
-  if (!netGuest()) world_->tickWater(fdt);
+  if (!netGuest()) {
+    world_->tickWater(fdt);
+    // Support and falling blocks, on the same host-only rule and for the same
+    // reason: a guest is told what changed, it does not decide.
+    world_->tickBlockUpdates(fdt);
+  }
 
   refreshEntityContext();
   {

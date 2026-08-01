@@ -32,6 +32,7 @@
 #include "world/lighting.h"
 #include "world/mesher.h"
 #include "world/shapes.h"
+#include "world/blockupdate.h"
 #include "world/water.h"
 #include "world/worldgen.h"
 
@@ -127,6 +128,26 @@ class World {
   void tickWater(float dt) { water_.tick(dt); }
   WaterSim& water() { return water_; }
   const WaterSim& water() const { return water_; }
+
+  void tickBlockUpdates(float dt) { blockUpdates_.tick(dt); }
+  BlockUpdateSim& blockUpdates() { return blockUpdates_; }
+  const BlockUpdateSim& blockUpdates() const { return blockUpdates_; }
+
+  // Removes the block at the cell and spawns whatever it drops, as if it had been
+  // mined with the right tool. Used by BlockUpdateSim when a block loses its
+  // support and by WaterSim when a flood reaches one — both want the player to
+  // get the item back rather than have it vanish.
+  void breakBlockInto(int wx, int wy, int wz);
+
+  // Lifts the block at the cell out of the grid and hands it to a falling-block
+  // entity, which puts it back down wherever it lands. Does nothing without an
+  // entity sink, so a headless world simply leaves the block where it was rather
+  // than deleting it.
+  void beginFall(int wx, int wy, int wz);
+
+  // Set by App, alongside the drop sink. Takes the world position and the block
+  // that is now airborne.
+  std::function<void(float, float, float, BlockId, int)> fallSink;
 
   // Leaf decay: after a log is removed, any *natural* leaf that is no longer
   // within four leaf-steps of a log dissolves. Leaves flagged persistent in
@@ -224,8 +245,13 @@ class World {
   // should actually show now that the work is not on this thread.
   int jobsInFlight() const { return genInFlight_ + lightInFlight_ + meshInFlight_; }
 
- private:
+  // World cell to chunk coordinate. Public because anything asking "is the chunk
+  // under this block loaded" needs it — the block-update sim and the falling
+  // block both do — and because C++'s `/` truncates toward zero, so a hand-rolled
+  // `x / 16` is wrong for every negative coordinate in the world.
   static int floorDiv16(int v) { return v >= 0 ? v >> 4 : ~((~v) >> 4); }
+
+ private:
 
   LoadedChunk& ensureChunk(int cx, int cz);
   // The one place a chunk's voxels, metadata or light may be written. Clones first
@@ -282,6 +308,7 @@ class World {
   // Holds a reference back to this world, so it must be declared after everything
   // it reaches through and must not outlive it.
   WaterSim water_{*this};
+  BlockUpdateSim blockUpdates_{*this};
 
   // --- job results ------------------------------------------------------------
   // Workers push here and the main thread drains it in installResults(). This
