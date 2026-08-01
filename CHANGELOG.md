@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.0.0] - 2026-08-01
+
 ### Changed
 - **Hollowreach is now a native application.** The whole game has been rewritten
   in C++ and ships as a single executable — no browser, no local server, no
@@ -31,6 +33,22 @@ version heading when it's time to ship.
   atomically so a crash mid-save cannot cost you the world, and refused with a
   reason rather than loaded as nonsense if a file is damaged. Worlds from the
   browser build do not load; the archived version still plays them.
+- **The world is a hundred blocks deeper.** It now stands 192 blocks tall with
+  the sea at y=100, where it was 128 with the sea at 46 — and every one of those
+  new blocks is *underground*. The surface is unchanged: same coastlines, same
+  mountains, same trees in the same places, just with far more beneath them.
+  Worlds made before this update keep the world they were generated with and do
+  not shift.
+- **Ore is something you dig for again.** Rarer ores now sit in depth bands well
+  below anything the surface can reach. Ravines used to bottom out at y=8–19
+  while diamond spanned y=3–16, so a canyon near spawn was a delivery service and
+  it was possible to find every ore in the game in one of them inside ten
+  minutes. Ravines now stop at y=62 and the four rare ores end at y=55 or lower.
+  Caves still expose ore, and still should — spelunking is meant to pay.
+- **Wooden tools can be made from any wood.** The recipe asked for oak planks
+  specifically, so spawning in a pine, birch, dusk or palm forest meant you could
+  not craft your first pickaxe at all — while a bed, which already accepted any
+  wood, worked fine.
 - **Fewer animals.** A meadow used to fill up with nineteen head of livestock;
   it now holds about a quarter of that.
 - **Flight is off by default** — a double-tap of Space was too easy to trigger by
@@ -52,15 +70,37 @@ version heading when it's time to ship.
 - **Render Resolution** in Settings. Draws the world at a fraction of the window
   and scales it up; the interface stays sharp either way. Picking a quality
   preset sets it, and you can then move it yourself.
+- **A screenshot gallery**, reachable from the main or pause menu — view, delete
+  or reveal your captures, which are ordinary PNGs in `data/screenshots/`.
+- **Export and import worlds.** `data/exports/` is both outbox and inbox; an
+  imported world always arrives as a new copy, so importing the same file twice
+  gives you two worlds rather than overwriting one.
+- **Nameplates** over other players, fading with distance, with a health bar
+  underneath when someone is hurt.
+- **Beds work in single player.** They previously did nothing at all. With
+  company, sleeping is a vote — the night passes when everyone is in bed, and the
+  host announces the tally.
+
+### Removed
+- **The panorama menu background and its setting.** The rotating cube-map behind
+  the menu is not implemented in the native build; set a screenshot as your
+  background instead (Gallery → **Set BG**).
+- **Playing with someone outside your network without port forwarding.** The
+  browser build got NAT traversal for free from WebRTC; a native UDP transport
+  does not. LAN play needs no setup at all, and the invite-code flow is unchanged.
+- **Remote players are not drawn yet.** You will see their nameplate, their
+  edits, and everything they do — but not a body. Everything else about
+  multiplayer works.
 
 ### Fixed
-- **The frame rate.** Standing on the surface at render distance 12 on High, the
-  game ran at 17 fps; it now runs at 378. Ultra went from unplayable to 343. The
-  cause was a single wrong flag on the chunk mesh buffers that told the graphics
-  driver to keep them in system memory, so the card was fetching every triangle
-  of the world back across the bus on every frame instead of reading its own.
-  Render distance costs almost nothing now — 8, 12 and 16 are within a fraction
-  of a millisecond of each other.
+- **The frame rate.** On the test machine (Radeon RX 5700 XT, 1920×1080),
+  standing on the surface at render distance 12 on High, the game ran at 17 fps;
+  it now runs at 378, and Ultra at 342. The cause was a single wrong flag on the
+  chunk mesh buffers that told the graphics driver to keep them in system memory,
+  so the card was fetching every triangle of the world back across the bus every
+  frame instead of reading its own. Render distance now costs almost nothing —
+  4, 8 and 12 are within a millisecond of each other — and the gap between the
+  Low and Ultra presets is about the same. The README has the full table.
 - **The outermost ring of chunks had no terrain in it,** and the ring just inside
   it was drawn too dark. Chunks on the edge of the loaded area were waiting on
   neighbours that were never going to be generated, so they were never built at
@@ -167,7 +207,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollow-Reach/compare/v1.2.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.0.0
 [1.2.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.0.0
