@@ -96,7 +96,11 @@ class Menu {
   // Whether a live panorama is behind the card. The stylesheet has two different
   // backgrounds for this: the vignette wash over a panorama, and an entirely separate
   // calm gradient without one (`#menu:not(.has-pano)`).
-  void setHasPanorama(bool on) { hasPanorama_ = on; }
+  // Whether something is already drawn behind the menu — today a picture chosen
+  // from the Gallery, a panorama if that ever lands. It selects between washing
+  // over that image and painting an opaque gradient of our own, so leaving it
+  // false while a background is set covers the picture completely.
+  void setHasBackdrop(bool on) { hasBackdrop_ = on; }
   void setPage(MenuPage page);
   MenuPage page() const { return page_; }
   // Called when the menu screen opens, so the world list is re-read and the pointer
@@ -136,7 +140,7 @@ class Menu {
   bool buildTitleTexture(Text& text);
   GLuint titleTexture_ = 0;
   GLuint backdrop_ = 0;
-  bool hasPanorama_ = false;
+  bool hasBackdrop_ = false;
   int titleWidth_ = 0, titleHeight_ = 0;
 
   Doc main_;

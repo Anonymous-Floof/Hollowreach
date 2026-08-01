@@ -579,6 +579,7 @@ ui::UiFrame App::uiFrame() {
   f.targetY = interact_.selectionY();
   f.targetZ = interact_.selectionZ();
   f.breakFraction = interact_.breakFraction();
+  f.hurtFlash = hurtFlash_;
   f.version = HR_VERSION;
 
   // Nameplates come from whichever half of the net layer is live; both keep the
@@ -949,6 +950,10 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
 
   player_ = std::make_unique<game::Player>(sx, sy, sz);
   player_->setLook(options.spawnYaw, options.spawnPitch);
+  // Player::onHurt has existed since M5 and nothing ever read it. Set rather than
+  // accumulated, so a second hit during the fade restarts the flash at full rather
+  // than stacking into an opaque red screen.
+  player_->onHurt = [this] { hurtFlash_ = 1.0f; };
   if (loaded) {
     // Health, hunger and the look direction, then the position put back on top —
     // loadState uses the saved one, and --at has to win over it when given.
@@ -1323,6 +1328,10 @@ void App::frame() {
 
   if (world_ && player_) {
     renderWorld();
+    // Over a live world the pause and settings screens keep their own opaque
+    // gradient, exactly as the browser's .screen rule did. The chosen picture is
+    // a MENU background; it has no business dimming a world you are stood in.
+    interface_.setHasBackdrop(false);
   } else {
     renderMenuScene(dt);
   }
@@ -1469,6 +1478,10 @@ void App::updatePlaying(double dt) {
   }
   sky_.update(fdt);
 
+  // ~0.9 s to fade. Long enough to notice after the fact — the whole point is the
+  // hit you did not see land — and short enough not to sit over the next fight.
+  if (hurtFlash_ > 0.0f) hurtFlash_ = std::max(0.0f, hurtFlash_ - fdt * 1.1f);
+
   // Last, after everything that could have landed the blow: js/main.js:737 polls it
   // in the same place, and for the same reason — a respawn spawns drops and moves the
   // player, neither of which is safe in the middle of a tick.
@@ -1575,14 +1588,31 @@ void App::renderWorld() {
   static Interval statsLog {2.0};
   if (statsLog.due(clock_.dt())) {
     const game::ItemStack& held = inventory_.selectedSlot();
+    // Live mob counts by type, because "are animals still spawning" is otherwise
+    // a question you can only answer by walking around looking for them.
+    int nSheep = 0, nPig = 0, nCow = 0, nZombie = 0, nDrop = 0;
+    for (const game::Entity& e : entities_.all()) {
+      if (e.dead) continue;
+      switch (e.type) {
+        case game::EntityType::Sheep: ++nSheep; break;
+        case game::EntityType::Pig: ++nPig; break;
+        case game::EntityType::Cow: ++nCow; break;
+        case game::EntityType::Zombie: ++nZombie; break;
+        case game::EntityType::Drop: ++nDrop; break;
+        default: break;
+      }
+    }
     log::debug("%.0f fps (%.1f ms) | %d/%zu chunks | %.2fM draw / %.2fM shadow / %.2fM loaded "
-               "tris | %zu pending | pos %.1f %.1f %.1f | %s | held %s x%d",
+               "tris | %zu pending | pos %.1f %.1f %.1f | %s day %.2f | "
+               "mobs %ds/%dp/%dc/%dz %dd | held %s x%d",
                clock_.fps(), clock_.frameMs(), renderer_.drawnChunks(),
                world_->loadedChunkCount(),
                renderer_.drawnTris() / 1e6, renderer_.shadowTris() / 1e6,
                renderer_.loadedTris() / 1e6,
                world_->pendingCount(), player_->pos().x, player_->pos().y, player_->pos().z,
-               sky_.clockString().c_str(), held.empty() ? "-" : held.key.c_str(), held.count);
+               sky_.clockString().c_str(), sky_.dayFactor(),
+               nSheep, nPig, nCow, nZombie, nDrop,
+               held.empty() ? "-" : held.key.c_str(), held.count);
   }
 }
 
@@ -1627,7 +1657,9 @@ void App::handleGlobalKeys() {
   // book is the closest thing this game has to one.
   if (in.pressed(Key::H)) toggleRecipeBook();
 
-  if (in.pressed(Key::N)) {
+  // M for the Atlas. It was N because the browser build could not have M — the
+  // native port has no such constraint, and M is where every player's hand goes.
+  if (in.pressed(Key::M)) {
     if (state_ == AppState::Playing) {
       state_ = AppState::Map;
       window_.setPointerCaptured(false);
@@ -1667,11 +1699,31 @@ void App::handleGlobalKeys() {
 void App::toggleRecipeBook() {
   if (state_ == AppState::Playing || state_ == AppState::Inventory) {
     recipeReturn_ = state_;
+    // WHICH inventory, not just "an inventory". Leaving Screen::Inventory runs
+    // Interface::closeInventory (ui/interface.cpp:81), which empties the crafting
+    // grid back into the bag and drops the station — so coming back has to open a
+    // station again or the screen renders with a closed InventoryUI behind it:
+    // no panel, no grid, and a free cursor over a world that is not accepting
+    // input. That was the bug; the Back button was reached and did its job.
+    // Read back from the InventoryUI rather than tracked separately, so there is
+    // no second copy of "which station is open" to fall out of step with the one
+    // the screen is actually drawing. Still open at this point: setScreen has not
+    // run yet, so mode() is live.
+    switch (interface_.inventory().mode()) {
+      case ui::InventoryMode::Workbench: recipeStation_ = world::Station::Workbench; break;
+      case ui::InventoryMode::Forge: recipeStation_ = world::Station::Forge; break;
+      case ui::InventoryMode::Chest: recipeStation_ = world::Station::Chest; break;
+      default: recipeStation_ = world::Station::None; break;
+    }
     state_ = AppState::RecipeBook;
     window_.setPointerCaptured(false);
   } else if (state_ == AppState::RecipeBook) {
     state_ = recipeReturn_;
-    if (state_ == AppState::Playing) resumePlaying();
+    if (state_ == AppState::Playing) {
+      resumePlaying();
+    } else if (state_ == AppState::Inventory) {
+      interface_.openStation(recipeStation_);
+    }
   }
 }
 
@@ -1780,6 +1832,15 @@ void App::refreshMenuBackground() {
                       : 1.0f;
 }
 
+// Every exit from refreshMenuBackground has to leave the screens agreeing about
+// whether there is a picture behind them, including the failure path that clears
+// the setting — so the flag is pushed here rather than at the one call site that
+// happened to load successfully.
+void App::syncMenuBackdrop() {
+  refreshMenuBackground();
+  interface_.setHasBackdrop(menuBgTex_ != 0);
+}
+
 void App::renderMenuScene(double /*dt*/) {
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glViewport(0, 0, window_.width(), window_.height());
@@ -1787,7 +1848,7 @@ void App::renderMenuScene(double /*dt*/) {
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
 
-  refreshMenuBackground();
+  syncMenuBackdrop();
   if (menuBgTex_ != 0) {
     // Cover, not stretch: a 16:9 capture on a 16:10 window should crop, not squash.
     // The interface draws its own scrim over this, so the picture stays a backdrop

@@ -17,7 +17,13 @@
 
 namespace hr::ui {
 
-enum class SettingType { Slider, Toggle, Select };
+// Text is a stored string with no fixed option list and no widget — the menu
+// background's file path is the only one today, and it is a `hidden` row. It
+// exists because Select deliberately refuses any value not in its `options`, so
+// that a renamed preset falls back to the default instead of selecting nothing;
+// a free-form path has no option list to be in, so storing it as a Select meant
+// it saved correctly and was silently dropped on every load.
+enum class SettingType { Slider, Toggle, Select, Text };
 
 struct SettingDef {
   const char* key;

@@ -748,7 +748,7 @@ void Menu::updateMain(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tw
 
 void Menu::drawMain(Ui2D& ui, Text& text) {
   const Rect full {0, 0, ui.width(), ui.height()};
-  if (hasPanorama_) {
+  if (hasBackdrop_) {
     // .menu-screen::before — a vignette wash over the panorama, in two stacked layers.
     // radial-gradient(125% 95% at 50% 6%, rgba(8,12,18,0) 40%, rgba(6,9,14,0.55) 100%)
     ui.radialGradient(full, ui.width() * 0.5f, ui.height() * 0.06f, ui.width() * 1.25f,

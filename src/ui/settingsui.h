@@ -32,8 +32,11 @@ class SettingsScreen {
 
   void update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens);
   void draw(Ui2D& ui, Text& text);
+  // See Menu::setHasBackdrop — same choice, same reason.
+  void setHasBackdrop(bool on) { hasBackdrop_ = on; }
 
  private:
+  bool hasBackdrop_ = false;
   void build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens);
   void handle(const UiEvent& event);
   void setValueFromDrag(const SettingDef& def, const Rect& track, float mouseX);

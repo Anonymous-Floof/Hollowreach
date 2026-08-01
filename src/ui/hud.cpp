@@ -84,6 +84,21 @@ Rect Hud::hotbarSlotRect(Ui2D& ui, int slot) const {
   return {x + static_cast<float>(slot) * (slotSize + gap), y, slotSize, slotSize};
 }
 
+// A red wash that is transparent in the middle and strongest at the corners, so it
+// reads in peripheral vision without obscuring what you are aiming at. Drawn before
+// the crosshair, and deliberately not while the pause or inventory screens are up:
+// those paint their own scrim and a second red one over it just muddies them.
+void Hud::drawDamageVignette(Ui2D& ui, float strength) const {
+  if (strength <= 0.0f) return;
+  const float s = std::min(1.0f, strength);
+  const float cx = ui.width() * 0.5f, cy = ui.height() * 0.5f;
+  // Inner stop at 0.35 leaves the middle third of the screen essentially clear;
+  // the alpha ramps in from there to the edge.
+  ui.radialGradient({0, 0, ui.width(), ui.height()}, cx, cy, ui.width() * 0.72f,
+                    ui.height() * 0.78f, 0.35f, 1.0f, rgba(150, 10, 12, 0.0),
+                    rgba(150, 10, 12, 0.62f * s));
+}
+
 void Hud::drawCrosshair(Ui2D& ui, Text& text) const {
   // #crosshair { color: #fff; font-size: 22px; opacity: .8; mix-blend-mode: difference }
   //
@@ -321,6 +336,7 @@ void Hud::drawNameplates(Ui2D& ui, Text& text, const HudFrame& frame) const {
 void Hud::draw(Ui2D& ui, Text& text, const HudFrame& frame) {
   if (!frame.player || !frame.inventory) return;
 
+  drawDamageVignette(ui, frame.hurtFlash);
   drawCrosshair(ui, text);
 
   // #break-overlay: a 40x5 bar at calc(50% + 16px), only while mining.

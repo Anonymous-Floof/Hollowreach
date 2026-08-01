@@ -93,6 +93,7 @@ struct UiFrame {
   bool hasTarget = false;
   int targetX = 0, targetY = 0, targetZ = 0;
   float breakFraction = 0;
+  float hurtFlash = 0;  // 0..1, see HudFrame::hurtFlash
   std::string version;
 
   // Multiplayer. Empty in single player, which is what switches the whole
@@ -126,6 +127,14 @@ class Interface {
   Hud& hud() { return hud_; }
   Notify& notify() { return notify_; }
   Menu& menu() { return menu_; }
+
+  // One call for every screen that decides between washing over what is behind it
+  // and painting its own opaque background. App sets it whenever the chosen menu
+  // picture changes, so no screen can be left with the wrong answer.
+  void setHasBackdrop(bool on) {
+    menu_.setHasBackdrop(on);
+    settingsScreen_.setHasBackdrop(on);
+  }
   InventoryUI& inventory() { return inventoryUI_; }
 
   // Draws one texture over the whole window, cropped to cover rather than stretched.

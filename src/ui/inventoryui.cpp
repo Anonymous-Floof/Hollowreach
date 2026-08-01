@@ -314,6 +314,25 @@ void InventoryUI::dropSlot(SlotId id) {
   slot->clear();
 }
 
+void InventoryUI::swapWithHotbar(SlotId id, int n) {
+  const SlotId target {Container::Inv, n};  // 0-8 of Inv is the hotbar
+  if (id == target) return;
+  // A result slot is not yours until taken, and the forge's output would be a
+  // free smelt. quickMove already refuses these; so does this.
+  if (isOutput(id.container) || id.container == Container::Result) return;
+
+  game::ItemStack* from = slotAt(id);
+  game::ItemStack* to = slotAt(target);
+  if (!from || !to) return;
+  if (from->empty() && to->empty()) return;
+  // Both directions: an armour slot will not accept a pickaxe, and the swap must
+  // not use the number key as a way around that.
+  if (!to->empty() && !accepts(id, to->key)) return;
+  if (!from->empty() && !accepts(target, from->key)) return;
+
+  std::swap(*from, *to);
+}
+
 void InventoryUI::quickMove(SlotId id) {
   if (id.container == Container::Result) {
     shiftCraft();
@@ -796,6 +815,19 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   if (sweep_ != Sweep::None && haveHover_ && sweepTouch(hovered_)) {
     if (sweep_ == Sweep::Transfer) quickMove(hovered_);
     else dropSlot(hovered_);
+  }
+
+  // 1-9 over a slot swaps it with that hotbar slot, the way every other game in
+  // this genre does it. A swap rather than a move, so the hotbar slot's contents
+  // are never destroyed and the gesture is its own undo — press the same number
+  // again and both are back where they started. Held by the cursor is excluded:
+  // there the number would be ambiguous between "put this there" and "swap".
+  if (haveHover_ && cursor_.empty() && event.input) {
+    for (int n = 0; n < 9; ++n) {
+      if (!event.input->pressed(static_cast<Key>(static_cast<int>(Key::Digit1) + n))) continue;
+      swapWithHotbar(hovered_, n);
+      break;
+    }
   }
   // A sweep owns the pointer, so the click handling below is skipped entirely --
   // otherwise the same shift-click would transfer the slot a second time. Not an

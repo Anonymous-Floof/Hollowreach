@@ -244,12 +244,19 @@ void SettingsScreen::update(Ui2D& ui, Text& text, const UiEvent& event, TweenSto
 }
 
 void SettingsScreen::draw(Ui2D& ui, Text& text) {
-  const float cx = ui.width() * 0.5f;
-  const float cy = ui.height() * 0.30f;
-  const float far = std::sqrt(std::max(cx, ui.width() - cx) * std::max(cx, ui.width() - cx) +
-                             std::max(cy, ui.height() - cy) * std::max(cy, ui.height() - cy));
-  ui.radialGradient({0, 0, ui.width(), ui.height()}, cx, cy, far, far, 0.0f, 0.75f,
-                    rgb(0x1d2733), rgb(0x0e1218));
+  if (hasBackdrop_) {
+    // Something is already drawn behind us — a chosen menu picture, or the world
+    // when this is opened from the pause menu. Darken it enough to read against
+    // instead of painting over it.
+    ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.62));
+  } else {
+    const float cx = ui.width() * 0.5f;
+    const float cy = ui.height() * 0.30f;
+    const float far = std::sqrt(std::max(cx, ui.width() - cx) * std::max(cx, ui.width() - cx) +
+                               std::max(cy, ui.height() - cy) * std::max(cy, ui.height() - cy));
+    ui.radialGradient({0, 0, ui.width(), ui.height()}, cx, cy, far, far, 0.0f, 0.75f,
+                      rgb(0x1d2733), rgb(0x0e1218));
+  }
   doc_.paint(ui);
 
   // The tab strip's bottom rule and every slider's fill and thumb: both are CSS

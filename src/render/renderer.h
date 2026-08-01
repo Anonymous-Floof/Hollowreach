@@ -47,7 +47,10 @@ struct QualitySettings {
   float ssaoStrength = 1.15f;
   bool godrays = true;
   int godraySamples = 48;
-  float godrayStrength = 0.55f;
+  // 0.55 was the browser's, and shafts were easy to miss entirely against a bright
+  // sky. Raised until they read at a glance without turning into haze; the pass is
+  // ~0.0-0.5 ms at quarter area so the cost of the change is nil.
+  float godrayStrength = 0.78f;
   float godrayScale = 0.5f;
   int ssrSteps = 24;  // 0 = sky-only reflection, the cheapest
   float ssrStrength = 1.0f;

@@ -104,6 +104,10 @@ class InventoryUI {
   void clickSlot(SlotId id, int button);
   void takeResult();
   void quickMove(SlotId id);
+  // Swaps `id` with hotbar slot `n` (0-8). No-op when the slot is an output, or
+  // when either side would refuse the other — an armour slot will not take a
+  // pickaxe, and swapping into one has to respect that in both directions.
+  void swapWithHotbar(SlotId id, int n);
   void shiftCraft();
   void scrollSlot(SlotId id, int direction);
   void addDragCell(SlotId id);

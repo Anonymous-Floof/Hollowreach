@@ -195,6 +195,7 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
     hf.targetY = frame.targetY;
     hf.targetZ = frame.targetZ;
     hf.breakFraction = frame.breakFraction;
+    hf.hurtFlash = frame.hurtFlash;
     hf.netLine = frame.netLine;
     hf.camera = frame.camera;
     hf.nameplates.reserve(frame.nameplates.size());

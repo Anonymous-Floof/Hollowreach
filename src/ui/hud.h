@@ -45,6 +45,11 @@ struct HudFrame {
   int targetX = 0, targetY = 0, targetZ = 0;
   // 0..1 progress of the block currently being mined.
   float breakFraction = 0;
+  // 0..1 strength of the red edge flash after taking a hit, decaying to 0. The
+  // hurt sound is easy to miss under ambience, and the hearts are in the corner
+  // you are not looking at — this is the cue that says "that hurt" without
+  // needing either.
+  float hurtFlash = 0;
   // Filled in once multiplayer lands; empty means single player.
   std::string netLine;
 
@@ -79,6 +84,7 @@ class Hud {
 
  private:
   void drawCrosshair(Ui2D& ui, Text& text) const;
+  void drawDamageVignette(Ui2D& ui, float strength) const;
   void drawStats(Ui2D& ui, Text& text, const game::Player& player, float bottom) const;
   void drawHotbar(Ui2D& ui, Text& text, const HudFrame& frame, float bottom) const;
   void drawDebug(Ui2D& ui, Text& text, const HudFrame& frame) const;

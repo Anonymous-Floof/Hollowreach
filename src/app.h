@@ -239,6 +239,7 @@ class App {
   // The menu's chosen background picture, uploaded once per choice. Empty path and a
   // zero texture mean the stylesheet's radial-gradient fallback.
   void refreshMenuBackground();
+  void syncMenuBackdrop();
   // The graphics preset as of the last applySettings, so a CHANGE can be told
   // from a re-apply. Seeded from the store before the first apply; see the
   // comment at its use for why that matters.
@@ -314,6 +315,11 @@ class App {
   // settingsReturn / _rbReturn.
   AppState settingsReturn_ = AppState::Menu;
   AppState recipeReturn_ = AppState::Playing;
+  // Which station the recipe book was opened over, so Back rebuilds that screen
+  // rather than a bare inventory.
+  world::Station recipeStation_ = world::Station::None;
+  // 1 on a hit, fading to 0. Drives the red edge vignette.
+  float hurtFlash_ = 0.0f;
   AppState galleryReturn_ = AppState::Menu;
   // A detached forge/chest for --screen forge|chest, so a station screen can be
   // captured without placing a block first.

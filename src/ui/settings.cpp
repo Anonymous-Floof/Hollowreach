@@ -40,7 +40,7 @@ const std::vector<SettingDef>& schema() {
       // row switched between the fallback gradient and the same fallback gradient.
       // What replaced it is a picture chosen from the Gallery — empty means the
       // gradient, which is what every fresh install gets.
-      {"menuBackground", "Menu Background", SettingType::Select, "Graphics", 0, 0, 0, 0, false,
+      {"menuBackground", "Menu Background", SettingType::Text, "Graphics", 0, 0, 0, 0, false,
        "", {}, /*hidden=*/true},
       // No counterpart in the web build, which had the browser's own fullscreen
       // control. Alt+Enter writes this row too, so the two never disagree.
@@ -234,6 +234,12 @@ void SettingsStore::load(const std::string& path) {
         }
         break;
       }
+      case SettingType::Text:
+        // No option list to validate against; whatever was written comes back.
+        // Anything that has to be valid — the menu background's file has to still
+        // exist — is checked by whoever reads it, not here.
+        v->text = raw;
+        break;
     }
   });
 }
@@ -266,6 +272,7 @@ bool SettingsStore::save() const {
         out << (v->flag ? "true" : "false");
         break;
       case SettingType::Select:
+      case SettingType::Text:
         out << '"' << escapeJson(v->text) << '"';
         break;
     }
