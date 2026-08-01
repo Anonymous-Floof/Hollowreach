@@ -78,6 +78,9 @@ struct MenuActions {
   // A line for the pause menu: who is connected and the invite code, or empty
   // when this is a single-player world.
   std::function<std::string()> hostStatus;
+  // Puts the invite code on the clipboard. The alternative was telling people to
+  // find it in a log file.
+  std::function<void()> copyInvite;
   // Whether the pause menu's Multiplayer button should read "Open to LAN" or
   // "Stop Hosting", and whether a guest may press it at all.
   std::function<bool()> isHosting;

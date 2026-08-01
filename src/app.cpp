@@ -796,9 +796,17 @@ void App::wireInterface() {
     }
     if (!netHosting()) return {};
     const int guests = netHost_.guestCount();
-    return "Invite code (copy from the log or data/hollowreach.log):\n" +
-           net::makeInviteCode(net::localAddress(), netHost_.port(), worldMeta_.name) + "\n" +
+    return net::makeInviteCode(net::localAddress(), netHost_.port(), worldMeta_.name) + "\n" +
            std::to_string(guests) + (guests == 1 ? " guest connected" : " guests connected");
+  };
+  // Telling somebody to go and read a log file for the one string they need to
+  // send a friend was never a feature. The code is on screen; this puts it on the
+  // clipboard.
+  interface_.menu().actions.copyInvite = [this] {
+    if (!netHosting()) return;
+    window_.setClipboardText(
+        net::makeInviteCode(net::localAddress(), netHost_.port(), worldMeta_.name));
+    interface_.notify().push("Invite code copied");
   };
 
   interface_.menu().actions.exportWorld = [this](const std::string& idOrEmpty) {

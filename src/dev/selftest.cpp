@@ -2386,6 +2386,28 @@ void testNetSession() {
           "with a nameplate carrying the host's name");
   }
 
+  // --- and the guest's body arrives back at the host ---------------------------
+  //
+  // The other direction, which nothing checked before and which is the one the
+  // person hosting actually looks at. A guest that can see the host while the
+  // host cannot see the guest passes every test above.
+  {
+    guestPlayer.setPos(Vec3{kOriginX - 4.0f, static_cast<float>(kY), kOriginZ});
+    pump(60);
+    const game::Entity* body = nullptr;
+    for (const game::Entity& e : hostEntities.all()) {
+      if (e.ghost && e.type == game::EntityType::RemotePlayer && !e.dead) body = &e;
+    }
+    checkf(body != nullptr, "the guest's player appears in the host's world as a ghost");
+    if (body) {
+      const float dx = std::fabs(body->pos.x - (kOriginX - 4.0f));
+      checkf(dx < 4.0f, "and follows where the guest actually is (%.2f blocks behind)", dx);
+    }
+    check(!host.ghosts().nameplates().empty() &&
+              host.ghosts().nameplates().front().name == "Bob",
+          "with a nameplate carrying the guest's name");
+  }
+
   // --- an entity the host owns is mirrored ------------------------------------
   {
     hostEntities.spawn(game::EntityType::Cow, Vec3{kOriginX + 2.0f, static_cast<float>(kY),

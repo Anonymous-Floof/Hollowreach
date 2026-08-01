@@ -88,9 +88,6 @@ version heading when it's time to ship.
 - **Playing with someone outside your network without port forwarding.** The
   browser build got NAT traversal for free from WebRTC; a native UDP transport
   does not. LAN play needs no setup at all, and the invite-code flow is unchanged.
-- **Remote players are not drawn yet.** You will see their nameplate, their
-  edits, and everything they do — but not a body. Everything else about
-  multiplayer works.
 
 ### Fixed
 - **The frame rate.** On the test machine (Radeon RX 5700 XT, 1920×1080),

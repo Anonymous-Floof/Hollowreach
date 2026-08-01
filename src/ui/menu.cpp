@@ -45,6 +45,7 @@ enum : int {
   kTagPauseGallery,
   kTagPauseExport,
   kTagPauseQuit,
+  kTagCopyInvite,
 };
 
 // The two feature and control tables from js/ui/menu.js:35-49, verbatim.
@@ -885,6 +886,16 @@ void Menu::updatePause(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
       note.margin = Edges(10, 0, 0, 0);
       note.maxWidth = 300;
       pause_.label(status, widget::emptyNote(), note);
+      // Only while hosting: a guest has nothing to hand out, and the button would
+      // copy an invite to a game they are not running.
+      if (actions.isHosting && actions.isHosting()) {
+        const bool hovered = pauseHoveredTag_ == kTagCopyInvite;
+        Style s = widget::btn(hovered, false, widget::ButtonKind::Normal);
+        s.margin = Edges(8, 0, 0, 0);
+        pause_.begin(s, kTagCopyInvite);
+        pause_.label("Copy Invite Code", widget::btnText(hovered, widget::ButtonKind::Normal));
+        pause_.end();
+      }
     }
     pause_.end();
     pause_.end();
@@ -919,6 +930,9 @@ void Menu::handlePause(const UiEvent& event) {
       break;
     case kTagPauseExport:
       if (actions.exportWorld) actions.exportWorld(std::string());
+      break;
+    case kTagCopyInvite:
+      if (actions.copyInvite) actions.copyInvite();
       break;
     case kTagPauseQuit:
       if (actions.saveAndQuit) actions.saveAndQuit();
