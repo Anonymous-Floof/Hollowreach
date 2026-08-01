@@ -242,26 +242,62 @@ void Window::setRawMouseMotion(bool on) {
 
 bool Window::rawMouseMotionSupported() const { return rawSupported_; }
 
-void Window::setVsync(bool on) { glfwSwapInterval(on ? 1 : 0); }
+void Window::setVsync(bool on) {
+  vsync_ = on;
+  glfwSwapInterval(on ? 1 : 0);
+}
 
 void Window::setTitle(const std::string& title) {
   if (window_) glfwSetWindowTitle(window_, title.c_str());
 }
 
-void Window::setFullscreen(bool on) {
-  if (!window_ || on == fullscreen_) return;
-  if (on) {
+void Window::setFullscreen(bool on) { applyWindowMode(on, borderless_); }
+
+void Window::setBorderless(bool on) { applyWindowMode(fullscreen_, on); }
+
+// The three window modes share one path, because they are one decision: which
+// monitor (or none) the window is attached to, and whether it has a frame. Doing
+// them separately let a borderless toggle undo a fullscreen one.
+//
+// Borderless here means "undecorated window covering the monitor" — the mode that
+// alt-tabs instantly and lets an overlay draw on top — rather than the exclusive
+// mode `full` gives. When both are asked for, borderless wins, since exclusive
+// fullscreen inside a borderless window is not a thing.
+void Window::applyWindowMode(bool full, bool borderless) {
+  if (!window_) return;
+  if (full == fullscreen_ && borderless == borderless_) return;
+
+  const bool wasWindowed = !fullscreen_ && !borderless_;
+  if (wasWindowed && (full || borderless)) {
     glfwGetWindowPos(window_, &savedX_, &savedY_);
     glfwGetWindowSize(window_, &savedW_, &savedH_);
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+  }
+
+  GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+  const GLFWvidmode* mode = monitor ? glfwGetVideoMode(monitor) : nullptr;
+
+  if (borderless && mode) {
+    // Detach from any monitor first: an undecorated window still has to be a
+    // window, and GLFW ignores the decoration hint while it owns a monitor.
+    glfwSetWindowMonitor(window_, nullptr, 0, 0, mode->width, mode->height, GLFW_DONT_CARE);
+    glfwSetWindowAttrib(window_, GLFW_DECORATED, GLFW_FALSE);
+    glfwSetWindowPos(window_, 0, 0);
+    glfwSetWindowSize(window_, mode->width, mode->height);
+  } else if (full && mode) {
+    glfwSetWindowAttrib(window_, GLFW_DECORATED, GLFW_TRUE);
     glfwSetWindowMonitor(window_, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
   } else {
+    glfwSetWindowAttrib(window_, GLFW_DECORATED, GLFW_TRUE);
     glfwSetWindowMonitor(window_, nullptr, savedX_, savedY_, savedW_, savedH_, GLFW_DONT_CARE);
   }
-  fullscreen_ = on;
-  // glfwSetWindowMonitor resets the swap interval on some drivers.
-  glfwSwapInterval(1);
+
+  fullscreen_ = full && !borderless;
+  borderless_ = borderless;
+  // glfwSetWindowMonitor resets the swap interval on some drivers. Restore what
+  // the player actually chose rather than forcing it on, which is what the old
+  // unconditional glfwSwapInterval(1) here did — it silently undid the vsync
+  // setting every time the window mode changed.
+  glfwSwapInterval(vsync_ ? 1 : 0);
 }
 
 std::string Window::clipboardText() const {

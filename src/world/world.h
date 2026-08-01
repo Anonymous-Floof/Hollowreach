@@ -26,6 +26,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/mat4.h"  // Vec3, for findSpawn
 #include "game/blockentities.h"
 #include "render/chunkmesh.h"
 #include "world/chunk.h"
@@ -222,6 +223,12 @@ class World {
   // is ocean floor, and dropping a player two blocks above THAT starts them
   // underwater with a drowning clock already running.
   int spawnHeight(int wx, int wz) const;
+
+  // A dry, reasonably flat column near (preferX, preferZ) to start a new world
+  // on. Pure terrain queries, so it needs no chunks loaded and no generator
+  // version bump — see the definition for why this is a spawn-choice fix rather
+  // than a worldgen one.
+  Vec3 findSpawn(float preferX, float preferZ) const;
 
   // Collision boxes for a cell, in world space. Returns an empty span for a
   // non-solid cell, and a solid floor below y = 0.

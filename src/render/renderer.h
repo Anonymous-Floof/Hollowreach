@@ -34,6 +34,12 @@ namespace hr::render {
 struct QualitySettings {
   float scale = 1.0f;      // internal render scale
   int shadowSize = 2048;   // sun shadow map resolution, 0 = off
+  // Poisson disc taps and filter radius in shadow texels. The radius matters more
+  // than the map size for how a shadow edge reads: 2048 over +/-72 blocks is
+  // already 14 texels per block, so the old 3x3-at-one-texel filter was sampling a
+  // fifth of a block and resolving the staircase rather than hiding it.
+  int shadowTaps = 12;
+  float shadowSoft = 2.2f;
   float shadowRange = 72;  // world half-extent the shadow map covers
   float shadowBias = 0.12f;   // in WORLD units; small, because back-face depth avoids acne
   float shadowSlope = 2.5f;   // polygonOffset slope factor

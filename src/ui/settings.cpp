@@ -46,6 +46,16 @@ const std::vector<SettingDef>& schema() {
       // control. Alt+Enter writes this row too, so the two never disagree.
       {"fullscreen", "Fullscreen (Alt+Enter)", SettingType::Toggle, "Graphics", 0, 0, 0, 0,
        false},
+      // Borderless wins over fullscreen when both are set; see
+      // Window::applyWindowMode.
+      {"borderless", "Borderless Window", SettingType::Toggle, "Graphics", 0, 0, 0, 0, false},
+      {"vsync", "V-Sync", SettingType::Toggle, "Graphics", 0, 0, 0, 0, true},
+      // 0 is "uncapped", which is why the slider starts below any real refresh
+      // rate rather than at 30. Independent of V-Sync deliberately: capping below
+      // the refresh rate is how you hold a steady 60 on a 144 Hz panel without the
+      // input latency vsync adds, and the two are separate knobs everywhere else.
+      {"frameLimit", "Frame Rate Limit (0 = off)", SettingType::Slider, "Graphics", 0, 300, 10,
+       0},
       {"sensitivity", "Mouse Sensitivity", SettingType::Slider, "Controls", 1, 30, 1, 12},
       {"invertY", "Invert Vertical Look", SettingType::Toggle, "Controls", 0, 0, 0, 0, false},
       // Raw motion has no counterpart in the web build: browser movementX is

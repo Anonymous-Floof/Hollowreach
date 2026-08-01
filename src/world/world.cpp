@@ -812,6 +812,71 @@ int World::spawnHeight(int wx, int wz) const {
   return (ground > sea ? ground : sea) + 2;
 }
 
+// Where a new world actually drops you.
+//
+// The browser build spawned at a fixed (8.5, 8.5) whatever was there, and since
+// roughly half of any seed is ocean, half of all new worlds started you treading
+// water on a beach — which is why ten worlds felt like two. Nothing about the
+// terrain changes here; this only chooses a better column of it, so every seed
+// still generates exactly the world it always did and no generator version moves.
+//
+// Searched as a widening ring so the spawn stays as near the origin as it can:
+// the Atlas, the origin waypoint and every "go back to spawn" habit are all built
+// around 0,0, and wandering a thousand blocks to find perfect ground would trade
+// one annoyance for another.
+Vec3 World::findSpawn(float preferX, float preferZ) const {
+  const int sea = seaLevel(genVersion_);
+  const int px = static_cast<int>(std::floor(preferX));
+  const int pz = static_cast<int>(std::floor(preferZ));
+
+  // Dry, and not on the waterline: +3 keeps you off tidal sand that a wave of
+  // flowing water would reach, and off the one-block islands in a river mouth.
+  const auto dryEnough = [&](int x, int z) {
+    return heightAt(noise_, x, z, genVersion_) >= sea + 3;
+  };
+  // Flat enough not to be a ravine lip or a cliff edge. Sampling the four
+  // neighbours a few blocks out catches both: a ravine at spawn shows up as a
+  // large drop within a short distance, which is exactly what makes it feel like
+  // the world dumped you in a hole.
+  const auto settled = [&](int x, int z) {
+    const int h = heightAt(noise_, x, z, genVersion_);
+    int lo = h, hi = h;
+    const int kProbe = 3;
+    const int dx[4] = {kProbe, -kProbe, 0, 0};
+    const int dz[4] = {0, 0, kProbe, -kProbe};
+    for (int i = 0; i < 4; ++i) {
+      const int n = heightAt(noise_, x + dx[i], z + dz[i], genVersion_);
+      lo = n < lo ? n : lo;
+      hi = n > hi ? n : hi;
+    }
+    return hi - lo <= 6;
+  };
+
+  // Two passes: the first insists on flat dry ground, the second settles for dry.
+  // Splitting them rather than scoring in one pass keeps "as close to origin as
+  // possible" the tie-break, which a combined score would quietly trade away.
+  constexpr int kMaxRing = 24;   // chunks
+  constexpr int kStep = 8;       // blocks between candidates
+  for (int pass = 0; pass < 2; ++pass) {
+    for (int ring = 0; ring <= kMaxRing; ++ring) {
+      const int r = ring * kStep;
+      for (int dz = -r; dz <= r; dz += kStep) {
+        for (int dx = -r; dx <= r; dx += kStep) {
+          // Only the perimeter of this ring; the inside was covered already.
+          if (ring > 0 && std::abs(dx) != r && std::abs(dz) != r) continue;
+          const int x = px + dx, z = pz + dz;
+          if (!dryEnough(x, z)) continue;
+          if (pass == 0 && !settled(x, z)) continue;
+          return Vec3{x + 0.5f, static_cast<float>(spawnHeight(x, z)), z + 0.5f};
+        }
+      }
+    }
+  }
+  // An all-ocean neighbourhood for 1500 blocks. Vanishingly unlikely, and the old
+  // behaviour is the right answer for it: stand at the origin, on the sea.
+  return Vec3{preferX, static_cast<float>(spawnHeight(px, pz)), preferZ};
+}
+
 float World::fluidHeight(int wx, int wy, int wz) const {
   if (getBlock(wx, wy, wz) != wk().water) return 0.0f;
   if (getBlock(wx, wy + 1, wz) == wk().water) return 1.0f;  // submerged: a full column

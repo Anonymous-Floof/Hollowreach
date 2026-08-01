@@ -30,6 +30,8 @@ uniform float uShadowEnable;
 uniform float uShadowTexel;       // 1 / shadowMapSize, the PCF tap spacing
 uniform float uShadowTexelWorld;  // world size of one shadow texel, for normal offset
 uniform float uShadowBias;
+uniform int uShadowTaps;    // Poisson disc samples, 4..16
+uniform float uShadowSoft;  // filter radius in shadow texels
 
 uniform int uShadowSteps;   // point-light contact-shadow steps, 0 = off
 uniform float uShadowDist;  // world-space march length for point lights
@@ -105,15 +107,41 @@ float sunShadow(vec3 wpos, vec3 N, float ndl) {
   float bias = clamp(uShadowBias * slope, uShadowBias * 0.5, uShadowBias * 4.0);
   float zref = p.z - bias;
 
+  // A rotated Poisson disc rather than the 3x3 box this used to be. The box
+  // sampled nine texels on a fixed grid at exactly one texel spacing, so every
+  // pixel along a shadow edge saw the same nine and the edge came out as visible
+  // stair-steps — worse at Ultra, not better, because a denser map makes each step
+  // crisper. The disc spreads the taps unevenly and ROTATES the pattern per pixel,
+  // which turns that banding into fine noise, and noise at this amplitude reads as
+  // a soft edge. Cost is a few tenths of a millisecond on a pass that measures
+  // 0.27; there was room.
+  const vec2 kDisc[16] = vec2[16](
+      vec2(-0.6116, -0.2413), vec2(0.1748, -0.7080), vec2(-0.2410, 0.5860),
+      vec2(0.7317, 0.2380), vec2(-0.8880, 0.3350), vec2(0.4390, -0.2510),
+      vec2(-0.1210, -0.9330), vec2(0.9130, -0.3120), vec2(-0.4620, -0.6350),
+      vec2(0.2650, 0.9180), vec2(-0.7760, -0.5510), vec2(0.6420, 0.6710),
+      vec2(0.0320, 0.2170), vec2(-0.3180, 0.0640), vec2(0.4980, -0.6820),
+      vec2(-0.0410, -0.4120));
+
+  // Per-pixel rotation. gl_FragCoord rather than a world position on purpose: the
+  // pattern should decorrelate between neighbouring PIXELS, which is what lets the
+  // eye average it, and a world-space seed would make it crawl as the camera moves.
+  float ang = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float cs = cos(ang), sn = sin(ang);
+  mat2 rot = mat2(cs, -sn, sn, cs);
+
+  // Softness grows with the slope, so a face the sun barely grazes — where the
+  // depth comparison is least reliable and the aliasing was worst — gets the
+  // widest filter.
+  float radius = uShadowTexel * uShadowSoft * (1.0 + 1.4 * (1.0 - ndl));
+
   float sh = 0.0;
-  for (int y = -1; y <= 1; y++) {
-    for (int x = -1; x <= 1; x++) {
-      sh += zref <= texture(uShadowMap, p.xy + vec2(float(x), float(y)) * uShadowTexel).r
-                ? 1.0
-                : 0.0;
-    }
+  for (int i = 0; i < 16; i++) {
+    if (i >= uShadowTaps) break;
+    vec2 o = rot * kDisc[i] * radius;
+    sh += zref <= texture(uShadowMap, p.xy + o).r ? 1.0 : 0.0;
   }
-  return mix(1.0, sh / 9.0, edge);
+  return mix(1.0, sh / float(uShadowTaps), edge);
 }
 
 void main() {

@@ -165,6 +165,7 @@ class App {
   void updatePlaying(double dt);
   void renderWorld();
   void renderMenuScene(double dt);
+  void limitFrameRate();
   void handleGlobalKeys();
   // Alt+Enter and the settings row are the same switch: both go through the store.
   void toggleFullscreen();
@@ -320,6 +321,9 @@ class App {
   world::Station recipeStation_ = world::Station::None;
   // 1 on a hit, fading to 0. Drives the red edge vignette.
   float hurtFlash_ = 0.0f;
+  // Frames per second cap, 0 for uncapped. See App::limitFrameRate.
+  int frameLimit_ = 0;
+  double frameStart_ = 0.0;
   AppState galleryReturn_ = AppState::Menu;
   // A detached forge/chest for --screen forge|chest, so a station screen can be
   // captured without placing a block first.

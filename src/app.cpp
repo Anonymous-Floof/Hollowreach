@@ -397,7 +397,14 @@ void App::applySettings() {
   // Guarded because setFullscreen is a real mode switch: calling it with the state it
   // is already in would still tear the window down and put it back, and this runs on
   // every change to any of the twenty-six rows.
+  if (window_.borderless() != s.flag("borderless")) window_.setBorderless(s.flag("borderless"));
   if (window_.fullscreen() != s.flag("fullscreen")) window_.setFullscreen(s.flag("fullscreen"));
+
+  // --no-vsync is a measurement flag and outranks the row for the run it is given
+  // on; otherwise the setting decides. Applied unconditionally because
+  // glfwSwapInterval is cheap and idempotent, unlike a window mode switch.
+  window_.setVsync(!options_.noVsync && s.flag("vsync"));
+  frameLimit_ = options_.noVsync ? 0 : static_cast<int>(s.number("frameLimit"));
 
   // The four sliders are stored 0..100 and squared inside the engine, so they feel
   // linear-ish in loudness rather than in amplitude.
@@ -960,9 +967,13 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
          2.0f;
   }
   if (!options.haveSpawnOverride && !loaded) {
-    // Drop in on the surface — or on the sea, when the ground here is under it.
-    sy = static_cast<float>(world_->spawnHeight(static_cast<int>(std::floor(sx)),
-                                                static_cast<int>(std::floor(sz))));
+    // A NEW world picks its own spot: dry, reasonably flat, as near the origin as
+    // that allows. A loaded world keeps the one it was saved with, and --at still
+    // overrides both.
+    const Vec3 spot = world_->findSpawn(sx, sz);
+    sx = spot.x;
+    sz = spot.z;
+    sy = spot.y;
   }
 
   // Synchronous, so the player never spawns inside unloaded space and fall through.
@@ -1287,6 +1298,7 @@ void App::respawnPlayer() {
 }
 
 void App::frame() {
+  if (frameStart_ <= 0.0) frameStart_ = nowMillis();
   window_.pollEvents();
   const double dt = clock_.tick(window_.time());
 
@@ -1375,6 +1387,7 @@ void App::frame() {
 
   window_.input().endFrame();
   window_.swapBuffers();
+  limitFrameRate();
   ++frameIndex_;
 
   if (options_.exitAfterFrames > 0 && frameIndex_ >= options_.exitAfterFrames) {
@@ -1864,6 +1877,42 @@ void App::refreshMenuBackground() {
 void App::syncMenuBackdrop() {
   refreshMenuBackground();
   interface_.setHasBackdrop(menuBgTex_ != 0);
+}
+
+// Sleeps out whatever is left of the frame's budget after the swap.
+//
+// Sleep for most of it and spin for the last half-millisecond: a bare sleep is
+// only accurate to the OS scheduler's tick — around 1-15 ms on Windows — which at
+// 144 fps is most of a frame and would make the cap land anywhere. The spin is
+// bounded and only ever runs at the very end, so it costs a fraction of a core
+// rather than the busy-wait a pure spin would be.
+//
+// The next frame's dt then measures the whole wall-clock interval including this
+// wait, which is what makes the limit show up honestly in the fps readout instead
+// of being invisible.
+void App::limitFrameRate() {
+  if (frameLimit_ <= 0) {
+    frameStart_ = nowMillis();
+    return;
+  }
+  const double targetMs = 1000.0 / static_cast<double>(frameLimit_);
+  const double deadline = frameStart_ + targetMs;
+  for (;;) {
+    const double left = deadline - nowMillis();
+    if (left <= 0.0) break;
+    if (left > 0.5) {
+      std::this_thread::sleep_for(
+          std::chrono::microseconds(static_cast<long long>((left - 0.5) * 1000.0)));
+    }
+  }
+  // ADVANCE the deadline rather than restarting from now. Resetting loses the
+  // fraction of a millisecond the sleep overshot by, every frame, and that
+  // compounds: a 120 cap measured 116 with a reset and lands on 120 with this.
+  // Resynchronised when a frame has genuinely blown the budget, so a stall does
+  // not leave the limiter trying to claw back time by running fast.
+  frameStart_ += targetMs;
+  const double now = nowMillis();
+  if (now - frameStart_ > targetMs) frameStart_ = now;
 }
 
 void App::renderMenuScene(double /*dt*/) {

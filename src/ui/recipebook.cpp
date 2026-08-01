@@ -113,9 +113,18 @@ std::string RecipeBook::categoryFor(const std::string& outKey) {
 
 std::string RecipeBook::displayName(const std::string& key) {
   if (!key.empty() && key[0] == '#') {
+    // "#planks" -> "Any Planks". Title case because this is a tooltip heading and
+    // sits where an item's own name would.
     std::string s = key.substr(1);
+    bool boundary = true;
     for (char& c : s) {
-      if (c == '_') c = ' ';
+      if (c == '_') {
+        c = ' ';
+        boundary = true;
+        continue;
+      }
+      if (boundary && c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+      boundary = false;
     }
     return "Any " + s;
   }
@@ -517,6 +526,27 @@ void RecipeBook::draw(Ui2D& ui, Text& text) {
     const std::string resolved = world::blocks().tagRepresentative(hoverKey_);
     const std::string key = resolved.empty() ? hoverKey_ : resolved;
     const game::Tooltip tip = game::itemTooltip(key, -1, game::fuelValue(key));
+
+    // An ingredient TAG is not the item it happens to resolve to. Naming it "Oak
+    // Planks" is how a player in a pine forest concludes they cannot make a
+    // pickaxe — which was a real bug in the recipe itself until recently, and
+    // this label was still telling them it was true. Name the tag, then list
+    // what satisfies it.
+    if (hoverKey_.front() == '#') {
+      std::vector<std::string> lines;
+      if (const std::vector<std::string>* members = world::blocks().tag(hoverKey_.substr(1))) {
+        std::string list;
+        for (const std::string& m : *members) {
+          const game::ItemDef* def = game::getItem(m);
+          if (!def) continue;
+          if (!list.empty()) list += ", ";
+          list += def->name;
+        }
+        if (!list.empty()) lines.push_back(list);
+      }
+      widget::drawTooltip(ui, text, mouseX_, mouseY_, displayName(hoverKey_), lines);
+      return;
+    }
     widget::drawTooltip(ui, text, mouseX_, mouseY_, tip.name, tip.lines);
   }
 }

@@ -14,10 +14,25 @@ const HoldStyle& block() {
 }
 
 const HoldStyle& tool() {
-  // Pick, axe, shovel: handle butt in the hand at the bottom right, rolled so the
-  // head leans up toward the crosshair, tipped away so it reaches into the scene,
-  // and turned a few degrees off face-on so the extruded edge shows and the sprite
-  // reads as an object rather than a sticker.
+  // Pick, axe and hoe: handle butt in the hand at the bottom right, head leaning
+  // up toward the crosshair and reaching into the scene.
+  //
+  // Stood up and turned edge-on relative to the browser's framing, which held all
+  // four tools at the same shallow angle and so swung the FLAT of the head into
+  // the block. A pickaxe strikes with its point and an axe with its edge, and both
+  // read wrong when the sprite plane faces the camera through the swing. The roll
+  // is steeper (0.52 -> 0.78) so the haft stands nearer vertical, and the yaw is
+  // deeper (-0.46 -> -0.86) so what leads the arc is the extruded edge rather than
+  // the face. The shovel deliberately keeps the old framing — see shovel().
+  static const HoldStyle s {{-0.30f, -0.86f, 0.78f}, 0.62f, -1.02f, 0.56f, 0.62f, {0, 0, 0},
+                            false};
+  return s;
+}
+
+const HoldStyle& shovel() {
+  // The one tool the original framing was right for. A shovel digs by driving its
+  // blade FACE into the ground, so holding it flat-on is correct and standing it
+  // up like a pickaxe would make it read as a paddle.
   static const HoldStyle s {{-0.28f, -0.46f, 0.52f}, 0.62f, -1.02f, 0.56f, 0.62f, {0, 0, 0},
                             false};
   return s;
@@ -84,6 +99,7 @@ const HoldStyle& styleFor(const game::ItemDef& item, ItemModelKind kind,
   }
 
   if (item.toolType == game::ToolKind::Sword) return holdStyles::sword();
+  if (item.toolType == game::ToolKind::Shovel) return holdStyles::shovel();
   if (item.type == game::ItemType::Tool) return holdStyles::tool();
   if (item.type == game::ItemType::Food) return holdStyles::food();
   return holdStyles::item();

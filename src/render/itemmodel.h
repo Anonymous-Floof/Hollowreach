@@ -58,6 +58,7 @@ struct HoldStyle {
 namespace holdStyles {
 const HoldStyle& block();
 const HoldStyle& tool();
+const HoldStyle& shovel();
 const HoldStyle& sword();
 const HoldStyle& food();
 const HoldStyle& panel();

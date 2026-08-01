@@ -20,8 +20,13 @@
 // slab is volumetric and lives in the sky pass, so it is free to sit above WH.
 uniform float uCloudBase;
 #define CLD_BASE uCloudBase
-#define CLD_TOP (uCloudBase + 18.0)
-#define CLD_MID (uCloudBase + 9.0)
+// 34 blocks, not 18. A slab thinner than the puffs are wide cannot be any shape
+// but a sheet: the vertical profile has to have room to open out and close again
+// before the eye reads a cloud as having a top. The march is adaptive (see
+// renderClouds), so a thicker slab costs steps only where the ray is actually
+// inside it rather than everywhere.
+#define CLD_TOP (uCloudBase + 34.0)
+#define CLD_MID (uCloudBase + 15.0)
 const vec2 CLD_WIND = vec2(1.1, 0.4);
 
 float chash13(vec3 p) {
@@ -53,13 +58,43 @@ float cloudFbm(vec3 p) {
 }
 
 // 0..1 density at a world point; `cover` raises coverage (bigger puffs).
+//
+// Reshaped to give the slab actual form. The original multiplied a 2D-ish fbm by
+// a soft vertical falloff, which makes a layer that is the same shape at every
+// height — so it marched a volume and drew what looked like a painted skybox, and
+// paid the volumetric cost for nothing.
+//
+// Three changes, all about height:
+//
+//  * The vertical profile is a ROUNDED BULGE, widest in the middle of the slab
+//    and pinched at both ends, rather than a flat plateau with soft edges. That
+//    alone gives a cloud a top and a bottom.
+//  * The coverage threshold RISES with height, so the higher you look inside a
+//    cloud the less of it qualifies. Stacking narrowing slices is what builds a
+//    dome instead of a wall, and it is what makes the tops read as cauliflower.
+//  * A second, finer octave erodes the edges, so the silhouette breaks into lumps
+//    at a scale below the main puffs — the "rounded cubes" read.
 float cloudDensity(vec3 wp, float cover, float t) {
   vec3 p = wp * 0.0125;
   p.xz += CLD_WIND * t * 0.013;
   float f = cloudFbm(p);
-  float hb = smoothstep(CLD_BASE, CLD_BASE + 7.0, wp.y);
-  float ht = 1.0 - smoothstep(CLD_TOP - 10.0, CLD_TOP, wp.y);
-  float d = smoothstep(1.0 - cover, 1.0 - cover + 0.30, f) * hb * ht;
+
+  // 0 at the base, 1 at the top of the slab.
+  float h = clamp((wp.y - CLD_BASE) / (CLD_TOP - CLD_BASE), 0.0, 1.0);
+  // Rounded vertical bulge: flat-bottomed, domed on top. The 0.62 puts the widest
+  // part below the middle, which is where a cumulus actually carries its mass.
+  float bulge = smoothstep(0.0, 0.22, h) * (1.0 - smoothstep(0.62, 1.0, h));
+
+  // The threshold climbs with height, narrowing every slice above the base.
+  float thresh = (1.0 - cover) + 0.26 * h;
+  float d = smoothstep(thresh, thresh + 0.22, f) * bulge;
+
+  // Erosion, only where there is already cloud — cheap, because the early-out in
+  // the march means most samples never reach here.
+  if (d > 0.01) {
+    float e = cnoise3(p * 3.7 + vec3(0.0, t * 0.02, 0.0));
+    d *= 1.0 - 0.45 * smoothstep(0.35, 0.75, e) * (0.35 + 0.65 * h);
+  }
   return clamp(d, 0.0, 1.0);
 }
 
@@ -102,8 +137,12 @@ vec4 renderClouds(vec3 ro, vec3 rd, int steps, float cover, float t, vec3 sunDir
     float d = cloudDensity(wp, cover, t);
     if (d > 0.002) {
       float ld = 0.0;
-      for (int j = 1; j <= 3; j++) ld += cloudDensity(wp + sunDir * float(j) * 5.0, cover, t);
-      float sun = exp(-ld * 0.6);  // 0 shadowed core .. 1 sunward face
+      for (int j = 1; j <= 3; j++) ld += cloudDensity(wp + sunDir * float(j) * 7.0, cover, t);
+      // Steeper falloff than before (0.6 -> 0.95), over a longer march. Self
+      // shadowing IS the shape cue: without enough contrast between the sunward
+      // face and the core, a volumetric cloud and a painted one look the same, and
+      // the whole cost of marching buys nothing.
+      float sun = exp(-ld * 0.95);  // 0 shadowed core .. 1 sunward face
       vec3 lit = mix(shadeCol, sunCloud, sun) * dayK;
       float a = 1.0 - exp(-d * dt * 0.40);
       accum += tr * lit * a;

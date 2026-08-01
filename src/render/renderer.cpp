@@ -790,6 +790,8 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
 
   compositeProg_->setMat4("uLightVP", lightVP_.data());
   compositeProg_->set("uShadowEnable", shadowActive_ ? 1.0f : 0.0f);
+  compositeProg_->set("uShadowTaps", quality_.shadowTaps);
+  compositeProg_->set("uShadowSoft", quality_.shadowSoft);
   compositeProg_->set("uShadowTexel", shadowSize_ ? 1.0f / shadowSize_ : 0.0f);
   compositeProg_->set("uShadowTexelWorld",
                       shadowSize_ ? (2.0f * quality_.shadowRange) / shadowSize_ : 0.0f);

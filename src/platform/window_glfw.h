@@ -69,6 +69,8 @@ class Window {
 
   bool fullscreen() const { return fullscreen_; }
   void setFullscreen(bool on);
+  bool borderless() const { return borderless_; }
+  void setBorderless(bool on);
 
   // Fires after a resize, with the new framebuffer size.
   std::function<void(int, int)> onResize;
@@ -87,6 +89,11 @@ class Window {
   Input input_;
   int width_ = 0, height_ = 0;
   bool fullscreen_ = false;
+  bool borderless_ = false;
+  // What the player asked for, so a window-mode change can put it back rather
+  // than forcing vsync on.
+  bool vsync_ = true;
+  void applyWindowMode(bool full, bool borderless);
   bool rawSupported_ = false;
   bool rawWanted_ = false;
   double lastMouseX_ = 0.0, lastMouseY_ = 0.0;
