@@ -112,15 +112,25 @@ saves the open world on the way out.
 the main or pause menu) where you can view them, delete them, or reveal them in
 your file manager. They are ordinary PNGs in `data/screenshots/`.
 
-**If it runs slowly, turn down Render Distance first.** Measured at 1280×720 on
-a Radeon RX 5700 XT, a settled world costs 13.8 ms a frame at distance 4, 19.1
-at 7 and 27.6 at 12 — so the view radius is by far the biggest lever you have.
-The quality preset is a much smaller one: Ultra and High measure within half a
-frame per second of each other, because what they vary is how many samples each
-effect takes, not whether the effect runs. To make a real difference there, turn
-individual effects off — God Rays, Water Reflections, Cast Shadows and
-Volumetric Clouds each remove a whole pass — or drop to Low, which is the only
-preset that also renders at reduced resolution.
+**Performance.** Measured at 1920×1080 on a Radeon RX 5700 XT, standing on the
+surface with the world settled, in milliseconds per frame:
+
+| Render distance | Low | High | Ultra |
+|---|---|---|---|
+| 4  | 1.24 (804 fps) | 2.13 (471 fps) | 2.40 (417 fps) |
+| 8  | 1.64 (609 fps) | 2.54 (393 fps) | 2.81 (356 fps) |
+| 12 | 1.75 (571 fps) | 2.64 (378 fps) | 2.93 (342 fps) |
+
+Neither lever costs much any more. Render distance is nearly free past 8,
+because fog bounds what is actually visible long before the loaded radius does,
+and the whole spread from Low to Ultra at distance 12 is about 1.2 ms. If you do
+need to claw some back, **Render Resolution** is the biggest single control —
+it draws the world at a fraction of the window and scales it up, leaving the
+interface sharp — and turning individual effects off (God Rays, Water
+Reflections, Cast Shadows, Volumetric Clouds) removes a whole pass each.
+
+If you want to know where a frame actually goes, `--perf` prints a per-pass GPU
+and CPU breakdown while you play and a summary when you quit.
 
 **Bed** — craft from 3 planks + 3 wool (from a sheep), place it (it lays out two cells, pillow
 always at the head whichever way you face), then right-click at night to

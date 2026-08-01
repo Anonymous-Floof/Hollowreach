@@ -23,6 +23,13 @@ constexpr float kPi = 3.14159265358979323846f;
 // Distance in blocks at which lights stop being considered at all.
 constexpr float kLightRange = 28.0f;
 
+// SSAO buffer size as a fraction of the scene buffer. Half, so a quarter of the
+// pixels. Not a quality-preset knob deliberately: the presets vary how many
+// SAMPLES the term takes, which is what changes how it looks, whereas the buffer
+// it lands in is blurred and then multiplied into a baked per-vertex shade and
+// has no business being full resolution at any preset.
+constexpr float kSsaoScale = 0.5f;
+
 }  // namespace
 
 bool Renderer::init(ShaderCache& shaders, const resource::Atlas* atlas) {
@@ -411,8 +418,15 @@ void Renderer::collectLights(const world::World& world, const Vec3& camPos,
 GBuffer::Aux* Renderer::renderSSAO(const Camera& camera, int screenW, int screenH) {
   if (quality_.ssaoSamples <= 0) return nullptr;
 
-  GBuffer::Aux& raw = gbuffer_.auxTarget(1, 1.0f, GL_LINEAR);
-  GBuffer::Aux& blur = gbuffer_.auxTarget(2, 1.0f, GL_LINEAR);
+  // Half resolution, which is a quarter of the pixels. AO is a low-frequency term
+  // that is then blurred and multiplied into a baked per-vertex shade, so the
+  // detail a full-resolution buffer carries is destroyed by the next two stages
+  // anyway; the composite samples it with GL_LINEAR and upsamples for free. This
+  // was 43% of GPU time at Ultra and the single most expensive pass left after
+  // the vertex-buffer fix.
+  GBuffer::Aux& raw = gbuffer_.auxTarget(1, kSsaoScale, GL_LINEAR);
+  GBuffer::Aux& blurX = gbuffer_.auxTarget(2, kSsaoScale, GL_LINEAR);
+  GBuffer::Aux& blur = gbuffer_.auxTarget(4, kSsaoScale, GL_LINEAR);
   const float aspect = static_cast<float>(screenW) / std::max(1, screenH);
 
   glDisable(GL_DEPTH_TEST);
@@ -435,18 +449,29 @@ GBuffer::Aux* Renderer::renderSSAO(const Camera& camera, int screenW, int screen
   ssaoProg_->set("uStrength", quality_.ssaoStrength);
   fullscreen_.draw();
 
-  glBindFramebuffer(GL_FRAMEBUFFER, blur.fbo);
-  glViewport(0, 0, blur.w, blur.h);
+  // Separable: horizontal into blurX, then vertical into blur. Ten taps for the
+  // radius a single 5x5 pass spent twenty-five on.
   ssaoBlurProg_->use();
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, raw.tex);
-  ssaoBlurProg_->set("uSSAO", 0);
   glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_2D, gbuffer_.depth());
   ssaoBlurProg_->set("uDepth", 1);
-  ssaoBlurProg_->set("uTexel", 1.0f / blur.w, 1.0f / blur.h);
+  ssaoBlurProg_->set("uSSAO", 0);
   ssaoBlurProg_->set("uNear", camera.near());
   ssaoBlurProg_->set("uFar", camera.far());
+  ssaoBlurProg_->set("uTexel", 1.0f / raw.w, 1.0f / raw.h);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, blurX.fbo);
+  glViewport(0, 0, blurX.w, blurX.h);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, raw.tex);
+  ssaoBlurProg_->set("uDir", 1.0f, 0.0f);
+  fullscreen_.draw();
+
+  glBindFramebuffer(GL_FRAMEBUFFER, blur.fbo);
+  glViewport(0, 0, blur.w, blur.h);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, blurX.tex);
+  ssaoBlurProg_->set("uDir", 0.0f, 1.0f);
   fullscreen_.draw();
 
   return &blur;

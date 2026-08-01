@@ -129,6 +129,9 @@ int App::run(const AppOptions& options) {
   }
 
   ui::settings().load(paths::settingsFile());
+  // Seed BEFORE anything applies settings, so the first apply sees "unchanged"
+  // and leaves the stored render scale alone.
+  lastQuality_ = ui::settings().text("graphicsQuality");
 
   // The web build could not open an AudioContext until the player clicked something,
   // so the whole engine had an "unlocked" state and every call no-opped until then.
@@ -342,7 +345,25 @@ render::QualitySettings App::qualityPreset(const std::string& name) {
 void App::applySettings() {
   ui::SettingsStore& s = ui::settings();
 
-  render::QualitySettings q = qualityPreset(s.text("graphicsQuality"));
+  // Choosing a preset moves the resolution slider to that preset's own scale, and
+  // then the slider is the only thing that decides. Multiplying the two instead
+  // would make a row reading "100%" render at 75, and letting the slider silently
+  // override would delete the one thing the Low preset does for a weak GPU. Only
+  // on an actual CHANGE, and never on the first call: `lastQuality_` starts empty
+  // and is seeded from the stored value, because a startup that rewrites a
+  // player's setting from a default is the exact bug --quality shipped with.
+  const std::string qualityName = s.text("graphicsQuality");
+  if (!lastQuality_.empty() && qualityName != lastQuality_) {
+    for (const ui::QualityPreset& p : ui::qualityPresets()) {
+      if (qualityName == p.name) {
+        s.setNumber("renderScale", std::lround(p.scale * 100.0f));
+        break;
+      }
+    }
+  }
+  lastQuality_ = qualityName;
+
+  render::QualitySettings q = qualityPreset(qualityName);
   // The effect toggles gate features off within the selected tier, exactly as the web
   // build did — a zeroed sample count is how a pass is skipped.
   if (!s.flag("ambientOcclusion")) q.ssaoSamples = 0;
@@ -350,6 +371,9 @@ void App::applySettings() {
   if (!s.flag("waterReflections")) q.ssrSteps = 0;
   if (!s.flag("castShadows")) q.shadowSize = 0;
   if (!s.flag("clouds")) q.cloudSteps = 0;
+  // Overrides the preset's own scale, so the slider means what it says whichever
+  // tier is selected rather than being silently multiplied by it.
+  q.scale = static_cast<float>(s.number("renderScale")) / 100.0f;
   q.cloudShadows = s.flag("cloudShadows") ? 1.0f : 0.0f;
   renderer_.setQuality(q);
 

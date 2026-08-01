@@ -19,6 +19,13 @@ const std::vector<SettingDef>& schema() {
   static const std::vector<SettingDef> table = {
       {"renderDistance", "Render Distance", SettingType::Slider, "Graphics", 3, 12, 1, 7},
       {"fov", "Field of View", SettingType::Slider, "Graphics", 50, 100, 1, 70},
+      // The scene is rendered at this fraction of the window and upscaled at the
+      // present pass; the interface is always drawn at native size, so text and
+      // the hotbar stay sharp whatever this is set to. The renderer has always had
+      // the knob — it is what the Low preset's 0.75 uses — but only a preset could
+      // reach it. 100 is native; below that trades sharpness for frame rate, above
+      // it is supersampling for a machine with headroom to spare.
+      {"renderScale", "Render Resolution", SettingType::Slider, "Graphics", 50, 150, 5, 100},
       {"graphicsQuality", "Graphics Quality", SettingType::Select, "Graphics", 0, 0, 0, 0, false,
        "High", {"Low", "Medium", "High", "Ultra"}},
       {"ambientOcclusion", "Ambient Occlusion (SSAO)", SettingType::Toggle, "Graphics", 0, 0, 0,
@@ -147,10 +154,19 @@ std::vector<std::string> settingsCategories() {
 
 const std::vector<QualityPreset>& qualityPresets() {
   static const std::vector<QualityPreset> presets = {
+      // shadowSize is a texel budget over a FIXED +/-72 block box, so it is a
+      // sharpness figure, not a range figure: 2048 is 14 shadow texels per block
+      // and 4096 is 28. Voxel geometry is axis-aligned and has nothing under a
+      // block wide to resolve, so past roughly 8 texels per block the extra
+      // resolution is spent on edges that are already straight. Ultra drops to
+      // 2048 (0.79 -> 0.27 ms) and High to 1536 (10 texels per block); both stay
+      // above the point where a shadow edge starts to look stepped, which 512
+      // does not. Everything else is unchanged — the samples are what the presets
+      // are for, and after the vertex-buffer fix none of them is expensive.
       {"Low", 0.75f, 8, 24, 0, 0, 10},
       {"Medium", 1.0f, 12, 40, 16, 1024, 14},
-      {"High", 1.0f, 16, 48, 24, 2048, 22},
-      {"Ultra", 1.0f, 24, 64, 40, 4096, 34},
+      {"High", 1.0f, 16, 48, 24, 1536, 22},
+      {"Ultra", 1.0f, 24, 64, 40, 2048, 34},
   };
   return presets;
 }

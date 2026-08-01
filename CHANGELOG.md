@@ -49,8 +49,22 @@ version heading when it's time to ship.
   outline — for a clean screenshot.
 - **Interface scale** and **raw mouse input** settings, neither of which the
   browser build needed.
+- **Render Resolution** in Settings. Draws the world at a fraction of the window
+  and scales it up; the interface stays sharp either way. Picking a quality
+  preset sets it, and you can then move it yourself.
 
 ### Fixed
+- **The frame rate.** Standing on the surface at render distance 12 on High, the
+  game ran at 17 fps; it now runs at 378. Ultra went from unplayable to 343. The
+  cause was a single wrong flag on the chunk mesh buffers that told the graphics
+  driver to keep them in system memory, so the card was fetching every triangle
+  of the world back across the bus on every frame instead of reading its own.
+  Render distance costs almost nothing now — 8, 12 and 16 are within a fraction
+  of a millisecond of each other.
+- **The outermost ring of chunks had no terrain in it,** and the ring just inside
+  it was drawn too dark. Chunks on the edge of the loaded area were waiting on
+  neighbours that were never going to be generated, so they were never built at
+  all. The world now generates one ring further out than it draws.
 - **Boats are ridden facing forward.** The hull was modelled bow-to-+z while a
   ridden boat is handed the player's yaw, whose zero faces -z - so you sat facing
   the stern. The browser did this too.

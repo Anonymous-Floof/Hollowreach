@@ -239,6 +239,10 @@ class App {
   // The menu's chosen background picture, uploaded once per choice. Empty path and a
   // zero texture mean the stylesheet's radial-gradient fallback.
   void refreshMenuBackground();
+  // The graphics preset as of the last applySettings, so a CHANGE can be told
+  // from a re-apply. Seeded from the store before the first apply; see the
+  // comment at its use for why that matters.
+  std::string lastQuality_;
   std::string menuBgPath_;
   GLuint menuBgTex_ = 0;
   float menuBgAspect_ = 1.0f;
