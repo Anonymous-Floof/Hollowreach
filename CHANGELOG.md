@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.1.0] - 2026-08-01
+
 ### Added
 - **Blocks hold each other up now.** Torches, plants, mushrooms and pebbles need
   solid ground beneath them and break into their drop when it goes — mine the
@@ -252,7 +254,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.0.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.0.0
 [1.2.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Anonymous-Floof/Hollow-Reach/releases/tag/v1.1.0

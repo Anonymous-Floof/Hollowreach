@@ -121,13 +121,13 @@ surface with the world settled, in milliseconds per frame:
 
 | Render distance | Low | High | Ultra |
 |---|---|---|---|
-| 4  | 1.24 (804 fps) | 2.13 (471 fps) | 2.40 (417 fps) |
-| 8  | 1.64 (609 fps) | 2.54 (393 fps) | 2.81 (356 fps) |
-| 12 | 1.75 (571 fps) | 2.64 (378 fps) | 2.93 (342 fps) |
+| 4  | 1.05 (956 fps) | 2.02 (496 fps) | 2.26 (443 fps) |
+| 8  | 1.47 (680 fps) | 2.48 (404 fps) | 2.82 (354 fps) |
+| 12 | 1.85 (542 fps) | 2.90 (345 fps) | 3.11 (321 fps) |
 
 Neither lever costs much any more. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,
-and the whole spread from Low to Ultra at distance 12 is about 1.2 ms. If you do
+and the whole spread from Low to Ultra at distance 12 is about 1.3 ms. If you do
 need to claw some back, **Render Resolution** is the biggest single control —
 it draws the world at a fraction of the window and scales it up, leaving the
 interface sharp — and turning individual effects off (God Rays, Water
