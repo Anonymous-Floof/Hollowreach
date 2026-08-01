@@ -91,8 +91,11 @@ all and is the fastest way to know a change did not break something.
 | Climb ladder | Walk into it + W/Space (Shift = down) |
 | Select hotbar | 1–9 / scroll |
 | Inventory | E |
+| Move a slot to the hotbar | Hover it and press 1–9 (swaps) |
+| Move many at once | Hold Shift and drag across slots |
+| Drop many at once | Hold Q and drag across slots |
 | Recipe book | H (or the **Recipes** button on any crafting screen) |
-| Atlas map (needs an **Atlas**) | N |
+| Atlas map (needs an **Atlas**) | M |
 | Screenshot | F2 |
 | Hide the interface | F1 |
 | Fullscreen | Alt+Enter |
@@ -101,8 +104,9 @@ all and is the fastest way to know a change did not break something.
 
 **Settings** (pause or main menu) are grouped into Graphics / Controls /
 Gameplay / Audio tabs — render distance and quality preset,
-shadow/reflection/cloud/AO toggles, fullscreen, mouse sensitivity and raw-input,
-interface scale, fall-damage/hunger/monster/flight toggles, and volume sliders.
+shadow/reflection/cloud/AO toggles, render resolution, fullscreen, borderless
+window, V-Sync, a frame rate cap, mouse sensitivity and raw-input, interface
+scale, fall-damage/hunger/monster/flight toggles, and volume sliders.
 Every one applies live, with no restart. The in-game **About** screen (main
 menu) has a quick feature rundown if you want the highlight reel instead of
 reading this whole file, and **Quit** is at the bottom of that same menu — it
@@ -169,7 +173,7 @@ relief shading and depth-tinted water — that only charts ground you've
 actually explored (the rest stays fogged). Click to drop **waypoints** (rename,
 recolour or delete them in the side panel); they show as floating markers in
 the world with live distances. Dying pins an automatic **death waypoint** where
-you fell (toggle in Settings), and a corner **minimap** (toggle with **N**)
+you fell (toggle in Settings), and a corner **minimap** (toggle in Settings)
 keeps your surroundings and waypoint headings in view. Lose the Atlas — say, by
 dying with it — and the map goes with it until you get it back.
 
@@ -213,7 +217,21 @@ act — sprinting and swimming burn it faster. Eat to refill it; when it empties
 well-fed. Hold your breath underwater: a row of **bubbles** counts down once your
 head is submerged, and when they run out you start to **drown**. (Hunger can be
 toggled off in Settings; breath/drowning is always on.) Taking a hit now also
-**wears your armour** — it soaks damage and loses durability for it.
+**wears your armour** — it soaks damage and loses durability for it — and
+flashes a **red vignette** around the edge of the screen, so a hit you did not
+see coming does not go unnoticed while you are looking somewhere else. Run out
+of hearts and you **die**: what you were carrying drops where you fell, a death
+waypoint is pinned on the Atlas, and you wake at your Soul Anchor.
+
+**Things hold each other up.** Torches, plants, mushrooms and pebbles need solid
+ground beneath them, and break into their drop when it goes — mine the dirt under
+a torch and the torch comes with it. **Sand falls**: dig it out from underneath
+and it drops as a real falling block, stacking up wherever it lands, which is
+what makes a dune collapse when you tunnel through it. And water **washes away**
+what it flows into: a flooded torch or tuft of grass is gone, though water
+sitting quietly beside a shoreline leaves it alone. All of it is event-driven —
+nothing is checked until something near it changes — so a world holding tens of
+thousands of plants costs nothing until you disturb one.
 
 **Atmosphere:** the world breathes a little. A real **sun** and **moon** arc
 across the sky (the sun rises in the east), the night fills with a sparse,

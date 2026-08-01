@@ -74,7 +74,7 @@ const std::vector<SettingDef>& schema() {
        false},
       {"highStep", "High Step (walk up full blocks)", SettingType::Toggle, "Gameplay", 0, 0, 0, 0,
        false},
-      {"minimap", "Minimap (needs the Atlas \xC2\xB7 N)", SettingType::Toggle, "Gameplay", 0, 0, 0,
+      {"minimap", "Minimap (needs the Atlas \xC2\xB7 M)", SettingType::Toggle, "Gameplay", 0, 0, 0,
        0, true},
       {"deathWaypoints", "Death Waypoints on the Atlas", SettingType::Toggle, "Gameplay", 0, 0, 0,
        0, true},

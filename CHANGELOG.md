@@ -15,6 +15,54 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Blocks hold each other up now.** Torches, plants, mushrooms and pebbles need
+  solid ground beneath them and break into their drop when it goes — mine the
+  dirt under a torch and the torch comes with it.
+- **Sand falls.** Dig it out from underneath and it comes down as a real falling
+  block, stacking wherever it lands, so tunnelling through a dune collapses it.
+- **Water washes things away.** A flood takes out the torches and greebles it
+  flows into. Water sitting quietly beside a shoreline leaves it alone — only
+  water that actually moves into a cell destroys what was there.
+- **A red damage vignette.** A hit you did not see coming no longer goes
+  unnoticed because you were looking somewhere else.
+- **Number keys in the inventory.** Hover a slot, press 1–9, and it swaps with
+  that hotbar slot.
+- **V-Sync, a frame rate limit and a borderless window**, all in Settings →
+  Graphics. The limit is exact — 30, 60, 120 and 144 all land on the number.
+- **A Copy Invite Code button** while hosting, replacing "copy it from the log".
+
+### Changed
+- **New worlds pick somewhere sensible to start.** Spawn was a fixed point
+  whatever happened to be there, and since roughly half of any seed is ocean,
+  half of all new worlds began treading water on a beach. It now finds dry,
+  reasonably flat ground as near that point as it can. Existing worlds keep the
+  spawn they were saved with, and no terrain has changed.
+- **The Atlas map opens with M**, not N.
+- **Clouds have tops.** They were paying for a ray-marched sky and looking like a
+  painted one: the shape was the same at every height. They now bulge and dome
+  and erode, with much stronger self-shadowing, which is what a volumetric cloud
+  is for.
+- **Shadow edges are soft instead of stepped**, from a rotated 12-tap disc rather
+  than a fixed 3×3 grid — which had been showing its stair-steps more clearly on
+  Ultra, not less.
+- **God rays are easier to see.**
+- **Pickaxes, axes and hoes are held nearer vertical**, so they strike with the
+  point or the edge rather than the flat of the head. Shovels are unchanged,
+  because a shovel really does dig face-first.
+- **Recipes that take any wood say so.** The ingredient showed as "Oak Planks",
+  which is exactly how somebody in a pine forest concludes they cannot make a
+  pickaxe.
+
+### Fixed
+- **The recipe book's Back button** closed everything and freed the mouse instead
+  of returning to the crafting screen you opened it from.
+- **Menu backgrounds.** Setting one from the Gallery worked until you left the
+  Gallery, and was forgotten entirely on restart. Three separate faults: it was
+  never saved, the main menu painted an opaque gradient over it, and the Settings
+  screen did the same.
+- Toggling fullscreen no longer silently turns V-Sync back on.
+
 ## [2.0.0] - 2026-08-01
 
 ### Changed

@@ -53,19 +53,26 @@ struct Feature {
   const char* title;
   const char* body;
 };
+// Kept in step with README.md deliberately: this is the same claim list, and a
+// player reads whichever one is nearer to hand. See docs/RELEASING.md — updating
+// both is a release step, not an afterthought.
 constexpr Feature kFeatures[] = {
-    {"Custom engine", "Its own WebGL2 renderer, mesher and physics \xE2\x80\x94 zero "
-                      "third-party code."},
-    {"Deferred lighting", "Coloured point lights, a directional sun with cast shadows, "
+    {"Custom engine", "Its own OpenGL renderer, mesher and physics \xE2\x80\x94 no engine, "
+                      "no game libraries."},
+    {"Deferred lighting", "Coloured point lights, a directional sun with soft cast shadows, "
                           "SSAO and god-rays."},
-    {"Volumetric skies", "Ray-marched clouds with moving shadows, a full day/night cycle, "
+    {"Volumetric skies", "Ray-marched cumulus with moving shadows, a full day/night cycle, "
                          "sun, moon and stars."},
     {"Living water", "A flowing-water automaton with reflections, currents and an "
                      "underwater view."},
-    {"Procedural world", "Endless terrain, caves and ore veins, forests, and meadows of "
-                         "grass, flowers and mushrooms."},
+    {"A world with depth", "192 blocks tall, a hundred of them underground: caves, "
+                           "ravines, and ore in bands you have to dig for."},
+    {"Things fall down", "Sand collapses, plants need ground under them, and a flood "
+                         "washes away what it reaches."},
     {"Survive & build", "Mine, smelt at the Forge, climb the tool & armour tiers, farm "
                         "mobs, sleep, and build."},
+    {"Play together", "Open a world to your network; friends on it see you, your edits "
+                      "and each other."},
 };
 
 struct Control {
@@ -82,10 +89,11 @@ constexpr Control kControls[] = {
     // The en dash has to end its own literal: "\x939" would be read as one escape.
     {"1\xE2\x80\x93" "9 \xC2\xB7 Wheel", "Select hotbar"},
     {"E", "Inventory"},
-    {"R", "Recipe book"},
+    {"H", "Recipe book"},
+    {"M", "Atlas map"},
     {"Q", "Drop item (Ctrl+Q: stack)"},
+    {"F1", "Hide the interface"},
     {"F2", "Screenshot"},
-    {"F8", "Capture panorama"},
     {"F3", "Debug overlay"},
     {"Esc", "Pause"},
 };
@@ -449,9 +457,10 @@ void Menu::buildPageAbout(const UiEvent& event, TweenStore& tweens) {
   Style para;
   para.margin = Edges(0, 0, 10, 0);
   para.maxWidth = 462;
-  main_.label("Hollowreach is a vibecoded voxel sandbox built entirely from scratch in the "
-              "browser \xE2\x80\x94 its own engine, procedural world, textures and models, "
-              "with no game engine and no external libraries.",
+  main_.label("Hollowreach is a vibecoded voxel sandbox built entirely from scratch "
+              "\xE2\x80\x94 its own engine, procedural world, textures and models, with no "
+              "game engine and no external libraries. It began in the browser and was "
+              "rewritten in C++ to run as a native application.",
               widget::aboutLead(), para);
 
   Style heading;

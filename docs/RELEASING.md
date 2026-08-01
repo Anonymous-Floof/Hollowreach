@@ -49,6 +49,28 @@ actually changes — don't touch them for a release:
 `### Changed` / `### Fixed` headings work well). These lines become the release
 notes verbatim, so this is the "outline changes and additions" step.
 
+**0b. Re-read what the game tells players, and fix what has gone stale.**
+Not optional, and not a formality — every item on this list has actually been
+wrong in a shipped or nearly-shipped build:
+
+| Where | What drifts |
+|---|---|
+| `README.md` controls table | A rebound key. The map moved N → M and the table said N for a release. |
+| `README.md` Settings paragraph | New rows. V-Sync, frame limit and borderless all existed before it mentioned them. |
+| `README.md` performance table | Numbers from an older build. Re-measure with `--perf`. |
+| `src/ui/menu.cpp` `kFeatures` | Claims about the engine. It described a **WebGL2** renderer for the whole native port. |
+| `src/ui/menu.cpp` `kControls` | The About screen's key list, which drifted from the README's. |
+| Settings row labels | Keys named inside a label, e.g. "Minimap (needs the Atlas · M)". |
+| `CHANGELOG.md` known limitations | Limitations that were fixed and never struck out. 2.0.0 shipped claiming remote players were invisible; they had rendered since the fork. |
+
+The last row is the one to be most careful with. A stale *limitation* is worse
+than a stale feature: it tells players something is broken when it is not, and
+they will believe it and report it. Before writing one down, check it against
+the code rather than against your memory or an older plan.
+
+The README and the About screen make the same claims to the same people. If you
+change one, change the other in the same commit.
+
 **1. Bump.**
 
 ```
@@ -135,3 +157,8 @@ The self-test needs no window and takes seconds. The golden comparison needs a
 checkout of the archived web build — see the note at the top of
 `tools/compare_golden.py` — and is what proves a worldgen, atlas, recipe or
 mesher change did not quietly alter the game.
+
+And unzip the artifact into an empty folder and actually play it for a minute.
+That is what caught the release binary carrying the build machine's absolute
+paths — the `.pdb` reference and the asset-override directory, both with a
+username in them — which no amount of reading the source would have shown.
