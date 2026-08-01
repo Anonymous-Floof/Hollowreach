@@ -75,8 +75,18 @@ target_compile_definitions(hollowreach PRIVATE
   $<$<CONFIG:Debug>:HR_DEBUG>
   $<$<BOOL:${HOLLOWREACH_EMBED_ASSETS}>:HR_EMBED_ASSETS>
   $<$<BOOL:${HOLLOWREACH_WITH_NET}>:HR_WITH_NET>
-  # Points the Debug build at the on-disk assets so shader edits need no rebuild.
-  HR_SOURCE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+  # Points a local build at the on-disk assets so shader edits need no rebuild.
+  # NOT in Release, which is what ships: this is an absolute path from the machine
+  # that compiled it, so it would put the builder's username and directory layout
+  # into a public binary for no benefit — a player's copy can never find that path
+  # anyway and falls back to the embedded assets. An assets/ folder beside the
+  # executable still overrides, in every configuration, which is the hook a player
+  # or a resource pack would actually use.
+  $<$<NOT:$<CONFIG:Release>>:HR_SOURCE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets">
+  # Compiling a release from a different directory must not change the binary.
+  # /Zi has already been dropped by the Release flags, taking the .pdb path with
+  # it; this covers the __FILE__ that any assert or log line could expand to.
+  $<$<CONFIG:Release>:HR_RELEASE_BUILD>
   # We declare the GL 3.3 entry points ourselves in core/gl.h, so GLFW must not
   # drag in the platform <GL/gl.h> (which only has GL 1.1 and collides).
   GLFW_INCLUDE_NONE

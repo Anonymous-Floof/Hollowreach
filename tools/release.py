@@ -141,11 +141,18 @@ def _build_and_pack():
     and then hands off to CPack. Going through the script rather than calling
     cmake directly is the point: on Windows neither CMake nor Ninja nor the MSVC
     toolchain is normally on PATH, and build.bat is what knows how to find all
-    three."""
+    three.
+
+    Built as Release, not the RelWithDebInfo a plain `build.bat` gives you, and
+    the reason is about what ends up in a binary handed to strangers rather than
+    about speed. RelWithDebInfo compiles with /Zi, which writes the absolute path
+    of the .pdb into the executable, and it is not the configuration
+    HR_SOURCE_ASSET_DIR is suppressed in — so a RelWithDebInfo zip carries the
+    builder's username and directory layout, twice."""
     if os.name == "nt":
-        cmd = [os.path.join(ROOT, "build.bat"), "package"]
+        cmd = [os.path.join(ROOT, "build.bat"), "release", "package"]
     else:
-        cmd = [os.path.join(ROOT, "build.sh"), "package"]
+        cmd = [os.path.join(ROOT, "build.sh"), "release", "package"]
         if not os.access(cmd[0], os.X_OK):
             cmd = ["sh"] + cmd
     print("building:", " ".join(cmd))
