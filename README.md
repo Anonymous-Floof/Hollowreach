@@ -181,7 +181,7 @@ craft from 5 planks, right-click to set it on water (or ground); right-click it
 to ride (look where you want to go, W/S throttle, A/D strafe), **Shift** to
 dismount, and left-click an empty boat to pick it back up.
 
-**Painting** — craft from 8 planks around 1 wool and 1 azurite, hang it on any
+**Painting** — craft from 7 planks around 1 wool and 1 azurite, hang it on any
 wall, then right-click it and choose one of your own screenshots to display.
 The picture is stored *in the painting*, not as a link to the file: it survives
 deleting the screenshot, it travels with an exported world, and a friend who
