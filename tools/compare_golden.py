@@ -64,6 +64,20 @@ KNOWN_MESH_DIFFS = {"mesh(3918175327, v1, 7, -3)"}
 # the recipe table -- everything else in the group must still match exactly.
 KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)}
 
+# Things this build has that the browser never did. Separate from the sets above,
+# which are entries that exist on both sides and disagree: these exist only here,
+# so they surface as EXTRA rather than as a mismatch.
+#
+# Both are the painting. Anything added to the block registry or the recipe table
+# lands here, and the rule for adding one is that it must be registered LAST in its
+# table -- ids and recipe indices are handed out in order, and inserting in the
+# middle renumbers everything after it, which reads as a hundred failures in a
+# group where nothing actually changed.
+KNOWN_EXTRA = {
+    "atlas": {"tile(block/canvas)"},
+    "recipes": {"recipe(140)"},
+}
+
 
 def find_exe(explicit: str | None) -> Path:
     if explicit:
@@ -109,7 +123,8 @@ def keyed(text: str) -> dict[str, str]:
 
 
 def compare(name: str, expected: dict[str, str], got: dict[str, str],
-            known: set[str], strict: bool) -> tuple[int, int, int]:
+            known: set[str], strict: bool,
+            known_extra: set[str] | None = None) -> tuple[int, int, int]:
     """Returns (checked, failures, known-differences)."""
     failures: list[str] = []
     known_hits = 0
@@ -124,8 +139,12 @@ def compare(name: str, expected: dict[str, str], got: dict[str, str],
             continue
         failures.append(f"{label}\n      js  = {want}\n      c++ = {got[label]}")
 
+    allowed_extra = known_extra or set()
     extra = sorted(set(got) - set(expected))
     for label in extra:
+        if label in allowed_extra and not strict:
+            known_hits += 1
+            continue
         failures.append(f"EXTRA in native: {label}")
 
     status = "OK" if not failures else "FAIL"
@@ -186,7 +205,7 @@ def main() -> int:
 
         known = {"mesh": KNOWN_MESH_DIFFS, "recipes": KNOWN_RECIPE_DIFFS}.get(group, set())
         checked, failed, known_hits = compare(group, keyed(js), keyed(cpp), known,
-                                              args.strict)
+                                              args.strict, KNOWN_EXTRA.get(group, set()))
         total_checked += checked
         total_failed += failed
         total_known += known_hits

@@ -35,12 +35,18 @@
 
 #include "core/bytes.h"
 #include "core/mat4.h"
+#include "game/painting.h"
 
 namespace hr::net {
 
 // Bumped whenever the wire layout changes. A peer that does not match is rejected
 // at the handshake with a reason, rather than being allowed to misparse.
-inline constexpr std::uint16_t kNetVersion = 1;
+// 2: paintings. A new message type, which an older peer would drop on the floor —
+// so a guest on 1 would hang a picture nobody else could see and never see anyone
+// else's. Bumped rather than left tolerant, because a clear "different version"
+// at the join screen is a much better answer than a world that silently disagrees
+// with itself about what is on the walls.
+inline constexpr std::uint16_t kNetVersion = 2;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -89,6 +95,8 @@ enum class MsgType : std::uint8_t {
   BeRequest,  // c->h
   BeState,    // both
   BeDeny,     // h->c
+  // paintings
+  Painting,   // both: c->h asks to hang one, h->c tells everyone what hangs there
   // lifecycle
   PlayerState,  // c->h periodic, for the host's save
   Bye,          // both
@@ -249,6 +257,15 @@ struct BeRequestMsg {
   std::uint8_t kind = 0;
 };
 
+// A picture and where it hangs. The pixels themselves travel, which is the whole
+// point — the receiver has never seen the sender's screenshots folder. Fixed size,
+// so there is no dimension on the wire for a hostile peer to lie about: a body
+// that is not exactly kPaintingBytes long is rejected outright.
+struct PaintingMsg {
+  std::int32_t x = 0, y = 0, z = 0;
+  std::vector<std::uint8_t> rgb;
+};
+
 struct BeDenyMsg {
   std::int32_t x = 0, y = 0, z = 0;
   std::string reason;
@@ -331,6 +348,8 @@ void encode(ByteWriter& w, const BeRequestMsg& m);
 bool decode(ByteReader& r, BeRequestMsg& m);
 void encode(ByteWriter& w, const BeStateMsg& m);
 bool decode(ByteReader& r, BeStateMsg& m);
+void encode(ByteWriter& w, const PaintingMsg& m);
+bool decode(ByteReader& r, PaintingMsg& m);
 void encode(ByteWriter& w, const BeDenyMsg& m);
 bool decode(ByteReader& r, BeDenyMsg& m);
 void encode(ByteWriter& w, const PlayerStateMsg& m);

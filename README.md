@@ -72,7 +72,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 325 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 362 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -88,6 +88,7 @@ all and is the fastest way to know a change did not break something.
 | Break block / attack | Left mouse (hold) |
 | Place / use station / open door / sleep / **eat** | Right mouse |
 | Pick block (bring one you own to hand) | Middle mouse |
+| Choose a painting's picture | Right mouse on a hung painting |
 | Drop item | Q (one) · Ctrl+Q (whole stack) |
 | Climb ladder | Walk into it + W/Space (Shift = down) |
 | Select hotbar | 1–9 / scroll |
@@ -156,6 +157,14 @@ time-of-day mechanics (like grass spreading) move forward while you sleep. **Boa
 craft from 5 planks, right-click to set it on water (or ground); right-click it
 to ride (look where you want to go, W/S throttle, A/D strafe), **Shift** to
 dismount, and left-click an empty boat to pick it back up.
+
+**Painting** — craft from 8 planks around 1 wool and 1 azurite, hang it on any
+wall, then right-click it and choose one of your own screenshots to display.
+The picture is stored *in the painting*, not as a link to the file: it survives
+deleting the screenshot, it travels with an exported world, and a friend who
+joins your game sees what you hung even though they have never seen your
+captures folder. It is scaled to 128 square on the way in, which is 48 KB per
+painting and sharper than anything else in the world.
 
 **Inventory (Mouse-Tweaks style):** Left-click picks up / places a stack,
 right-click takes half / places one. **Shift-click** instantly moves a stack to

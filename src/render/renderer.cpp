@@ -54,6 +54,7 @@ bool Renderer::init(ShaderCache& shaders, const resource::Atlas* atlas) {
                                      .defines = {},
                                      .attribs = {"aPos", "aUV", "aPack", "aTint"}});
   if (!entityRenderer_.init(shaders, atlas, &itemMeshes_)) return false;
+  if (!paintingRenderer_.init(shaders)) return false;
   compositeProg_ = shaders.load({.name = "composite",
                                  .vertAsset = "shaders/fullscreen.vert",
                                  .fragAsset = "shaders/composite.frag",
@@ -734,6 +735,9 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
             [](const DrawItem& a, const DrawItem& b) { return a.d2 < b.d2; });
   for (const DrawItem& it : drawList_) it.chunk->opaqueMesh.drawSectionMask(it.mask);
   }
+  // Inside the terrain pass, because a painting is part of the wall as far as the
+  // lighting is concerned and its cost belongs on the same line of the profile.
+  paintingRenderer_.drawGBuffer(world, camera);
   profiler_.end();
   drawnChunks_ = static_cast<int>(visible_.size());
 

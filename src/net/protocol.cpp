@@ -91,6 +91,7 @@ const char* typeName(MsgType type) {
     case MsgType::BeRequest: return "beReq";
     case MsgType::BeState: return "beState";
     case MsgType::BeDeny: return "beDeny";
+    case MsgType::Painting: return "painting";
     case MsgType::PlayerState: return "pstate";
     case MsgType::Bye: return "bye";
     case MsgType::PlayerJoin: return "pjoin";
@@ -376,6 +377,28 @@ bool decode(ByteReader& r, SfxMsg& m) {
 }
 
 // ---- block entities ---------------------------------------------------------
+
+void encode(ByteWriter& w, const PaintingMsg& m) {
+  w.i32(m.x);
+  w.i32(m.y);
+  w.i32(m.z);
+  for (std::size_t i = 0; i < game::kPaintingBytes; ++i) {
+    w.u8(i < m.rgb.size() ? m.rgb[i] : 0);
+  }
+}
+bool decode(ByteReader& r, PaintingMsg& m) {
+  m.x = r.i32();
+  m.y = r.i32();
+  m.z = r.i32();
+  // Exactly this many bytes or nothing. There is no length field to trust, so a
+  // short packet fails here rather than leaving a half-filled picture.
+  if (!r.ok() || r.remaining() < game::kPaintingBytes) return false;
+  m.rgb.resize(game::kPaintingBytes);
+  for (std::size_t i = 0; i < game::kPaintingBytes; ++i) m.rgb[i] = r.u8();
+  const auto coord = static_cast<std::int32_t>(kMaxCoord);
+  return r.ok() && m.x >= -coord && m.x <= coord && m.z >= -coord && m.z <= coord &&
+         m.y >= 0 && m.y < 512;
+}
 
 void encode(ByteWriter& w, const BeRequestMsg& m) {
   w.i32(m.x);

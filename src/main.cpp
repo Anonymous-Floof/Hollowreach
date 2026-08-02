@@ -59,6 +59,7 @@ void printUsage() {
       "  --perf              per-pass GPU and CPU timing, and a report at exit\n"
       "  --give <list>       start holding items: key[:count][,key[:count]...]\n"
       "  --spawn <list>      place entities near spawn: type[:count][,...]\n"
+      "  --hang <png>        build a wall at spawn with this picture in a painting\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
       "  --verbose           log at debug level\n"
       "  --help              this message\n");
@@ -270,6 +271,9 @@ int main(int argc, char** argv) {
         if (comma == std::string::npos) break;
         start = comma + 1;
       }
+    } else if (std::strcmp(arg, "--hang") == 0) {
+      if (!takeValue(argc, argv, i, arg, options.hangPicture)) return 2;
+      wantsWorld = true;
     } else if (std::strcmp(arg, "--dump-icons") == 0) {
       if (!takeValue(argc, argv, i, arg, options.iconDumpPath)) return 2;
     } else if (std::strcmp(arg, "--screen") == 0) {

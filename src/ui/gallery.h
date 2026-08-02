@@ -31,9 +31,18 @@ class Gallery {
   // Rescans the screenshots directory. Thumbnails are decoded lazily, a few per frame,
   // so opening a folder with two hundred captures does not stall.
   void onShow();
+  // The same screen in "choose a picture" mode, for hanging one in a painting. A
+  // mode rather than a second screen because everything a picker needs — the
+  // directory scan, the lazy thumbnails, the grid, the scroll — is already here,
+  // and a copy of it would be a second place to fix the next time any of that
+  // changes. Cards become one big Choose button and the per-card actions go away.
+  void onShowPicker();
+  bool picking() const { return picking_; }
   void destroy();
 
   std::function<void()> onBack;
+  // Fires with the chosen file's path, in picker mode only.
+  std::function<void(const std::string&)> onPick;
 
   void update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens);
   void draw(Ui2D& ui, Text& text);
@@ -58,6 +67,7 @@ class Gallery {
   Doc doc_;
   int hoveredTag_ = 0;
   int hoveredIndex_ = 0;
+  bool picking_ = false;
   // The full-screen still viewer. -1 when closed.
   int viewing_ = -1;
   GLuint viewTexture_ = 0;

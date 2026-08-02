@@ -322,6 +322,14 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       if (decode(r, m) && hooks_.notify) hooks_.notify(m.message);
       break;
     }
+    case MsgType::Painting: {
+      PaintingMsg m;
+      if (!decode(r, m) || !game_.world) break;
+      game::Painting art;
+      art.rgb = std::move(m.rgb);
+      game_.world->setPainting(m.x, m.y, m.z, art);
+      break;
+    }
     case MsgType::BeState: {
       BeStateMsg m;
       if (!decode(r, m) || !game_.world) break;
@@ -445,6 +453,16 @@ void Client::sendBlockEntityRequest(int x, int y, int z, std::uint8_t kind) {
   m.z = z;
   m.kind = kind;
   send(MsgType::BeRequest, m);
+}
+
+void Client::sendPainting(int x, int y, int z, const game::Painting& art) {
+  if (state_ != State::Playing || art.blank()) return;
+  PaintingMsg m;
+  m.x = x;
+  m.y = y;
+  m.z = z;
+  m.rgb = art.rgb;
+  send(MsgType::Painting, m);
 }
 
 void Client::sendBlockEntityState(const BeStateMsg& state) {

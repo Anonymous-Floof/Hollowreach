@@ -383,6 +383,19 @@ BlockRegistry::BlockRegistry() {
     shaped(vslabKey, "Vertical Slab", RenderKind::VSlab);
   }
 
+  // A picture frame on a wall. Registered LAST, deliberately: ids are handed out
+  // in registration order, and the golden vectors hash a generated chunk's raw
+  // voxel ids — so slotting a new block in beside the torch would move every id
+  // above it and report the whole world as changed when not one cell of terrain
+  // had. Saves are immune either way, because they store blocks by key.
+  //
+  // solidClear so the mesher emits its frame and the raycast finds it, while
+  // collisionBoxes returns nothing for it (see shapes.cpp) so you can stand flat
+  // against your own art. Its ground is the wall behind it, which supportOffset
+  // knows how to find.
+  Builder(B, "canvas", "Painting").render(RenderKind::Painting).tex("canvas").hard(0.3f)
+      .solidClear().drops("canvas").needsGround().washesAway();
+
   // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
   //
@@ -493,6 +506,7 @@ const WellKnownBlocks& wk() {
     w.planks = id("planks");
     w.water = id("water");
     w.emberlight = id("emberlight");
+    w.canvas = id("canvas");
     w.glass = id("glass");
     w.umberstone = id("umberstone");
     w.slatestone = id("slatestone");

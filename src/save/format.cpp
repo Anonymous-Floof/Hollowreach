@@ -30,6 +30,7 @@ constexpr std::uint32_t kTagEntities = makeTag('E', 'N', 'T', 'S');
 constexpr std::uint32_t kTagExplored = makeTag('E', 'X', 'P', 'L');
 constexpr std::uint32_t kTagWaypoints = makeTag('W', 'A', 'Y', 'P');
 constexpr std::uint32_t kTagGuests = makeTag('R', 'P', 'L', 'R');
+constexpr std::uint32_t kTagPaintings = makeTag('P', 'A', 'N', 'T');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -300,6 +301,52 @@ void encodeBlockEntities(
   }
 }
 
+void encodePaintings(ByteWriter& w,
+                     const std::unordered_map<game::BlockEntityKey, game::Painting>& map) {
+  std::vector<game::BlockEntityKey> keys;
+  keys.reserve(map.size());
+  for (const auto& [key, art] : map) {
+    if (!art.blank()) keys.push_back(key);  // a blank canvas is the absence of one
+  }
+  std::sort(keys.begin(), keys.end());
+
+  w.u32(static_cast<std::uint32_t>(keys.size()));
+  for (const game::BlockEntityKey key : keys) {
+    const game::Painting& art = map.at(key);
+    int x = 0, y = 0, z = 0;
+    game::unpackBlockEntityKey(key, x, y, z);
+    w.i32(x);
+    w.i32(y);
+    w.i32(z);
+    w.str(art.source);
+    // Raw pixels at a fixed size, so there is no per-painting dimension to
+    // validate and a truncated file cannot claim a gigantic one.
+    for (std::size_t i = 0; i < game::kPaintingBytes; ++i) w.u8(art.rgb[i]);
+  }
+}
+
+void decodePaintings(ByteReader& r,
+                     std::unordered_map<game::BlockEntityKey, game::Painting>& out) {
+  const std::uint32_t count = r.readCount();
+  for (std::uint32_t i = 0; i < count && r.ok(); ++i) {
+    const int x = r.i32();
+    const int y = r.i32();
+    const int z = r.i32();
+    game::Painting art;
+    art.source = r.str();
+    // The one thing readCount cannot cover: each entry is 48 KB, so a plausible
+    // count over a short file would still reserve hundreds of megabytes one
+    // painting at a time before the reader ran dry.
+    if (!r.ok() || r.remaining() < game::kPaintingBytes) {
+      r.fail();
+      return;
+    }
+    art.rgb.resize(game::kPaintingBytes);
+    for (std::size_t k = 0; k < game::kPaintingBytes; ++k) art.rgb[k] = r.u8();
+    if (r.ok()) out[game::blockEntityKey(x, y, z)] = std::move(art);
+  }
+}
+
 void decodeBlockEntities(ByteReader& r,
                          std::unordered_map<game::BlockEntityKey, game::BlockEntity>& out) {
   const std::uint32_t count = r.readCount();
@@ -526,6 +573,8 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   encodeInventory(inventory, save.inventory);
   ByteWriter blockEntities;
   encodeBlockEntities(blockEntities, save.blockEntities);
+  ByteWriter paintings;
+  encodePaintings(paintings, save.paintings);
   ByteWriter entities;
   encodeEntities(entities, save.entities);
   ByteWriter explored;
@@ -546,6 +595,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagExplored, explored);
   appendSection(payload, kTagWaypoints, waypoints);
   appendSection(payload, kTagGuests, guests);
+  appendSection(payload, kTagPaintings, paintings);
 
   ByteWriter out;
   out.bytes(kMagic, sizeof kMagic);
@@ -602,6 +652,7 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
         decodeEdits(body, palette, out.edits);
         break;
       case kTagBlockEntities: decodeBlockEntities(body, out.blockEntities); break;
+      case kTagPaintings: decodePaintings(body, out.paintings); break;
       case kTagEntities: decodeEntities(body, out.entities); break;
       case kTagExplored: decodeExplored(body, out.explored); break;
       case kTagWaypoints: decodeWaypoints(body, out.waypoints); break;

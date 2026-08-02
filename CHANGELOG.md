@@ -15,6 +15,35 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Paintings.** Craft one from 8 planks, wool and azurite, hang it on a wall, and
+  right-click it to put any screenshot you have taken on display. The picture lives
+  *in* the painting rather than pointing at the file, which is what makes the rest
+  of it work: delete the screenshot and the painting is unchanged, export the world
+  and your art goes with it, and a friend who joins sees exactly what you hung even
+  though they have never seen your captures folder. Pictures are scaled to 128
+  square on the way in — 48 KB each, and still sharper than anything else in the
+  world.
+
+### Fixed
+- **Field of View survives a restart.** It always saved and the slider always showed
+  the right number; the camera was the one thing never told, because startup set the
+  projection back to the default seventy a few lines after applying your settings.
+  Every other setting in the schema was checked for the same fault and none had it.
+- **Tools swing the way they now look.** 2.1.1 turned them to lead with the edge but
+  left the swing arc alone, so they still dug sideways. The arc was being added into
+  each item's own pose angles, which means the axis it turned about moved whenever a
+  pose did — the moment a tool was turned a quarter, "swing down" became "spin in
+  place". The animation is now applied outside the pose, so the arm comes down
+  whatever the hand is holding. For a pickaxe that is 7× more downward travel than
+  sideways, where before it was nearly 2× the other way.
+
+### Multiplayer
+- **The network protocol moved to version 2**, so 2.1.2 games do not accept 2.1.1
+  ones and say so at the join screen. Paintings need a message that 2.1.1 has no
+  handler for, and a lobby where half the players silently cannot see the art on the
+  walls is worse than a clear refusal.
+
 ## [2.1.1] - 2026-08-01
 
 ### Added

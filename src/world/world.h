@@ -28,6 +28,7 @@
 
 #include "core/mat4.h"  // Vec3, for findSpawn
 #include "game/blockentities.h"
+#include "game/painting.h"
 #include "render/chunkmesh.h"
 #include "world/chunk.h"
 #include "world/lighting.h"
@@ -169,6 +170,28 @@ class World {
     return blockEntities_;
   }
 
+  // --- paintings -------------------------------------------------------------
+  //
+  // Deliberately NOT a BlockEntity, though it is per-position state that outlives
+  // a chunk unload just like one. Two reasons, and the second is the load-bearing
+  // one. A painting holds no items, so every field of BlockEntity would be dead
+  // weight on it and every switch over BlockEntityKind would grow a branch that
+  // does nothing. And the block-entity section of a save encodes forge-or-else-
+  // chest, so a third kind would change the layout of an existing section — which
+  // costs a save version bump and a migration. Its own map becomes its own
+  // section, and an older build skips a tag it does not know.
+  game::Painting* painting(int wx, int wy, int wz);
+  const game::Painting* painting(int wx, int wy, int wz) const;
+  void setPainting(int wx, int wy, int wz, game::Painting art);
+  void removePainting(int wx, int wy, int wz);
+  const std::unordered_map<game::BlockEntityKey, game::Painting>& paintings() const {
+    return paintings_;
+  }
+  std::unordered_map<game::BlockEntityKey, game::Painting>& paintings() { return paintings_; }
+  // Bumped on every change, so the renderer's texture cache can notice one without
+  // comparing 48 KB of pixels.
+  std::uint32_t paintingRevision() const { return paintingRevision_; }
+
   // --- persistence -----------------------------------------------------------
   // Player edits, keyed by chunk then flat cell index, packed as id | meta << 16.
   // These are the only part of a world that cannot be regenerated from the seed,
@@ -306,6 +329,8 @@ class World {
 
   // Keyed by packed position, so state outlives the chunk it sits in.
   std::unordered_map<game::BlockEntityKey, game::BlockEntity> blockEntities_;
+  std::unordered_map<game::BlockEntityKey, game::Painting> paintings_;
+  std::uint32_t paintingRevision_ = 0;
   DropSink dropSink_;
   EditSink editSink_;
   // Set while a remote edit is being applied, so the sink does not send it back to

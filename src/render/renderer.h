@@ -18,6 +18,7 @@
 #include "core/camera.h"
 #include "core/shader.h"
 #include "render/entityrenderer.h"
+#include "render/paintings.h"
 #include "render/gbuffer.h"
 #include "render/gputimer.h"
 #include "render/itemmesh.h"
@@ -151,6 +152,7 @@ class Renderer {
   Program* viewmodelProg_ = nullptr;
 
   EntityRenderer entityRenderer_;
+  PaintingRenderer paintingRenderer_;
   const game::EntityManager* entities_ = nullptr;
   Viewmodel viewmodel_;
   ItemMeshCache itemMeshes_;

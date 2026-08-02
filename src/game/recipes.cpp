@@ -189,6 +189,16 @@ RecipeBook::RecipeBook() {
     }
   }
 
+  // A stretched canvas in a wooden frame: planks around the edge, wool for the
+  // cloth, azurite ground into the pigment that fixes an image onto it.
+  //
+  // Registered LAST for the same reason the block is: matching is first-match-wins
+  // over an ordered list, so the golden vectors compare recipes by index, and
+  // slotting a new one in beside the bed renumbered a hundred and nineteen
+  // recipes that had not changed at all.
+  shaped({"PPP", "PWP", "PAP"}, {{'P', "#planks"}, {'W', "wool"}, {'A', "azurite"}}, "canvas", 1,
+         kBench);
+
   // --- smelting (forge) ---
   smelting_ = {
       {"log", "charcoal", 8},

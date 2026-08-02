@@ -35,6 +35,9 @@ class Host {
              const GameRefs& game, SessionHooks hooks, std::string* error);
   void stop();
   bool running() const { return transport_.active(); }
+  // Tells every guest what now hangs at a position. Called when the host hangs one
+  // itself; a guest's request is answered from the message handler.
+  void broadcastPainting(int x, int y, int z, const game::Painting& art);
 
   void update(double dt, double now);
 

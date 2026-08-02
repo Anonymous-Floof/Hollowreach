@@ -102,7 +102,7 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
     const auto blockHandles = [&](bool includeAnchor) {
       if (!target || sneaking) return false;
       return target->station != world::Station::None || target->sleep || target->toggle ||
-             (includeAnchor && target->anchor);
+             target->render == RenderKind::Painting || (includeAnchor && target->anchor);
     };
 
     // ---- eating: works even when aiming at the sky ----
@@ -192,6 +192,8 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
     swung_ = true;
     if (b.station != world::Station::None && !sneaking) {
       if (hooks.onOpenStation) hooks.onOpenStation(b.station, hit.x, hit.y, hit.z);
+    } else if (b.render == RenderKind::Painting && !sneaking) {
+      if (hooks.onOpenPainting) hooks.onOpenPainting(hit.x, hit.y, hit.z);
     } else if (b.sleep && !sneaking) {
       if (hooks.onSleep) hooks.onSleep();
     } else if (b.anchor && !sneaking) {
@@ -564,7 +566,8 @@ int Interact::placementMeta(const world::BlockDef& def, const Player& player, co
       const int top = fny == -1 ? 1 : 0;  // placed under a block -> hinge at top
       return (top << 1) | (f << 2);
     }
-    case RenderKind::Ladder: {
+    case RenderKind::Ladder:
+    case RenderKind::Painting: {
       if (fnx == -1) return 0;  // hug the wall we clicked
       if (fnx == 1) return 1;
       if (fnz == -1) return 2;

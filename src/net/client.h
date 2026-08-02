@@ -59,6 +59,9 @@ class Client {
   // movement check allows. Without this the host reads it as a speed hack and
   // teleports them back underground, which looks exactly like the item failing.
   void sendWarp();
+  // Ask the host to hang a picture. Nothing is applied locally: the host answers
+  // with what it stored, which is what everyone else will see too.
+  void sendPainting(int x, int y, int z, const game::Painting& art);
   void sendBlockEntityRequest(int x, int y, int z, std::uint8_t kind);
   void sendBlockEntityState(const BeStateMsg& state);
 

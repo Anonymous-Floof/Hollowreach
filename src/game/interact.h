@@ -31,6 +31,8 @@ struct InteractHooks {
   std::function<void(world::Station, int, int, int)> onOpenStation;
   // Right-clicked a bed.
   std::function<void()> onSleep;
+  // Right-clicked a painting: open the picture chooser for that block.
+  std::function<void(int, int, int)> onOpenPainting;
   // Right-clicked a soul anchor.
   std::function<void(int, int, int)> onSetSpawn;
   // Mined a soul anchor that had been bound.

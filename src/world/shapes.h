@@ -12,6 +12,7 @@
 //   Trapdoor bit 0 open, bit 1 top half, bits 2-3 facing (the open swing wall)
 //   Door     bit 0 open, bit 1 upper half, bits 2-3 facing (front)
 //   Bed      bits 0-1 facing, bit 2 head
+//   Painting bits 0-1 the wall it hangs on (0:+x 1:-x 2:+z 3:-z), same as Ladder
 //   Cross    0 standing on the floor, 1-4 mounted on a wall and leaning that way
 //            into the room (1:+x 2:-x 3:+z 4:-z). Only torches use the wall
 //            mounts; a plant is always 0, because its billboard does not lean.

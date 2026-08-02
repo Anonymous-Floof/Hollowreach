@@ -74,7 +74,11 @@ void Interface::setScreen(Screen s) {
   if (s == Screen::Menu) menu_.onShow();
   if (s == Screen::Settings) settingsScreen_.onShow();
   if (s == Screen::RecipeBook) recipeBook_.open();
-  if (s == Screen::Gallery) gallery_.onShow();
+  if (s == Screen::Gallery) {
+    if (pendingPicker_) gallery_.onShowPicker();
+    else gallery_.onShow();
+  }
+  pendingPicker_ = false;
   if (previous == Screen::RecipeBook) recipeBook_.close();
   if (previous == Screen::Map && s != Screen::Map) atlas_.close();
   // Leaving the inventory returns the crafting grid and the cursor stack to the bag.

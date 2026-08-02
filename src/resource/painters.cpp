@@ -583,6 +583,29 @@ std::vector<PainterEntry> buildPainters() {
       }
     }
   });
+  add("canvas", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    // The frame, and the only part of a painting the atlas ever holds: a grained
+    // wooden border around a pale primed centre. The centre is what shows through
+    // on a blank canvas and what the picture is drawn over when there is one, so it
+    // is deliberately plain rather than textured.
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const bool border = x < 1 || y < 1 || x >= T - 1 || y >= T - 1;
+        if (border) {
+          const int g = static_cast<int>(rng.next() * 22.0);
+          px(img, ox, oy, x, y, 96 + g, 66 + g, 38 + g);
+        } else {
+          const int g = static_cast<int>(rng.next() * 10.0);
+          px(img, ox, oy, x, y, 214 + g, 206 + g, 190 + g);
+        }
+      }
+    }
+    // A bevel: light along the top-left of the frame, shadow along the inside.
+    for (int i = 1; i < T - 1; ++i) {
+      px(img, ox, oy, i, 1, 176, 168, 152);
+      px(img, ox, oy, 1, i, 176, 168, 152);
+    }
+  });
   add("torch", [](Image& img, int ox, int oy, Mulberry32& rng) {
     // Transparent background; a grained stick with a wrap, a charred head, and a
     // layered flame: ember base, orange body, yellow, white-hot core.

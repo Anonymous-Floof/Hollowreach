@@ -186,7 +186,16 @@ int App::run(const AppOptions& options) {
   };
 
   glViewport(0, 0, window_.width(), window_.height());
-  camera_.setProjection(window_.aspect(), 70.0f);
+  // Re-established because applySettings() may have switched the window to
+  // fullscreen or borderless above, which changes the aspect ratio.
+  //
+  // The field of view comes from the camera, NOT from a literal. It was 70.0f
+  // here, three lines of code after applySettings() had just set the stored one —
+  // so every launch silently threw the player's Field of View away and started at
+  // the default. It read as "the slider does not persist" because the slider was
+  // the one part of it that did: the value was loaded, shown, and saved correctly,
+  // and only the camera never heard about it.
+  camera_.setProjection(window_.aspect(), camera_.fov());
 
   // Workers start before the first world, and only for the game: the headless
   // tools never call this, so every one of them keeps running its jobs inline on
@@ -418,6 +427,13 @@ void App::applySettings() {
 game::InteractHooks App::makeInteractHooks() {
   game::InteractHooks hooks;
   hooks.notify = [this](const std::string& message) { interface_.notify().push(message); };
+  hooks.onOpenPainting = [this](int x, int y, int z) {
+    paintingX_ = x;
+    paintingY_ = y;
+    paintingZ_ = z;
+    state_ = AppState::PaintingPick;
+    window_.setPointerCaptured(false);
+  };
   hooks.onOpenStation = [this](world::Station station, int x, int y, int z) {
     stationOpen_ = true;
     stationX_ = x;
@@ -569,6 +585,7 @@ void App::syncScreen() {
     case AppState::RecipeBook: interface_.setScreen(ui::Screen::RecipeBook); break;
     case AppState::Map: interface_.setScreen(ui::Screen::Map); break;
     case AppState::Gallery: interface_.setScreen(ui::Screen::Gallery); break;
+    case AppState::PaintingPick: interface_.openPaintingPicker(); break;
   }
 }
 
@@ -661,6 +678,23 @@ void App::wireInterface() {
     galleryReturn_ = state_;
     state_ = AppState::Gallery;
     window_.setPointerCaptured(false);
+  };
+  interface_.gallery().onPick = [this](const std::string& path) {
+    const int x = paintingX_, y = paintingY_, z = paintingZ_;
+    resumePlaying();
+    game::Painting art;
+    if (!game::paintingFromPng(path, art)) {
+      interface_.notify().push("That picture could not be read");
+      return;
+    }
+    // A guest asks; the host decides and tells everyone, itself included. Same
+    // division as hitting a mob: the world is the host's, and a guest that hung a
+    // picture locally would be the only person who ever saw it.
+    if (netGuest()) {
+      netClient_.sendPainting(x, y, z, art);
+    } else {
+      applyPainting(x, y, z, std::move(art));
+    }
   };
   interface_.callbacks.closeScreen = [this] { closeCurrentScreen(); };
   interface_.callbacks.saveAndQuit = [this] {
@@ -862,6 +896,7 @@ void App::closeCurrentScreen() {
     case AppState::Inventory:
     case AppState::RecipeBook:
     case AppState::Map:
+    case AppState::PaintingPick:
       resumePlaying();
       break;
     case AppState::Gallery:
@@ -892,6 +927,7 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     world_->setEdits(loaded->edits);
     world_->setExplored(loaded->explored);
     world_->blockEntities() = loaded->blockEntities;
+    world_->paintings() = loaded->paintings;
   }
 
   entities_.clear();
@@ -999,6 +1035,26 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     }
   }
   state_ = AppState::Playing;
+
+  // --hang: a wall two blocks north of spawn with a painting on the near face.
+  if (!options.hangPicture.empty()) {
+    game::Painting art;
+    if (game::paintingFromPng(options.hangPicture, art)) {
+      const int bx = static_cast<int>(std::floor(sx));
+      const int bz = static_cast<int>(std::floor(sz)) - 4;
+      const int by = static_cast<int>(sy) + 1;
+      for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = 0; dy <= 2; ++dy) {
+          world_->setBlock(bx + dx, by + dy, bz, world::wk().greystone, 0);
+        }
+      }
+      // The wall is at bz and the canvas one step toward spawn at bz+1, so the
+      // wall is on the canvas's -z side: meta 3, which faces +z, back at spawn.
+      world_->setBlock(bx, by + 1, bz + 1, world::wk().canvas, 3);
+      world_->setPainting(bx, by + 1, bz + 1, std::move(art));
+      log::info("--hang: painting at %d,%d,%d", bx, by + 1, bz + 1);
+    }
+  }
 
   // --spawn: a ring of entities around the spawn point, dropped from a little above
   // the surface so they settle onto whatever is actually there.
@@ -1152,6 +1208,7 @@ save::WorldSave App::buildSave() {
     out.edits = world_->edits();
     out.explored.assign(world_->explored().begin(), world_->explored().end());
     out.blockEntities = world_->blockEntities();
+    out.paintings = world_->paintings();
   }
   if (player_) out.player = player_->state();
   out.inventory = inventory_;
@@ -1244,6 +1301,19 @@ Vec3 App::spawnPoint() const {
   // had been moved off a beach or a canyon put you back on it the first time you
   // died, and if the origin was a ravine lip that was a loop you could not leave.
   return worldSpawn_;
+}
+
+void App::applyPainting(int x, int y, int z, game::Painting art) {
+  if (!world_) return;
+  // The block has to still be a canvas: a picture chosen while somebody else mined
+  // the frame out from under it would otherwise sit in the world's map forever,
+  // invisible, and be written to the save.
+  if (world_->getBlock(x, y, z) != world::wk().canvas) {
+    interface_.notify().push("That painting is gone");
+    return;
+  }
+  world_->setPainting(x, y, z, art);
+  if (netHosting()) netHost_.broadcastPainting(x, y, z, art);
 }
 
 void App::respawnPlayer() {

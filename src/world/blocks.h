@@ -67,6 +67,11 @@ enum class RenderKind : std::uint8_t {
   Trapdoor,
   Door,
   Bed,
+  // A picture hung flat on a wall. The frame is a thin box like a ladder's; what
+  // makes it its own kind is that the face is not an atlas tile — it is a texture
+  // of its own, per position, so the mesher cannot draw it and a separate pass
+  // does. See render/paintings.h.
+  Painting,
 };
 
 enum class ToolType : std::uint8_t { None = 0, Pick, Axe, Shovel };
@@ -243,6 +248,7 @@ struct WellKnownBlocks {
   BlockId air = 0, bedrock = 0, greystone = 0, cobbled = 0, loam = 0, turf = 0, sand = 0,
           snowturf = 0, sandstone = 0, shingle = 0, log = 0, leaves = 0, planks = 0, water = 0,
           emberlight = 0, glass = 0, umberstone = 0, slatestone = 0, papyrus = 0, ladder = 0,
+          canvas = 0,
           bed = 0, tall_grass = 0, fern = 0, bush = 0, dead_shrub = 0, pebbles = 0,
           mushroom_red = 0, mushroom_brown = 0, pine_log = 0, pine_leaves = 0, dusk_log = 0,
           dusk_leaves = 0, birch_log = 0, birch_leaves = 0, palm_log = 0, palm_leaves = 0;

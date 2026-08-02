@@ -102,6 +102,12 @@ struct WorldSave {
   world::World::EditMap edits;
   std::vector<world::ChunkKey> explored;
   std::unordered_map<game::BlockEntityKey, game::BlockEntity> blockEntities;
+  // A section of its own, added after the format was frozen. That is the whole
+  // reason paintings are not block entities: a NEW tag costs no version bump,
+  // because an older build skips one it does not recognise and loads the rest of
+  // the world — where changing the layout of the block-entity section would have
+  // made every existing save unreadable without a migration.
+  std::unordered_map<game::BlockEntityKey, game::Painting> paintings;
   std::vector<game::EntitySave> entities;
   std::vector<WaypointSave> waypoints;
   std::vector<GuestSave> guests;

@@ -45,6 +45,18 @@ std::vector<Box> ladderBoxes(int meta) {
   }
 }
 
+// A painting: a thin slab against the wall it hangs on, and thinner than a ladder
+// because it is a picture rather than something to stand on.
+std::vector<Box> paintingBoxes(int meta) {
+  constexpr float T = 0.0625f;  // one texel of a 16-unit block
+  switch (meta & 3) {
+    case 0: return {{1 - T, 0, 0, 1, 1, 1}};
+    case 1: return {{0, 0, 0, T, 1, 1}};
+    case 2: return {{0, 0, 1 - T, 1, 1, 1}};
+    default: return {{0, 0, 0, 1, 1, T}};
+  }
+}
+
 std::vector<Box> trapdoorBoxes(int meta) {
   if (!(meta & 1)) {
     return {(meta & 2) ? Box {0, 0.82f, 0, 1, 1, 1} : Box {0, 0, 0, 1, 0.18f, 1}};
@@ -78,7 +90,7 @@ std::vector<Box> doorBoxes(int meta) {
 
 // One canonical display pose per kind. Ladder uses 3 so it faces the viewer.
 int displayMeta(RenderKind kind) {
-  return kind == RenderKind::Ladder ? 3 : 0;
+  return (kind == RenderKind::Ladder || kind == RenderKind::Painting) ? 3 : 0;
 }
 
 }  // namespace
@@ -92,6 +104,7 @@ bool isShaped(RenderKind kind) {
     case RenderKind::Trapdoor:
     case RenderKind::Door:
     case RenderKind::Bed:
+    case RenderKind::Painting:
       return true;
     default:
       return false;
@@ -107,12 +120,15 @@ std::vector<Box> renderBoxes(RenderKind kind, int meta) {
     case RenderKind::Trapdoor: return trapdoorBoxes(meta);
     case RenderKind::Door: return doorBoxes(meta);
     case RenderKind::Bed: return {kBedBox};
+    case RenderKind::Painting: return paintingBoxes(meta);
     default: return {};
   }
 }
 
 std::vector<Box> collisionBoxes(RenderKind kind, int meta) {
-  if (kind == RenderKind::Ladder) return {};
+  // A ladder is climbed from inside it, and a painting is a picture on a wall you
+  // should be able to stand against — neither is something to bump into.
+  if (kind == RenderKind::Ladder || kind == RenderKind::Painting) return {};
   return renderBoxes(kind, meta);
 }
 
@@ -139,6 +155,14 @@ void supportOffset(RenderKind kind, int meta, int& dx, int& dy, int& dz) {
   dx = 0;
   dy = -1;
   dz = 0;
+  if (kind == RenderKind::Painting) {
+    // Held by the wall it hangs on, which its meta names outright.
+    static constexpr int kWall[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    dx = kWall[meta & 3][0];
+    dy = 0;
+    dz = kWall[meta & 3][1];
+    return;
+  }
   if (kind != RenderKind::Cross) return;
   int mx = 0, mz = 0;
   if (!crossMountDir(meta, mx, mz)) return;

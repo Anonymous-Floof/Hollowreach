@@ -21,6 +21,7 @@ enum : int {
   kTagScroll = 505,
   kTagViewer = 506,
   kTagSetBg = 507,
+  kTagPick = 508,
 };
 
 // .gal-grid { repeat(auto-fill, minmax(210px, 1fr)); gap: 12px }
@@ -72,8 +73,14 @@ void Gallery::destroy() {
   viewing_ = -1;
 }
 
+void Gallery::onShowPicker() {
+  onShow();
+  picking_ = true;
+}
+
 void Gallery::onShow() {
   destroy();
+  picking_ = false;
   // The directory walk lives in the save layer; this screen only decodes and draws.
   for (save::gallery::Shot& shot : save::gallery::list()) {
     Item item;
@@ -121,7 +128,7 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
   Style titleRow = Doc::row(0, Justify::Center, Align::Center);
   titleRow.margin = Edges(0, 0, 18, 0);
   doc_.begin(titleRow);
-  doc_.label("Gallery", widget::h2());
+  doc_.label(picking_ ? "Choose a Picture" : "Gallery", widget::h2());
   doc_.end();
 
   // #gallery-root { max-height: 66vh; overflow-y: auto }
@@ -135,8 +142,9 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
     Style note;
     note.margin = Edges(16, 0);
     note.maxWidth = 700;
-    doc_.label("No captures yet. Press F2 in-game for a screenshot.", widget::emptyNote(),
-               note);
+    doc_.label(picking_ ? "Nothing to hang yet. Press F2 for a screenshot, then come back."
+                        : "No captures yet. Press F2 in-game for a screenshot.",
+               widget::emptyNote(), note);
   } else {
     Style grid;
     grid.display = Display::Grid;
@@ -186,10 +194,13 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
         const char* label;
         bool danger;
       };
-      for (const ButtonDef& b : {ButtonDef {kTagView, "View", false},
-                                 ButtonDef {kTagSetBg, "Set BG", false},
-                                 ButtonDef {kTagSave, "Reveal", false},
-                                 ButtonDef {kTagDelete, "\xE2\x9C\x95", true}}) {
+      const std::vector<ButtonDef> actions =
+          picking_ ? std::vector<ButtonDef> {{kTagPick, "Hang this", false}}
+                   : std::vector<ButtonDef> {{kTagView, "View", false},
+                                             {kTagSetBg, "Set BG", false},
+                                             {kTagSave, "Reveal", false},
+                                             {kTagDelete, "\xE2\x9C\x95", true}};
+      for (const ButtonDef& b : actions) {
         const bool hovered = hoveredTag_ == b.tag && hoveredIndex_ == static_cast<int>(i);
         doc_.begin(widget::galleryButton(hovered, b.danger), b.tag, static_cast<int>(i));
         TextStyle ts;
@@ -256,6 +267,11 @@ void Gallery::handle(const UiEvent& event) {
   if (hoveredIndex_ >= static_cast<int>(items_.size())) return;
   Item& item = items_[static_cast<std::size_t>(hoveredIndex_)];
   switch (hoveredTag_) {
+    case kTagPick:
+      // The path goes out; whoever asked for a picture does the loading. This
+      // screen has no idea a painting exists, which is what keeps it a gallery.
+      if (onPick) onPick(item.path);
+      break;
     case kTagView: {
       Image full;
       std::string error;

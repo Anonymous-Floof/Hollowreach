@@ -597,6 +597,15 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   mapDirty_.insert(chunkKey(cx, cz));
 
   const BlockRegistry& reg = blocks();
+
+  // A painting's picture belongs to the block, so it goes when the block does —
+  // here rather than beside the two places that clean up block entities on a
+  // break, because a canvas can also be washed off a wall by a flood or lose the
+  // wall it hung on, and neither of those goes through the mining path. Gated on
+  // the OLD block being a canvas so the water simulation, which calls this
+  // thousands of times a tick, never touches the map at all.
+  if (previous == wk().canvas && id != wk().canvas) removePainting(wx, wy, wz);
+
   const bool emitterChanged = reg.emit(previous) != reg.emit(id);
   const bool opacityChanged = reg.opaque(previous) != reg.opaque(id);
 
@@ -766,6 +775,25 @@ game::BlockEntity* World::getOrCreateBlockEntity(int wx, int wy, int wz,
 
 void World::removeBlockEntity(int wx, int wy, int wz) {
   blockEntities_.erase(game::blockEntityKey(wx, wy, wz));
+}
+
+game::Painting* World::painting(int wx, int wy, int wz) {
+  auto it = paintings_.find(game::blockEntityKey(wx, wy, wz));
+  return it == paintings_.end() ? nullptr : &it->second;
+}
+
+const game::Painting* World::painting(int wx, int wy, int wz) const {
+  auto it = paintings_.find(game::blockEntityKey(wx, wy, wz));
+  return it == paintings_.end() ? nullptr : &it->second;
+}
+
+void World::setPainting(int wx, int wy, int wz, game::Painting art) {
+  paintings_[game::blockEntityKey(wx, wy, wz)] = std::move(art);
+  ++paintingRevision_;
+}
+
+void World::removePainting(int wx, int wy, int wz) {
+  if (paintings_.erase(game::blockEntityKey(wx, wy, wz)) > 0) ++paintingRevision_;
 }
 
 void World::tickBlockEntities(float dt) {

@@ -1,9 +1,12 @@
 // The first-person hand: the animation clocks that pose the held item.
 //
 // Ported from js/render/viewmodel.js. The pose itself lives in the ItemModel's
-// HoldStyle (render/itemmodel.h) — this only ever nudges the same numbers that
-// style defines, so an animation can never disagree with a pose, and adding an
-// item never means touching the renderer.
+// HoldStyle (render/itemmodel.h) and the animation is applied OUTSIDE it, about
+// the view's axes rather than the item's — so a swing means "the arm comes down"
+// no matter how the hand is gripping the thing. The JS added the two together,
+// which works only while every hold style points roughly the same way; the moment
+// a tool was yawed a quarter turn to lead with its edge, the same "swing down"
+// term started spinning it in the picture plane instead.
 
 #pragma once
 

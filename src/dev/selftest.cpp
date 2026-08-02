@@ -29,6 +29,7 @@
 #include "game/player.h"
 #include "game/raycast.h"
 #include "render/sky.h"
+#include "render/viewmodel.h"
 #include "core/bytes.h"
 #include "net/client.h"
 #include "net/discovery.h"
@@ -1816,6 +1817,208 @@ void testWorldgenDepth() {
   }
 }
 
+// --- paintings ----------------------------------------------------------------
+//
+// The picture is the state; everything else about a painting is an ordinary wall
+// block. So these check the two things that could quietly lose one: that it
+// survives an encode/decode round trip, and that it goes when its block does.
+// Defined with the block-support group further down, which is where it belongs;
+// paintings need it because losing a wall is a support event like any other.
+int settleBlocks(world::World& w, int maxTicks = 400);
+
+void testPaintings() {
+  std::printf("paintings\n");
+  const world::BlockId canvas = world::wk().canvas;
+
+  // A recognisable picture: a gradient, so a transposed or shifted decode shows up
+  // rather than comparing equal by luck.
+  const auto makeArt = [](int salt) {
+    game::Painting art;
+    art.rgb.resize(game::kPaintingBytes);
+    for (int y = 0; y < game::kPaintingSize; ++y) {
+      for (int x = 0; x < game::kPaintingSize; ++x) {
+        const std::size_t o = (static_cast<std::size_t>(y) * game::kPaintingSize + x) * 3;
+        art.rgb[o + 0] = static_cast<std::uint8_t>(x + salt);
+        art.rgb[o + 1] = static_cast<std::uint8_t>(y * 2);
+        art.rgb[o + 2] = static_cast<std::uint8_t>((x ^ y) + salt);
+      }
+    }
+    art.source = "probe.png";
+    return art;
+  };
+
+  // --- it goes when the wall it hangs on does -----------------------------------
+  {
+    auto w = makeWorld();
+    w->setBlock(6, kY, 6, world::wk().greystone, 0);
+    w->setBlock(5, kY, 6, canvas, 0);  // meta 0: hung on the +x wall, which is (6, ..)
+    w->setPainting(5, kY, 6, makeArt(0));
+    check(w->painting(5, kY, 6) != nullptr, "a hung picture is there");
+
+    const std::uint32_t before = w->paintingRevision();
+    w->setBlock(5, kY, 6, world::kAir, 0);
+    check(w->painting(5, kY, 6) == nullptr, "and is gone when the canvas is broken");
+    check(w->paintingRevision() != before, "which the renderer is told about");
+  }
+
+  // --- and when the wall goes, the support rules take the canvas with it ---------
+  {
+    auto w = makeWorld();
+    w->setBlock(6, kY, 6, world::wk().greystone, 0);
+    w->setBlock(5, kY, 6, canvas, 0);
+    w->setPainting(5, kY, 6, makeArt(7));
+    settleBlocks(*w);
+    check(w->getBlock(5, kY, 6) == canvas, "a painting hangs on its wall");
+    w->setBlock(6, kY, 6, world::kAir, 0);
+    settleBlocks(*w);
+    check(w->getBlock(5, kY, 6) == world::kAir, "mining the wall drops the painting");
+    check(w->painting(5, kY, 6) == nullptr, "and the picture with it");
+  }
+
+  // --- the round trip -----------------------------------------------------------
+  {
+    save::WorldSave out;
+    out.meta.id = "paint";
+    out.meta.name = "Paint";
+    out.meta.seed = 1234u;
+    out.meta.genVersion = 3;
+    const game::Painting art = makeArt(19);
+    out.paintings[game::blockEntityKey(-33, 70, 12)] = art;
+
+    const std::vector<std::uint8_t> bytes = save::encode(out);
+    save::WorldSave back;
+    std::string error;
+    checkf(save::decode(bytes.data(), bytes.size(), back, &error),
+           "a world with a painting decodes (%s)", error.c_str());
+    checkf(back.paintings.size() == 1, "and brings back exactly one (%zu)",
+           back.paintings.size());
+    const auto it = back.paintings.find(game::blockEntityKey(-33, 70, 12));
+    if (it != back.paintings.end()) {
+      check(it->second.rgb == art.rgb, "with every pixel where it was");
+      check(it->second.source == art.source, "and the name of the shot it came from");
+    } else {
+      check(false, "at the negative-coordinate position it was stored at");
+    }
+
+    // Deterministic encoding is the property the whole round-trip test rests on.
+    check(save::encode(back) == bytes, "and re-encodes to the same bytes");
+  }
+
+  // --- a truncated painting section is refused rather than half-read -------------
+  {
+    save::WorldSave out;
+    out.meta.id = "paint";
+    out.meta.seed = 1u;
+    out.meta.genVersion = 3;
+    out.paintings[game::blockEntityKey(0, 64, 0)] = makeArt(3);
+    std::vector<std::uint8_t> bytes = save::encode(out);
+    // Lop off a quarter of the picture. The header's own length and CRC catch this
+    // first, which is the point: there is no path where a short file yields a
+    // partly-filled painting.
+    bytes.resize(bytes.size() - game::kPaintingBytes / 4);
+    save::WorldSave back;
+    std::string error;
+    check(!save::decode(bytes.data(), bytes.size(), back, &error),
+          "a truncated painting section is refused");
+  }
+}
+
+// --- the held-item swing ------------------------------------------------------
+//
+// One property, asserted for every hold style: a swing brings the business end of
+// the item DOWN the screen and FORWARD into the scene. That is what a swing means,
+// and it is exactly what silently stopped being true when the tool pose was yawed
+// a quarter turn — the arc was being added into the style's own Euler angles, so
+// the axis it turned about was whatever the style had rotated it to. Nothing about
+// the pose looked wrong at rest, which is why it took a play-test to find.
+void testViewmodelSwing() {
+  std::printf("held item swing\n");
+
+  struct Case {
+    const char* name;
+    const render::HoldStyle& style;
+  };
+  const Case cases[] = {
+      {"tool", render::holdStyles::tool()},   {"sword", render::holdStyles::sword()},
+      {"shovel", render::holdStyles::shovel()}, {"block", render::holdStyles::block()},
+      {"item", render::holdStyles::item()},   {"panel", render::holdStyles::panel()},
+      {"food", render::holdStyles::food()},
+  };
+
+  // The tip of a bottom-centred unit mesh: the head of a tool, the point of a
+  // sword, the far corner of a block.
+  const auto tip = [](const Mat4& m) {
+    return Vec3{m.m[4] + m.m[12], m.m[5] + m.m[13], m.m[6] + m.m[14]};
+  };
+  constexpr float kFov = 1.2217304f;  // 70 degrees
+  constexpr float kAspect = 16.0f / 9.0f;
+
+  for (const Case& c : cases) {
+    render::Viewmodel rest;
+    rest.setItem("probe");
+    // Run the equip animation out, so what is measured is the swing alone.
+    for (int i = 0; i < 40; ++i) rest.update(0.016f, 0.0f, 0.0f);
+    const Vec3 before = tip(rest.modelMatrix(c.style, kFov, kAspect));
+
+    render::Viewmodel swung = rest;
+    swung.swing();
+    // Just past a third of the way in, which is where the broad arc peaks.
+    for (int i = 0; i < 6; ++i) swung.update(0.016f, 0.0f, 0.0f);
+    const Vec3 after = tip(swung.modelMatrix(c.style, kFov, kAspect));
+
+    const float down = before.y - after.y;
+    const float across = std::fabs(after.x - before.x);
+    checkf(down > 0.02f, "a %s swing brings its head down the screen (%.3f -> %.3f)", c.name,
+           before.y, after.y);
+    checkf(after.z < before.z - 0.01f, "and forward into the scene (%.3f -> %.3f)", before.z,
+           after.z);
+    // The one that matters, and the one that broke: the arc has to be mostly a
+    // drop, not mostly a slew across the screen.
+    checkf(down > across, "and travels further down than across (%.3f vs %.3f)", down, across);
+  }
+
+  // Not vacuous: the form this replaced — adding the arc into the style's own
+  // angles, which is what the JS did — fails the very first case. Worked out here
+  // rather than asserted from memory, so the check above is known to be sensitive
+  // to the bug it exists for.
+  {
+    const render::HoldStyle& st = render::holdStyles::tool();
+    const auto tipOf = [&](float rx, float ry, float rz) {
+      // Column 1 of Ry*Rx*Rz, which is where a bottom-centred mesh's tip goes.
+      const float cx = std::cos(rx), sinx = std::sin(rx);
+      const float cy = std::cos(ry), siny = std::sin(ry);
+      const float cz = std::cos(rz), sinz = std::sin(rz);
+      return Vec3{-cy * sinz + siny * sinx * cz, cx * cz, siny * sinz + cy * sinx * cz};
+    };
+    const float g = std::sin(std::sqrt(0.37f) * 3.14159265358979323846f);
+    const Vec3 restTip = tipOf(st.rot.x, st.rot.y, st.rot.z);
+    const Vec3 addTip = tipOf(st.rot.x - 0.78f * g, st.rot.y, st.rot.z - 0.26f * g);
+    const float addDown = restTip.y - addTip.y;
+    const float addAcross = std::fabs(addTip.x - restTip.x);
+    checkf(addAcross > addDown,
+           "adding the arc into the pose instead slews the head across the screen further than "
+           "it lowers it (%.3f across vs %.3f down), which is the sideways dig",
+           addAcross, addDown);
+  }
+
+  // And the pose itself is untouched at rest: an idle item must sit where its
+  // style says, or every one of the numbers in itemmodel.cpp means something
+  // different from what it claims.
+  {
+    render::Viewmodel vm;
+    vm.setItem("probe");
+    for (int i = 0; i < 40; ++i) vm.update(0.0f, 0.0f, 0.0f);
+    const Mat4 a = vm.modelMatrix(render::holdStyles::tool(), kFov, kAspect);
+    for (int i = 0; i < 40; ++i) vm.update(0.0f, 0.0f, 0.0f);
+    const Mat4 b = vm.modelMatrix(render::holdStyles::tool(), kFov, kAspect);
+    bool same = true;
+    for (int i = 0; i < 16; ++i) {
+      if (std::fabs(a.m[i] - b.m[i]) > 1e-5f) same = false;
+    }
+    check(same, "and a still hand with a stopped clock holds the pose exactly");
+  }
+}
+
 // --- where a new world puts you ----------------------------------------------
 //
 // Checked against real generated voxels rather than against the fields findSpawn
@@ -1931,7 +2134,7 @@ bool anyWaterOnFloor(const world::World& w) {
 // generated world is full of grass and torches, and if generation scheduled any
 // of it the queue would start in the tens of thousands and never be free again.
 
-int settleBlocks(world::World& w, int maxTicks = 400) {
+int settleBlocks(world::World& w, int maxTicks) {
   for (int i = 0; i < maxTicks; ++i) {
     if (w.blockUpdates().pending() == 0) return i;
     w.tickBlockUpdates(0.0625f);
@@ -2532,6 +2735,35 @@ void testNetSession() {
           "a block the host places appears in the guest's world");
   }
 
+  // --- a picture hung on the host reaches the guest ---------------------------
+  //
+  // The pixels themselves cross the wire, which is the whole reason a painting
+  // stores them instead of naming a file: the guest has never seen the host's
+  // screenshots folder, so a filename would arrive meaning nothing.
+  {
+    const world::BlockId canvas = world::wk().canvas;
+    hostWorld->setBlock(9, kY, 5, world::wk().greystone, 0);
+    host.onLocalEdit(9, kY, 5, static_cast<std::uint16_t>(world::wk().greystone), 0);
+    hostWorld->setBlock(8, kY, 5, canvas, 1);  // meta 1: the wall is at +x
+    host.onLocalEdit(8, kY, 5, static_cast<std::uint16_t>(canvas), 1);
+    pump(40);
+
+    game::Painting art;
+    art.rgb.resize(game::kPaintingBytes);
+    for (std::size_t i = 0; i < art.rgb.size(); ++i) {
+      art.rgb[i] = static_cast<std::uint8_t>((i * 7) & 0xFF);
+    }
+    hostWorld->setPainting(8, kY, 5, art);
+    host.broadcastPainting(8, kY, 5, art);
+    pump(60);
+
+    const game::Painting* seen = guestWorld->painting(8, kY, 5);
+    check(seen != nullptr, "a picture the host hangs arrives at the guest");
+    if (seen) {
+      check(seen->rgb == art.rgb, "with every pixel intact across the wire");
+    }
+  }
+
   // --- an edit made by the guest is validated and relayed back ----------------
   {
     const world::BlockId stone = world::wk().greystone;
@@ -2885,7 +3117,9 @@ int runSelfTest() {
   testEntities();
   testSaves();
   testWorldgenDepth();
+  testViewmodelSwing();
   testSpawnChoice();
+  testPaintings();
   testWater();
   testBlockSupport();
   testNet();

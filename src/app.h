@@ -49,6 +49,9 @@ enum class AppState {
   RecipeBook,
   Map,
   Gallery,
+  // The Gallery again, opened from a painting to choose what hangs in it. A state
+  // of its own so Escape returns you to the world rather than to the main menu.
+  PaintingPick,
 };
 
 struct AppOptions {
@@ -118,6 +121,10 @@ struct AppOptions {
   // Mob spawning is timed, capped and gated on the time of day, so a capture that
   // has to contain a sheep needs a way to ask for one.
   std::vector<std::pair<std::string, int>> startingEntities;
+  // --hang <png>: builds a wall in front of spawn and hangs this picture on it.
+  // The only way to capture a painting reproducibly — everything else about one
+  // goes through a mouse click on a screen that needs a gallery behind it.
+  std::string hangPicture;
   // --dump-icons <png>: write the generated icon sheet and exit.
   std::string iconDumpPath;
 
@@ -197,6 +204,9 @@ class App {
   // can land inside entities_.tick and scattering an inventory from there would
   // spawn drops into the vector being iterated.
   void respawnPlayer();
+  // Hangs a picture, and tells everyone else if we are the host. One place, so the
+  // local path, the guest's relayed request and a host's own click all land here.
+  void applyPainting(int x, int y, int z, game::Painting art);
   // The bound Soul Anchor, or the world origin column when nothing is bound.
   Vec3 spawnPoint() const;
 
@@ -329,6 +339,9 @@ class App {
   int frameLimit_ = 0;
   double frameStart_ = 0.0;
   AppState galleryReturn_ = AppState::Menu;
+  // Which painting the picker was opened for. Remembered rather than passed
+  // through the interface, because the Gallery does not know paintings exist.
+  int paintingX_ = 0, paintingY_ = 0, paintingZ_ = 0;
   // A detached forge/chest for --screen forge|chest, so a station screen can be
   // captured without placing a block first.
   game::BlockEntity scratchStation_;

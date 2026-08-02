@@ -289,6 +289,31 @@ void Host::onMessage(PeerState& st, const std::uint8_t* data, std::size_t size, 
       if (decode(r, m)) onBeRequest(st, m, now);
       break;
     }
+    case MsgType::Painting: {
+      PaintingMsg m;
+      if (!decode(r, m) || !game_.world) break;
+      // The same reach the host applies to an edit, checked the same way. Hanging
+      // a picture is an edit to the world in every way that matters, so it gets
+      // the existing rule rather than a second one to keep in step.
+      if (std::fabs(static_cast<float>(m.x) - st.lastPose.x) > kEditReach ||
+          std::fabs(static_cast<float>(m.y) - st.lastPose.y) > kEditReach ||
+          std::fabs(static_cast<float>(m.z) - st.lastPose.z) > kEditReach) {
+        break;
+      }
+      if (game_.world->getBlock(m.x, m.y, m.z) != world::wk().canvas) break;
+      game::Painting art;
+      art.rgb = std::move(m.rgb);
+      game_.world->setPainting(m.x, m.y, m.z, art);
+      // Back to everyone including the sender, so the picture a guest sees is the
+      // one the host actually stored rather than the one it hoped for.
+      PaintingMsg out;
+      out.x = m.x;
+      out.y = m.y;
+      out.z = m.z;
+      out.rgb = game_.world->painting(m.x, m.y, m.z)->rgb;
+      broadcast(MsgType::Painting, out);
+      break;
+    }
     case MsgType::BeState: {
       BeStateMsg m;
       if (decode(r, m)) onBeState(st, m, now);
@@ -457,6 +482,16 @@ void Host::onEdit(PeerState& st, const EditMsg& m, double now) {
 
   game_.world->setBlock(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
   pendingEdits_.push_back(m);
+}
+
+void Host::broadcastPainting(int x, int y, int z, const game::Painting& art) {
+  if (!running() || art.blank()) return;
+  PaintingMsg m;
+  m.x = x;
+  m.y = y;
+  m.z = z;
+  m.rgb = art.rgb;
+  broadcast(MsgType::Painting, m);
 }
 
 void Host::spillBlockEntity(int x, int y, int z) {

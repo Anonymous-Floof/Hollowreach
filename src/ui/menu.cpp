@@ -71,6 +71,8 @@ constexpr Feature kFeatures[] = {
                          "washes away what it reaches."},
     {"Survive & build", "Mine, smelt at the Forge, climb the tool & armour tiers, farm "
                         "mobs, sleep, and build."},
+    {"Hang your own art", "Craft a painting and put any screenshot you have taken on "
+                          "the wall. Friends who join see it too."},
     {"Play together", "Open a world to your network; friends on it see you, your edits "
                       "and each other."},
 };

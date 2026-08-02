@@ -119,6 +119,13 @@ class Interface {
 
   Screen screen() const { return screen_; }
   void setScreen(Screen s);
+  // The Gallery, opened to choose a picture for a painting rather than to browse.
+  // Not a Screen of its own because it IS the gallery — same scan, same thumbnails,
+  // same grid — with its cards wired to a different action.
+  void openPaintingPicker() {
+    pendingPicker_ = true;
+    setScreen(Screen::Gallery);
+  }
   // True while a screen wants the cursor and the keyboard — App uses this to decide
   // whether to hold pointer capture and whether gameplay keybinds fire.
   bool wantsCursor() const;
@@ -182,6 +189,7 @@ class Interface {
   Atlas atlas_;
   RecipeBook recipeBook_;
   Gallery gallery_;
+  bool pendingPicker_ = false;
   Backdrop backdrop_;
   TweenStore tweens_;
   const render::IconAtlas* icons_ = nullptr;
