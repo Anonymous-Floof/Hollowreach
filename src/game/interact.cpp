@@ -189,7 +189,12 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
 
   // ---- placing / using stations / toggling ----
   if (input.clicked(MouseButton::Right)) {
-    swung_ = true;
+    // The swing belongs to the branches that USE what you are holding, not to
+    // every right-click. Opening a chest, a workbench or a painting hands the
+    // click to a screen, and the game pauses with it — so the swing that used to
+    // be started here had nowhere to play, sat queued behind the pause, and then
+    // ran the moment the screen closed. A tool that swings by itself several
+    // seconds after you put a pickaxe in a chest is the visible half of that.
     if (b.station != world::Station::None && !sneaking) {
       if (hooks.onOpenStation) hooks.onOpenStation(b.station, hit.x, hit.y, hit.z);
     } else if (b.render == RenderKind::Painting && !sneaking) {
@@ -199,8 +204,11 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
     } else if (b.anchor && !sneaking) {
       if (hooks.onSetSpawn) hooks.onSetSpawn(hit.x, hit.y, hit.z);
     } else if (b.toggle && !sneaking) {
+      // A door is worked by hand, so this one does swing.
+      swung_ = true;
       toggleDoor(world, hit, b, player);
     } else {
+      swung_ = true;
       tryPlace(world, inventory, player, hit, hooks);
     }
   }

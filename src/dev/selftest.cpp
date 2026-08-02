@@ -383,6 +383,39 @@ void testPlacing() {
   shoreTest.update(0.016f, in, player, *shore, reeds, noticing);
   check(shore->getBlock(px, py, pz) == wk.papyrus, "papyrus accepts a wet shore");
 
+  // --- opening something is not using something ---------------------------------
+  //
+  // swung() drives the held item's animation, and it used to be set for EVERY
+  // right-click. Opening a chest or a workbench hands the click to a screen and
+  // pauses the world with it, so the swing had nowhere to play: it sat queued
+  // behind the pause and ran the moment the screen closed, which looks like the
+  // tool swinging on its own several seconds after you put something away.
+  {
+    auto stationWorld = makeWorld();
+    stationWorld->setBlock(11, kEyeLevel, 8, world::blocks().idOf("workbench"), 0);
+    game::Interact openTest;
+    game::Inventory bag;
+    player.setLook(kYawPlusX, kAimLow);
+
+    int opened = 0;
+    game::InteractHooks openHooks = silentHooks();
+    openHooks.onOpenStation = [&](world::Station, int, int, int) { ++opened; };
+    frame(in, false, /*clickRight=*/true);
+    openTest.update(0.016f, in, player, *stationWorld, bag, openHooks);
+    checkf(opened == 1, "right-clicking a workbench opens it (%d)", opened);
+    check(!openTest.swung(), "and does not swing the held item");
+
+    // The same click on plain ground, with something to place, still does.
+    auto placeWorld = makeWorld();
+    placeWorld->setBlock(11, kEyeLevel, 8, wk.greystone, 0);
+    game::Interact placeTest;
+    bag.give("planks", 4);
+    bag.setSelected(0);
+    frame(in, false, true);
+    placeTest.update(0.016f, in, player, *placeWorld, bag, silentHooks());
+    check(placeTest.swung(), "while placing a block does swing it");
+  }
+
   // --- the two items that are not blocks ---------------------------------------
   //
   // Both of these shipped inert: tryPlace returned early for a boat, and onWarp was
@@ -1954,6 +1987,58 @@ void testPaintings() {
     settleBlocks(*w);
     check(w->getBlock(5, kY, 6) == world::kAir, "mining the wall drops the painting");
     check(w->painting(5, kY, 6) == nullptr, "and the picture with it");
+  }
+
+  // --- changing the picture is a change ------------------------------------------
+  //
+  // The renderer caches an uploaded texture per POSITION, and a position is not a
+  // picture: choosing a second screenshot for a painting already on the wall
+  // leaves the key exactly where it was. Everything that lets the cache notice
+  // rests on the stamp being fresh every time, so that is what is asserted here
+  // rather than the cache itself, which needs a GL context to exist.
+  {
+    auto w = makeWorld();
+    w->setBlock(6, kY, 6, world::wk().greystone, 0);
+    w->setBlock(5, kY, 6, canvas, 0);
+
+    w->setPainting(5, kY, 6, makeArt(1));
+    const game::Painting* first = w->painting(5, kY, 6);
+    check(first && first->stamp != 0, "a hung picture is stamped");
+    const std::uint64_t firstStamp = first ? first->stamp : 0;
+    const std::uint32_t firstRev = w->paintingRevision();
+
+    w->setPainting(5, kY, 6, makeArt(2));
+    const game::Painting* second = w->painting(5, kY, 6);
+    check(second != nullptr, "and can be given a different one");
+    if (second) {
+      checkf(second->stamp != firstStamp, "which is a different picture (%llu vs %llu)",
+             static_cast<unsigned long long>(firstStamp),
+             static_cast<unsigned long long>(second->stamp));
+    }
+    check(w->paintingRevision() != firstRev, "and the renderer is told to look again");
+
+    // The pixels really did change, checked against a fresh copy rather than the
+    // dangling `first` pointer, which the second insert invalidated.
+    const game::Painting expected = makeArt(2);
+    check(second && second->rgb == expected.rgb, "and the picture on the wall is the new one");
+  }
+
+  // --- a loaded world's paintings are stamped too ---------------------------------
+  //
+  // Otherwise every painting in every world would arrive with the same stamp of
+  // zero, and a renderer that outlived the last world could match one of its
+  // entries against a painting hanging in the same place in this one.
+  {
+    auto w = makeWorld();
+    std::unordered_map<game::BlockEntityKey, game::Painting> loaded;
+    loaded[game::blockEntityKey(1, 2, 3)] = makeArt(4);
+    loaded[game::blockEntityKey(4, 5, 6)] = makeArt(5);
+    check(loaded[game::blockEntityKey(1, 2, 3)].stamp == 0, "a decoded painting has no stamp");
+    w->installPaintings(loaded);
+    const game::Painting* a = w->painting(1, 2, 3);
+    const game::Painting* b = w->painting(4, 5, 6);
+    check(a && b && a->stamp != 0 && b->stamp != 0, "installing a save stamps them");
+    check(a && b && a->stamp != b->stamp, "each one distinctly");
   }
 
   // --- the round trip -----------------------------------------------------------

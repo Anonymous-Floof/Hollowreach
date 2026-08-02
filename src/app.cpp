@@ -575,6 +575,11 @@ game::InteractHooks App::makeInteractHooks() {
 // states while the interface has to know both which screen is up and that the world is
 // still there.
 void App::syncScreen() {
+  // Anything but Playing means the world has stopped, and the held item's clocks
+  // stop with it. A swing caught mid-arc by a screen is dropped rather than left
+  // paused: it would otherwise complete itself on the way back, with nothing
+  // having been clicked to cause it.
+  if (state_ != AppState::Playing) renderer_.viewmodel().cancelSwing();
   switch (state_) {
     case AppState::Boot: interface_.setScreen(ui::Screen::Boot); break;
     case AppState::Menu: interface_.setScreen(ui::Screen::Menu); break;
@@ -950,7 +955,7 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     world_->setEdits(loaded->edits);
     world_->setExplored(loaded->explored);
     world_->blockEntities() = loaded->blockEntities;
-    world_->paintings() = loaded->paintings;
+    world_->installPaintings(loaded->paintings);
   }
 
   entities_.clear();

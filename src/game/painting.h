@@ -36,8 +36,22 @@ struct Painting {
   // never a lookup. Nothing reads pixels through it.
   std::string source;
 
+  // Which picture this is, as far as anything caching it is concerned. Runtime
+  // only and never saved: it exists so the renderer's texture cache can tell
+  // "the painting at this position" from "the picture at this position", which
+  // are not the same thing the moment somebody changes one.
+  //
+  // Handed out by nextPaintingStamp(), which counts for the life of the process
+  // rather than per world — a cache that outlives a world must not be able to
+  // match a stale entry against a fresh painting that happens to hang in the
+  // same place.
+  std::uint64_t stamp = 0;
+
   bool blank() const { return rgb.size() != kPaintingBytes; }
 };
+
+// The next never-before-used picture stamp. Thread safe.
+std::uint64_t nextPaintingStamp();
 
 // Loads a PNG, centre-crops it to a square and box-filters it down to
 // kPaintingSize. Centre-crop rather than letterbox because a painting is square

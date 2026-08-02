@@ -184,6 +184,9 @@ class World {
   const game::Painting* painting(int wx, int wy, int wz) const;
   void setPainting(int wx, int wy, int wz, game::Painting art);
   void removePainting(int wx, int wy, int wz);
+  // Installs a loaded set, giving each one a fresh runtime stamp. Use this rather
+  // than assigning through paintings() — see the note in the definition.
+  void installPaintings(std::unordered_map<game::BlockEntityKey, game::Painting> loaded);
   const std::unordered_map<game::BlockEntityKey, game::Painting>& paintings() const {
     return paintings_;
   }

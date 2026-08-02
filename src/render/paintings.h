@@ -43,11 +43,15 @@ class PaintingRenderer {
   int drawn() const { return drawn_; }
 
  private:
-  // One uploaded texture per painting position. Rebuilt wholesale when the world's
-  // painting revision moves, which is cheap because it only moves when somebody
-  // hangs, changes or breaks one — never per frame.
+  // One uploaded texture per painting position, and WHICH picture it is. The
+  // stamp is the whole point: the map is keyed by position, and a position is not
+  // a picture — somebody choosing a second screenshot for a painting they already
+  // hung leaves the key unchanged, so a cache that only asked "do I have this
+  // position?" answered yes and kept showing the first one forever. It could only
+  // be dislodged by breaking the painting, which erased the entry.
   struct Entry {
     GLuint tex = 0;
+    std::uint64_t stamp = 0;
   };
 
   void syncTextures(const world::World& world);

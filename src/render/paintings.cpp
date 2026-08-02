@@ -70,12 +70,15 @@ void PaintingRenderer::syncTextures(const world::World& world) {
   seenRevision_ = rev;
   haveRevision_ = true;
 
-  // Drop textures whose painting is gone, and upload any that arrived. Comparing
-  // one revision counter rather than 48 KB of pixels per painting per frame is the
-  // whole point of the counter existing.
+  // Drop textures whose painting is gone OR whose picture has been changed under
+  // them, then upload whatever is left without one. Comparing one revision counter
+  // rather than 48 KB of pixels per painting per frame is the whole point of the
+  // counter existing; comparing the stamp is what makes the second case work.
   for (auto it = textures_.begin(); it != textures_.end();) {
     const auto found = world.paintings().find(it->first);
-    if (found == world.paintings().end() || found->second.blank()) {
+    const bool stale = found == world.paintings().end() || found->second.blank() ||
+                       found->second.stamp != it->second.stamp;
+    if (stale) {
       if (it->second.tex) glDeleteTextures(1, &it->second.tex);
       it = textures_.erase(it);
     } else {
@@ -85,6 +88,7 @@ void PaintingRenderer::syncTextures(const world::World& world) {
   for (const auto& [key, art] : world.paintings()) {
     if (art.blank() || textures_.count(key)) continue;
     Entry e;
+    e.stamp = art.stamp;
     glGenTextures(1, &e.tex);
     glBindTexture(GL_TEXTURE_2D, e.tex);
     // Linear, unlike every other texture in the game: this one is a photograph

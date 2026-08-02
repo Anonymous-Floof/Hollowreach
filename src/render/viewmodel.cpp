@@ -60,6 +60,11 @@ void Viewmodel::swing() {
   }
 }
 
+void Viewmodel::cancelSwing() {
+  swingT_ = 1.0f;
+  queued_ = false;
+}
+
 void Viewmodel::update(float dt, float bobPhase, float bobMagnitude) {
   clock_ += dt;
   bobPhase_ = bobPhase;

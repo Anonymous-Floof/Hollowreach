@@ -788,7 +788,23 @@ const game::Painting* World::painting(int wx, int wy, int wz) const {
 }
 
 void World::setPainting(int wx, int wy, int wz, game::Painting art) {
+  // Stamped here rather than by the caller, so every route in — the local click,
+  // a guest's relayed request, the host's broadcast — gets one and none of them
+  // can forget. Without it the renderer's cache, which is keyed by position, has
+  // no way to notice that the picture at a position it already holds has changed:
+  // it kept showing the first one until the painting was broken and rebuilt.
+  art.stamp = game::nextPaintingStamp();
   paintings_[game::blockEntityKey(wx, wy, wz)] = std::move(art);
+  ++paintingRevision_;
+}
+
+void World::installPaintings(std::unordered_map<game::BlockEntityKey, game::Painting> loaded) {
+  paintings_ = std::move(loaded);
+  // A save carries pixels but not stamps — they are runtime identity, not world
+  // state. Fresh ones here, so a renderer that outlived the last world cannot
+  // match one of its entries against a painting hanging in the same place in
+  // this one.
+  for (auto& [key, art] : paintings_) art.stamp = game::nextPaintingStamp();
   ++paintingRevision_;
 }
 

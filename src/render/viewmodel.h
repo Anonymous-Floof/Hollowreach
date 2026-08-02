@@ -28,6 +28,13 @@ class Viewmodel {
   // Held mining calls this every frame, which chains into a continuous swing.
   void swing();
 
+  // Drops a swing in progress and anything queued behind it. Called when the
+  // world stops running: the swing clock only advances while playing, so an arc
+  // interrupted by a screen would otherwise be frozen at whatever frame it had
+  // reached and finish itself the moment the screen closed — which reads as the
+  // tool swinging on its own at a moment nothing was clicked.
+  void cancelSwing();
+
   // `bobPhase` and `bobMagnitude` come from the player's walk cycle, so the hand
   // and the head agree about which foot is down.
   void update(float dt, float bobPhase, float bobMagnitude);

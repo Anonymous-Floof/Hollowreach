@@ -36,6 +36,18 @@ version heading when it's time to ship.
   frame, so which of the two a pixel showed came down to depth rounding and a
   painting flickered between the photograph and blank canvas as you moved. It is
   now lifted two millimetres proud of the frame.
+- **A painting can be given a new picture.** It kept showing the first one you
+  chose, and would only take another after being broken and put back — because
+  the uploaded texture was cached by position, and a position is not a picture:
+  choosing a second screenshot leaves the painting exactly where it was, so the
+  cache saw nothing to do. It now tracks which picture it is holding.
+- **The held tool no longer swings when you close an inventory.** Every
+  right-click started a swing, including the ones that only open a screen — and
+  opening a screen pauses the world, so the swing had nowhere to play. It sat
+  queued behind the pause and ran when the screen closed, several seconds after
+  anything was clicked. Opening a chest, a workbench, a bed, a soul anchor or a
+  painting no longer swings at all, and a swing interrupted by a screen is
+  dropped rather than left frozen mid-arc.
 - **Field of View survives a restart.** It always saved and the slider always showed
   the right number; the camera was the one thing never told, because startup set the
   projection back to the default seventy a few lines after applying your settings.

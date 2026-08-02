@@ -1,11 +1,19 @@
 #include "game/painting.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "core/log.h"
 #include "resource/image.h"
 
 namespace hr::game {
+
+std::uint64_t nextPaintingStamp() {
+  // Starts at 1, so a default-constructed Painting's 0 can never be mistaken for
+  // a real picture by anything comparing stamps.
+  static std::atomic<std::uint64_t> counter {1};
+  return counter.fetch_add(1);
+}
 
 bool paintingFromPng(const std::string& path, Painting& out) {
   Image src;
