@@ -19,6 +19,7 @@ enum : int {
   kTagPrev = 402,    // index = family
   kTagNext = 403,
   kTagIcon = 404,    // index into the frame's icon-key table
+  kTagCard = 407,    // index = family; the whole row, clicked to lay the recipe out
   kTagResults = 405,
   kTagBack = 406,
 };
@@ -176,8 +177,16 @@ void RecipeBook::buildData() {
         e.cells[static_cast<std::size_t>(c.row * r.width + c.col)] = c.key;
       }
     } else {
-      e.chips = r.ingredients;
+      // One chip per SLOT, not one per ingredient with a count on it. The
+      // shapeless matcher counts occupied cells rather than items, so the Atlas's
+      // three paper are three separate slots — and a single chip reading "paper
+      // x3" says the opposite, which is exactly how somebody stacks three paper
+      // into one square and concludes the recipe is broken.
+      for (const auto& [key, count] : r.ingredients) {
+        for (int n = 0; n < std::max(1, count); ++n) e.chips.push_back({key, 1});
+      }
     }
+    e.recipe = &r;
     addEntry(familyKeyFor(r.outKey), categoryFor(r.outKey), std::move(e));
   }
 
@@ -229,7 +238,14 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   card.borderWidth = 1;
   card.radius = 8;
   card.padding = Edges(8, 10);
-  doc_.begin(card);
+  // The whole row is the button, the way Minecraft's book works — there is nothing
+  // else on a card to click, and hunting for a small target is the opposite of what
+  // this is for.
+  if (hoveredTag_ == kTagCard && hoveredIndex_ == familyIndex && e.recipe) {
+    card.bg = color::slot;
+    card.border = color::accent;
+  }
+  doc_.begin(card, kTagCard, familyIndex);
 
   // The inputs: a grid for a shaped recipe, chips for a shapeless one.
   if (!e.cells.empty()) {
@@ -487,6 +503,16 @@ void RecipeBook::handle(const UiEvent& event, Text& text) {
       const int delta = hoveredTag_ == kTagNext ? 1 : -1;
       f.current = ((f.current + delta) % n + n) % n;
     }
+    return;
+  }
+  if (hoveredTag_ == kTagCard && hoveredIndex_ < static_cast<int>(families_.size())) {
+    const Family& f = families_[static_cast<std::size_t>(hoveredIndex_)];
+    const Entry& e = f.entries[static_cast<std::size_t>(
+        std::min<int>(f.current, static_cast<int>(f.entries.size()) - 1))];
+    // The variant on show is the one you get. Cycling with the arrows is how you
+    // choose which wood or which tier, so clicking has to mean that one and not
+    // the family's first.
+    if (e.recipe && onAutoFill) onAutoFill(*e.recipe);
   }
 }
 

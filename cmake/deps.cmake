@@ -87,6 +87,9 @@ if(WIN32)
   # GL entry points are resolved through glfwGetProcAddress, but the loader
   # still needs opengl32 present for the GL 1.x symbols it falls back to.
   target_link_libraries(hollowreach_deps INTERFACE opengl32)
+  # The self-updater's one HTTPS request. Part of Windows since XP, so this adds
+  # no dependency to the shipped artifact — see src/platform/update.cpp.
+  target_link_libraries(hollowreach_deps INTERFACE winhttp)
 elseif(APPLE)
   target_link_libraries(hollowreach_deps INTERFACE "-framework OpenGL")
 else()

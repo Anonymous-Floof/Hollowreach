@@ -219,7 +219,11 @@ void consumeGrid(std::vector<ItemStack>& grid, int size, const Recipe& recipe) {
 
 const SmeltingRecipe* smeltingFor(std::string_view key) {
   for (const SmeltingRecipe& s : recipeBook().smelting()) {
-    if (s.in == key) return &s;
+    // Through the tag matcher, not by string equality: the charcoal entry is
+    // "#logs", and comparing keys made it oak and nothing else — so a forge in a
+    // pine forest refused every log fed into it while the book cheerfully said
+    // logs make charcoal. The same trap the wooden tool recipes had.
+    if (world::blocks().ingredientMatches(s.in, key)) return &s;
   }
   return nullptr;
 }

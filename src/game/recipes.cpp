@@ -201,7 +201,7 @@ RecipeBook::RecipeBook() {
 
   // --- smelting (forge) ---
   smelting_ = {
-      {"log", "charcoal", 8},
+      {"#logs", "charcoal", 8},
       {"raw_copper", "copper_ingot", 6},
       {"raw_ferralite", "ferralite_ingot", 8},
       {"raw_sunbrass", "sunbrass_ingot", 8},

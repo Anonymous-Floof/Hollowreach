@@ -68,6 +68,94 @@ void InventoryUI::close() {
   haveHover_ = false;
 }
 
+InventoryUI::FillResult InventoryUI::autoFill(const game::Recipe& recipe) {
+  if (!inv_ || (mode_ != InventoryMode::Inventory && mode_ != InventoryMode::Workbench)) {
+    return FillResult::NoGrid;
+  }
+  // A hand recipe works at a bench too; a bench recipe does not work in the 2x2.
+  if (recipe.station == game::CraftStation::Workbench &&
+      stationKind() != game::CraftStation::Workbench) {
+    return FillResult::TooBig;
+  }
+  if (recipe.type == game::RecipeType::Shaped &&
+      (recipe.width > craftSize_ || recipe.height > craftSize_)) {
+    return FillResult::TooBig;
+  }
+
+  // Back into the bag first, so a second click replaces the first rather than
+  // finding every cell occupied. Done before anything is taken, which also means
+  // ingredients already laid out are available to the new recipe.
+  for (game::ItemStack& s : craft_) {
+    if (!s.empty()) inv_->give(s.key, s.count, s.dura);
+    s.clear();
+  }
+
+  // A tag ingredient resolves against what the player actually has. Least-stocked
+  // first, so laying out a plank recipe spends the odd single birch plank rather
+  // than opening the stack of sixty oak you were saving.
+  const auto pickFor = [&](const std::string& required) -> std::string {
+    if (required.empty() || required.front() != '#') {
+      return inv_->countOf(required) > 0 ? required : std::string {};
+    }
+    const std::vector<std::string>* members = world::blocks().tag(required.substr(1));
+    if (!members) return {};
+    std::string best;
+    int bestCount = 0;
+    for (const std::string& m : *members) {
+      const int have = inv_->countOf(m);
+      if (have > 0 && (best.empty() || have < bestCount)) {
+        best = m;
+        bestCount = have;
+      }
+    }
+    return best;
+  };
+
+  // What each cell wants, in grid order.
+  std::vector<std::pair<int, std::string>> want;  // cell index -> required key
+  if (recipe.type == game::RecipeType::Shaped) {
+    for (const game::RecipeCell& c : recipe.cells) {
+      want.push_back({c.row * craftSize_ + c.col, c.key});
+    }
+  } else {
+    int cell = 0;
+    for (const auto& [key, count] : recipe.ingredients) {
+      for (int n = 0; n < std::max(1, count); ++n) {
+        if (cell >= craftSize_ * craftSize_) return FillResult::TooBig;
+        want.push_back({cell++, key});
+      }
+    }
+  }
+
+  // Take everything before placing anything, so a shortfall discovered on the last
+  // cell does not leave the first five sitting in the grid.
+  std::vector<std::pair<int, game::ItemStack>> taken;
+  bool ok = true;
+  for (const auto& [cell, required] : want) {
+    const std::string key = pickFor(required);
+    if (key.empty()) {
+      ok = false;
+      break;
+    }
+    std::unordered_map<std::string, int> one {{key, 1}};
+    if (!inv_->hasItems(one)) {
+      ok = false;
+      break;
+    }
+    inv_->removeItems(one);
+    taken.push_back({cell, game::ItemStack{key, 1, -1}});
+  }
+
+  if (!ok) {
+    for (auto& [cell, stack] : taken) inv_->give(stack.key, stack.count, stack.dura);
+    return FillResult::Missing;
+  }
+  for (auto& [cell, stack] : taken) {
+    if (cell >= 0 && cell < static_cast<int>(craft_.size())) craft_[cell] = std::move(stack);
+  }
+  return FillResult::Ok;
+}
+
 game::CraftStation InventoryUI::stationKind() const {
   return mode_ == InventoryMode::Workbench ? game::CraftStation::Workbench
                                            : game::CraftStation::Hand;

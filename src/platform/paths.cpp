@@ -131,4 +131,17 @@ std::string join(const std::string& a, const std::string& b) {
   return (fs::path(a) / b).generic_string();
 }
 
+bool ensureDir(const std::string& path) {
+  std::error_code ec;
+  fs::create_directories(path, ec);
+  if (ec) log::warn("could not create %s: %s", path.c_str(), ec.message().c_str());
+  return !ec;
+}
+
+bool removeTree(const std::string& path) {
+  std::error_code ec;
+  fs::remove_all(path, ec);
+  return !ec;
+}
+
 }  // namespace hr::paths

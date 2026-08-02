@@ -57,12 +57,17 @@ REPO = HERE.parent
 # Chunks whose only difference is the documented one-ULP transcendental drift.
 KNOWN_MESH_DIFFS = {"mesh(3918175327, v1, 7, -3)"}
 
-# The four wooden tools. The browser spells their plank ingredient "planks", which
-# is OAK planks, so a world that spawned you in a pine or birch forest could not
-# make the first pickaxe at all. This build spells it "#planks", the any-wood tag
-# that beds and boats already used. A deliberate divergence, and the only one in
-# the recipe table -- everything else in the group must still match exactly.
-KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)}
+# Deliberate divergences in the recipe group, all of the same kind: the browser
+# named one specific wood where it meant any wood, and this build uses a tag.
+#
+#   recipe(100..103)  the four wooden tools. "planks" is OAK planks, so a world
+#                     that spawned you in a pine or birch forest could not make
+#                     the first pickaxe at all.
+#   smelt(00)         charcoal. "log" is the OAK log, so a forge fed a pine log
+#                     did nothing at all while the recipe book said logs burn.
+#
+# Everything else in the group must still match exactly.
+KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)} | {"smelt(00)"}
 
 # Things this build has that the browser never did. Separate from the sets above,
 # which are entries that exist on both sides and disagree: these exist only here,

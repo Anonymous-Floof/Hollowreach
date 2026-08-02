@@ -34,4 +34,11 @@ bool ensureDirs();
 // Joins with a forward slash and normalises separators.
 std::string join(const std::string& a, const std::string& b);
 
+// Creates one directory, and its parents. For the updater's staging area, which
+// is not one of the fixed directories above.
+bool ensureDir(const std::string& path);
+// Deletes a directory and everything under it. Only ever called on a path this
+// process created inside dataDir(); it is not a general-purpose tool.
+bool removeTree(const std::string& path);
+
 }  // namespace hr::paths

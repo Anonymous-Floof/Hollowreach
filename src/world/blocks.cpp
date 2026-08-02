@@ -435,14 +435,17 @@ BlockRegistry::BlockRegistry() {
   solid_.resize(B.size());
   emit_.resize(B.size());
   std::vector<std::string> plankKeys;
+  std::vector<std::string> logKeys;
   for (const BlockDef& d : B) {
     byKey_[d.key] = d.id;
     opaque_[d.id] = d.opaque ? 1 : 0;
     solid_[d.id] = d.solid ? 1 : 0;
     emit_[d.id] = static_cast<std::uint8_t>(d.light);
     if (d.isPlank) plankKeys.push_back(d.key);
+    if (d.isLog) logKeys.push_back(d.key);
   }
   tags_["planks"] = std::move(plankKeys);
+  tags_["logs"] = std::move(logKeys);
 
   log::info("blocks: %zu registered (last = %s)", B.size(), B.back().key.c_str());
 }

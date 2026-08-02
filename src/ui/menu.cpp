@@ -7,6 +7,7 @@
 #include "audio/sfx.h"
 #include "core/log.h"
 #include "core/prng.h"
+#include "platform/update.h"
 #include "ui/imagefx.h"
 
 namespace hr::ui {
@@ -20,6 +21,7 @@ enum : int {
   kTagGallery,
   kTagSettings,
   kTagAbout,
+  kTagUpdate,
   kTagQuit,
   kTagBack,
   kTagNewWorld,
@@ -242,6 +244,22 @@ void Menu::buildPageMain(const UiEvent& event, TweenStore& tweens) {
       // the game can be left at all.
       {kTagQuit, "Quit", widget::ButtonKind::Danger},
   };
+  // The updater's label IS its state, so there is one thing to look at rather
+  // than a button and a status line that can disagree. Nothing here happens on
+  // its own: the first click checks, and only a second one installs.
+  const platform::update::State up = platform::update::state();
+  const char* updateLabel = nullptr;
+  switch (up.stage) {
+    case platform::update::Stage::Idle: updateLabel = "Check for Updates"; break;
+    case platform::update::Stage::Checking: updateLabel = "Checking\xE2\x80\xA6"; break;
+    case platform::update::Stage::UpToDate: updateLabel = "Up to date"; break;
+    case platform::update::Stage::Available: updateLabel = "Download update"; break;
+    case platform::update::Stage::Downloading: updateLabel = "Downloading\xE2\x80\xA6"; break;
+    case platform::update::Stage::Staging: updateLabel = "Unpacking\xE2\x80\xA6"; break;
+    case platform::update::Stage::ReadyToApply: updateLabel = "Install and restart"; break;
+    case platform::update::Stage::Failed: updateLabel = "Update check failed"; break;
+    case platform::update::Stage::Unsupported: updateLabel = nullptr; break;
+  }
   for (const Item& item : items) {
     const bool hovered = hoveredTag_ == item.tag;
     Style s = widget::menuButton(hovered, item.kind);
@@ -255,6 +273,29 @@ void Menu::buildPageMain(const UiEvent& event, TweenStore& tweens) {
     // The ::before accent bar, scaleY(0) -> scaleY(1) over .18s. Drawn as a custom node
     // so the bar's height can be animated independently of its slot in the layout.
     (void)event;
+
+    // The updater sits above Quit rather than at the very bottom: it is a normal
+    // thing to do and Quit should stay the last thing on the screen.
+    if (item.tag == kTagAbout && updateLabel && platform::update::supported()) {
+      const bool hoveredUp = hoveredTag_ == kTagUpdate;
+      const bool ready = up.stage == platform::update::Stage::ReadyToApply ||
+                         up.stage == platform::update::Stage::Available;
+      Style us = widget::menuButton(
+          hoveredUp, ready ? widget::ButtonKind::Primary : widget::ButtonKind::Normal);
+      us.translateX = tweens.toward(TweenStore::key(kTagUpdate), hoveredUp, 0.12) * 3.0f;
+      main_.begin(us, kTagUpdate);
+      main_.label(updateLabel, widget::menuButtonText(
+                                   hoveredUp,
+                                   ready ? widget::ButtonKind::Primary
+                                         : widget::ButtonKind::Normal));
+      main_.end();
+      if (!up.message.empty() && up.stage != platform::update::Stage::Idle) {
+        Style note;
+        note.margin = Edges(2, 0, 6, 0);
+        note.maxWidth = 320;
+        main_.label(up.message, widget::muted(11.5f), note);
+      }
+    }
   }
 }
 
@@ -683,6 +724,25 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
     case kTagAbout: setPage(MenuPage::About); break;
     case kTagQuit:
       if (actions.quitGame) actions.quitGame();
+      break;
+    // One button, three meanings, and never more than one step at a time — the
+    // player sees the version before anything downloads and sees "install" before
+    // anything is replaced.
+    case kTagUpdate:
+      switch (platform::update::state().stage) {
+        case platform::update::Stage::Idle:
+        case platform::update::Stage::UpToDate:
+        case platform::update::Stage::Failed:
+          platform::update::check();
+          break;
+        case platform::update::Stage::Available: platform::update::download(); break;
+        case platform::update::Stage::ReadyToApply:
+          // The helper is now waiting for this process to exit, so quitting is
+          // part of installing rather than something the player has to do next.
+          if (platform::update::apply() && actions.quitGame) actions.quitGame();
+          break;
+        default: break;  // mid-flight: the button is a status line
+      }
       break;
     case kTagBack:
     case kTagCancel:

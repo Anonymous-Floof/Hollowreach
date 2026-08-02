@@ -696,6 +696,29 @@ void App::wireInterface() {
       applyPainting(x, y, z, std::move(art));
     }
   };
+  interface_.recipeBook().onAutoFill = [this](const game::Recipe& recipe) {
+    // Only from a crafting screen: the book reached with H from the world has no
+    // grid behind it, and opening one uninvited would be a surprise rather than a
+    // convenience.
+    if (state_ != AppState::RecipeBook || recipeReturn_ != AppState::Inventory) {
+      interface_.notify().push("Open a crafting screen to lay a recipe out");
+      return;
+    }
+    state_ = recipeReturn_;
+    interface_.openStation(recipeStation_);
+    switch (interface_.inventory().autoFill(recipe)) {
+      case ui::InventoryUI::FillResult::Ok: break;
+      case ui::InventoryUI::FillResult::TooBig:
+        interface_.notify().push("That needs a bigger crafting grid");
+        break;
+      case ui::InventoryUI::FillResult::Missing:
+        interface_.notify().push("You are missing something for that");
+        break;
+      case ui::InventoryUI::FillResult::NoGrid:
+        interface_.notify().push("No crafting grid open");
+        break;
+    }
+  };
   interface_.callbacks.closeScreen = [this] { closeCurrentScreen(); };
   interface_.callbacks.saveAndQuit = [this] {
     const bool saved = netGuest() ? false : saveCurrentWorld();

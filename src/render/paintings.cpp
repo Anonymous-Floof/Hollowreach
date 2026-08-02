@@ -11,6 +11,15 @@ namespace {
 constexpr float kInset = 1.0f / 16.0f;
 constexpr float kThick = 1.0f / 16.0f;
 
+// The picture is nudged this far out of the frame's front face, toward whoever is
+// looking at it. Without it the quad is coplanar with the face the mesher already
+// emitted there and the two z-fight: which one wins is down to per-pixel depth
+// rounding, so a painting shimmers between its picture and blank canvas as you
+// move. Two millimetres of a one-metre block is far below anything visible and
+// comfortably above the depth buffer's resolution at any range you can see a
+// painting from.
+constexpr float kLift = 0.002f;
+
 // Vertex: pos(3) uv(2) light(2).
 constexpr int kFloatsPerVert = 7;
 
@@ -140,23 +149,23 @@ void PaintingRenderer::drawGBuffer(const world::World& world, const Camera& came
     float ux = 0, uz = 0;
     switch (meta) {
       case 0:  // hung on the +x wall, seen from -x
-        ox = x + 1.0f - kThick;
+        ox = x + 1.0f - kThick - kLift;
         oz = z + lo;
         uz = hi - lo;
         break;
       case 1:  // -x wall, seen from +x
-        ox = x + kThick;
+        ox = x + kThick + kLift;
         oz = z + hi;
         uz = -(hi - lo);
         break;
       case 2:  // +z wall, seen from -z
         ox = x + hi;
-        oz = z + 1.0f - kThick;
+        oz = z + 1.0f - kThick - kLift;
         ux = -(hi - lo);
         break;
       default:  // -z wall, seen from +z
         ox = x + lo;
-        oz = z + kThick;
+        oz = z + kThick + kLift;
         ux = hi - lo;
         break;
     }

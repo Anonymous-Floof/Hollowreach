@@ -81,6 +81,16 @@ class InventoryUI {
   // True while a stack is on the cursor, so Escape can be made to drop it back first.
   bool holdingStack() const { return !cursor_.empty(); }
 
+  // Lays a recipe out in the crafting grid, taking one item per cell from the bag.
+  // Whatever was already in the grid goes back first, so clicking a second recipe
+  // replaces the first rather than refusing.
+  //
+  // All or nothing: if any ingredient is missing the grid is restored and this
+  // returns false, because a half-filled grid is worse than an untouched one —
+  // it looks like the recipe was laid out and quietly is not.
+  enum class FillResult { Ok, NoGrid, TooBig, Missing };
+  FillResult autoFill(const game::Recipe& recipe);
+
  private:
   struct SlotId {
     Container container = Container::None;

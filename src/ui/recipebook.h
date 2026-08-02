@@ -28,6 +28,11 @@ class RecipeBook {
   // Returns wherever the book was opened from — the world, or the crafting screen
   // that has the grid you were looking at.
   std::function<void()> onBack;
+  // Clicking a recipe asks for it to be laid out in the grid the book was opened
+  // from. A request, not an instruction: whether the station allows it and whether
+  // the ingredients are there is decided by the crafting screen, which is the only
+  // thing that knows either.
+  std::function<void(const game::Recipe&)> onAutoFill;
 
   // Built lazily on first open, like the JS `built` flag: it walks every recipe and
   // groups it, which is not work to do at startup for a screen most sessions never open.
@@ -51,6 +56,9 @@ class RecipeBook {
     std::string outKey;
     int outCount = 1;
     std::string name;
+    // The recipe this row came from, for auto-fill. Null for a smelting row: a
+    // forge has no grid to lay anything out in.
+    const game::Recipe* recipe = nullptr;
   };
   struct Family {
     std::string key;

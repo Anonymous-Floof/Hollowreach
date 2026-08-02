@@ -30,6 +30,7 @@
 #include "game/raycast.h"
 #include "render/sky.h"
 #include "render/viewmodel.h"
+#include "ui/inventoryui.h"
 #include "core/bytes.h"
 #include "net/client.h"
 #include "net/discovery.h"
@@ -1817,6 +1818,86 @@ void testWorldgenDepth() {
   }
 }
 
+// --- any-wood smelting and the recipe book's auto-fill -------------------------
+void testRecipeConvenience() {
+  std::printf("recipe convenience\n");
+
+  // --- charcoal takes any log ---------------------------------------------------
+  //
+  // It read "Oak Log" in the book and meant it: the smelting table matched by
+  // string, so a forge in a pine forest refused every log fed into it. The same
+  // trap the wooden tools had, in the one table that had not been converted.
+  {
+    int burned = 0, kinds = 0;
+    for (const world::BlockDef& d : world::blocks().all()) {
+      if (!d.isLog) continue;
+      ++kinds;
+      const game::SmeltingRecipe* s = game::smeltingFor(d.key);
+      if (s && s->out == "charcoal") ++burned;
+    }
+    checkf(kinds >= 5, "there are %d kinds of log", kinds);
+    checkf(burned == kinds, "every one of them smelts to charcoal (%d/%d)", burned, kinds);
+    check(game::smeltingFor("greystone") == nullptr, "and stone still does not");
+  }
+
+  // --- the Atlas needs three separate slots of paper ----------------------------
+  //
+  // The shapeless matcher counts occupied CELLS, not items, so three paper in one
+  // square is not the recipe however much the count badge implied it was.
+  {
+    std::vector<game::ItemStack> grid(9);
+    grid[0] = {"azurite", 1, -1};
+    grid[1] = {"leather", 1, -1};
+    grid[2] = {"paper", 3, -1};
+    check(!game::matchGrid(grid, 3, game::CraftStation::Workbench),
+          "three paper stacked in one slot does not make an Atlas");
+    grid[2] = {"paper", 1, -1};
+    grid[3] = {"paper", 1, -1};
+    grid[4] = {"paper", 1, -1};
+    const game::CraftMatch m = game::matchGrid(grid, 3, game::CraftStation::Workbench);
+    check(m && m.outKey == "atlas", "three paper in three slots does");
+  }
+
+  // --- auto-fill lays a recipe out and takes it from the bag --------------------
+  {
+    game::Inventory inv;
+    ui::InventoryUI panel;
+    panel.attach(&inv, nullptr);
+    panel.open(ui::InventoryMode::Workbench, nullptr);
+
+    const game::Recipe* chest = nullptr;
+    for (const game::Recipe& r : game::recipeBook().recipes()) {
+      if (r.outKey == "chest") chest = &r;
+    }
+    check(chest != nullptr, "the chest recipe exists");
+    if (!chest) return;
+
+    // Nothing in the bag: refused, and nothing taken.
+    checkf(panel.autoFill(*chest) == ui::InventoryUI::FillResult::Missing,
+           "auto-fill refuses a recipe you cannot afford");
+
+    // Eight planks is exactly a chest. Deliberately BIRCH, so the "#planks" tag
+    // has to resolve against what is actually held rather than the literal key.
+    inv.give("birch_planks", 8);
+    checkf(panel.autoFill(*chest) == ui::InventoryUI::FillResult::Ok,
+           "and lays it out once you have the wood");
+    checkf(inv.countOf("birch_planks") == 0, "taking every plank it needed (%d left)",
+           inv.countOf("birch_planks"));
+
+    // Closing returns the grid, which is what makes a second click safe.
+    panel.close();
+    checkf(inv.countOf("birch_planks") == 8, "and closing puts them all back (%d)",
+           inv.countOf("birch_planks"));
+
+    // A bench recipe in the 2x2 is refused rather than half-placed.
+    panel.open(ui::InventoryMode::Inventory, nullptr);
+    checkf(panel.autoFill(*chest) == ui::InventoryUI::FillResult::TooBig,
+           "a bench recipe will not fit the 2x2");
+    checkf(inv.countOf("birch_planks") == 8, "and takes nothing when it refuses (%d)",
+           inv.countOf("birch_planks"));
+  }
+}
+
 // --- paintings ----------------------------------------------------------------
 //
 // The picture is the state; everything else about a painting is an ordinary wall
@@ -3120,6 +3201,7 @@ int runSelfTest() {
   testViewmodelSwing();
   testSpawnChoice();
   testPaintings();
+  testRecipeConvenience();
   testWater();
   testBlockSupport();
   testNet();

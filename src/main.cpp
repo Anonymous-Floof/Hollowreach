@@ -5,7 +5,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <cstring>
+#include <thread>
 #include <string>
 
 #include "app.h"
@@ -15,6 +17,7 @@
 #include "dev/savetool.h"
 #include "dev/selftest.h"
 #include "platform/paths.h"
+#include "platform/update.h"
 
 namespace {
 
@@ -59,6 +62,8 @@ void printUsage() {
       "  --perf              per-pass GPU and CPU timing, and a report at exit\n"
       "  --give <list>       start holding items: key[:count][,key[:count]...]\n"
       "  --spawn <list>      place entities near spawn: type[:count][,...]\n"
+      "  --check-update [ver] ask GitHub for the latest release, print it, and exit\n"
+      "  --apply-update [ver] download the latest release and install it over this one\n"
       "  --hang <png>        build a wall at spawn with this picture in a painting\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
       "  --verbose           log at debug level\n"
@@ -89,6 +94,9 @@ int main(int argc, char** argv) {
   int atlasTileRes = 128;
   bool atlasMipmaps = false;
   bool runSelfTest = false;
+  bool checkUpdate = false;
+  bool applyUpdate = false;
+  std::string pretendVersion;
   bool listWorldsOnly = false;
   std::string saveInfoTarget;
   std::string exportId;
@@ -294,6 +302,15 @@ int main(int argc, char** argv) {
       options.haveMouseOverride = true;
       options.mouseX = parts[0];
       options.mouseY = parts[1];
+    } else if (std::strcmp(arg, "--check-update") == 0) {
+      checkUpdate = true;
+      // An optional version to pretend to be, so the "an update exists" path can
+      // be exercised against a release that is not actually newer than this build.
+      if (i + 1 < argc && argv[i + 1][0] != '-') pretendVersion = argv[++i];
+    } else if (std::strcmp(arg, "--apply-update") == 0) {
+      checkUpdate = true;
+      applyUpdate = true;
+      if (i + 1 < argc && argv[i + 1][0] != '-') pretendVersion = argv[++i];
     } else if (std::strcmp(arg, "--selftest") == 0) {
       runSelfTest = true;
     } else if (std::strcmp(arg, "--verbose") == 0) {
@@ -325,6 +342,59 @@ int main(int argc, char** argv) {
   }
   if (runSelfTest) {
     return hr::dev::runSelfTest();
+  }
+  // The updater's check, headless. It is the one part of the game that depends on
+  // a live server, so it needs a way to be exercised that does not involve
+  // clicking a button and reading a label.
+  if (checkUpdate) {
+    hr::paths::init(options.dataDir);
+    if (!hr::platform::update::supported()) {
+      std::printf("updating is not supported on this platform\n");
+      return 1;
+    }
+    using hr::platform::update::Stage;
+    const auto settle = [](Stage busy) {
+      for (int i = 0; i < 1200; ++i) {
+        if (hr::platform::update::state().stage != busy) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      return false;
+    };
+
+    hr::platform::update::check(pretendVersion);
+    if (!settle(Stage::Checking)) {
+      std::printf("the check timed out\n");
+      return 1;
+    }
+    hr::platform::update::State s = hr::platform::update::state();
+    std::printf("this build : %s\n", HR_VERSION);
+    std::printf("latest     : %s\n", s.latest.empty() ? "(unknown)" : s.latest.c_str());
+    std::printf("result     : %s\n", s.message.c_str());
+    if (s.stage == Stage::Failed) return 1;
+
+    // With a pretend version the point is to exercise the download and the
+    // unpack, so go the rest of the way — but never as far as apply(), which
+    // would replace the build under test with the one it just fetched.
+    if (!pretendVersion.empty() && s.stage == Stage::Available) {
+      hr::platform::update::download();
+      if (!settle(Stage::Downloading) || !settle(Stage::Staging)) {
+        std::printf("the download timed out\n");
+        return 1;
+      }
+      s = hr::platform::update::state();
+      std::printf("staged     : %s\n", s.message.c_str());
+      if (s.stage != Stage::ReadyToApply) return 1;
+      // --apply-update goes the last step too, which is the only way to exercise
+      // the handover without a window and a mouse. It replaces the binary that is
+      // running it, so it is deliberately a separate flag.
+      if (applyUpdate) {
+        const bool started = hr::platform::update::apply();
+        std::printf("handover   : %s\n", started ? "started" : "FAILED");
+        return started ? 0 : 1;
+      }
+      return 0;
+    }
+    return 0;
   }
   // The save tools need the data directory resolved, and nothing else.
   if (listWorldsOnly || !saveInfoTarget.empty() || !exportId.empty() || !importPath.empty()) {

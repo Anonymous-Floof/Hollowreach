@@ -56,6 +56,24 @@ USB stick and it moves with you.
 Requirements: a GPU and driver supporting **OpenGL 3.3** (anything from about
 2010 onward). Nothing else.
 
+### Updating
+
+**Check for Updates** on the main menu fetches the latest public release and
+installs it over your copy. It takes three clicks and never fewer: the first
+asks GitHub what the latest version is, the second downloads it, the third
+installs and restarts the game. Nothing happens on its own — the game does not
+check on startup, does not check in the background, and does not install
+anything you have not seen the version number of first.
+
+It only ever adds and overwrites the files that were in the release zip.
+`data/`, resource packs, and anything else you have put beside the executable
+are left exactly as they were — not by an exclusion list that somebody has to
+remember to update, but because nothing in the process deletes anything.
+
+Windows only for now, since the release zip is per-platform and so is replacing
+a running executable; the button is not shown elsewhere. There is also
+`--check-update` if you would rather ask from a terminal.
+
 ### Building it
 
 One command, from a clean checkout, with no environment set up by hand:
@@ -72,7 +90,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 362 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 374 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -297,6 +315,15 @@ recipes (every stairs material, every pickaxe tier, a torch's two fuels) collaps
 into one card you cycle with the **‹ ›** arrows. Hover any ingredient or result
 for the same detailed tooltip the inventory shows (tool tier, mining speed,
 durability, armour defense, fuel time).
+
+**Click a recipe** and it lays itself out in the crafting grid you opened the
+book from, taking the ingredients out of your bag — so you never have to
+remember a shape. It is all or nothing: if you are short of something the grid
+is left exactly as it was, rather than half-filled and looking ready. A tag
+ingredient ("any planks") picks the wood you have *least* of, which spends the
+odd single birch plank before it opens the stack of sixty oak. Clicking a second
+recipe returns the first to your bag rather than refusing, and the variant on
+show is the one you get — so cycle to the tier or the wood you want first.
 
 ## The gameplay loop
 

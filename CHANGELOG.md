@@ -24,8 +24,18 @@ version heading when it's time to ship.
   though they have never seen your captures folder. Pictures are scaled to 128
   square on the way in — 48 KB each, and still sharper than anything else in the
   world.
+- **A built-in updater.** **Check for Updates** on the main menu fetches the latest
+  public release and installs it over your copy, in three deliberate clicks —
+  check, download, install — with the version shown before anything is fetched.
+  It adds and overwrites only what was in the release zip, so `data/`, resource
+  packs and anything else you keep beside the game are untouched. Windows only for
+  now, and it never checks or installs on its own.
 
 ### Fixed
+- **Paintings no longer shimmer.** The picture sat exactly on the plane of its own
+  frame, so which of the two a pixel showed came down to depth rounding and a
+  painting flickered between the photograph and blank canvas as you moved. It is
+  now lifted two millimetres proud of the frame.
 - **Field of View survives a restart.** It always saved and the slider always showed
   the right number; the camera was the one thing never told, because startup set the
   projection back to the default seventy a few lines after applying your settings.
@@ -37,6 +47,19 @@ version heading when it's time to ship.
   place". The animation is now applied outside the pose, so the arm comes down
   whatever the hand is holding. For a pickaxe that is 7× more downward travel than
   sideways, where before it was nearly 2× the other way.
+
+### Changed
+- **Clicking a recipe in the book lays it out for you.** If the book was opened
+  from a crafting screen and you have the ingredients, the grid fills itself —
+  no more remembering shapes. Short of something and it leaves the grid alone
+  rather than half-filling it.
+- **Charcoal takes any log**, not just oak. It read "Oak Log" and meant it: the
+  smelting table matched by name, so a forge in a pine forest refused every log
+  fed into it while the book said logs make charcoal. It now says "Any Logs" and
+  does.
+- **The Atlas recipe shows its three paper as three slots**, which is what it
+  actually wants. One chip reading "paper x3" said the opposite, and stacking
+  three paper into one square is not the recipe.
 
 ### Multiplayer
 - **The network protocol moved to version 2**, so 2.1.2 games do not accept 2.1.1
