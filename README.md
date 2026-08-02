@@ -140,9 +140,9 @@ your file manager. They are ordinary PNGs in `data/screenshots/`.
 
 | Render distance | Low | High | Ultra |
 |---|---|---|---|
-| 4  | 1.09 (914 fps) | 2.78 (360 fps) | 3.58 (279 fps) |
-| 8  | 1.38 (722 fps) | 3.11 (322 fps) | 3.87 (259 fps) |
-| 12 | 1.94 (515 fps) | 3.64 (275 fps) | 4.49 (223 fps) |
+| 4  | 1.11 (901 fps) | 2.88 (347 fps) | 3.61 (277 fps) |
+| 8  | 1.48 (676 fps) | 3.33 (301 fps) | 4.02 (249 fps) |
+| 12 | 2.20 (455 fps) | 3.98 (251 fps) | 4.71 (212 fps) |
 
 Every cell comes from one command, so you can reproduce or dispute it:
 
@@ -156,6 +156,11 @@ settings do — how much sky is on screen sets what the cloud march costs, and
 that pass is about half the frame. An earlier version of this table quoted
 numbers a third lower with no camera attached to them, which made it impossible
 to tell a real change from a different place to stand.
+
+Repeated runs settle within about 5%, with the occasional much faster outlier
+when the GPU happens to be clocked up for the whole window. Do not read a
+difference that size between releases as a change to the renderer; check the
+per-pass breakdown before believing one.
 
 Neither lever costs much. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,

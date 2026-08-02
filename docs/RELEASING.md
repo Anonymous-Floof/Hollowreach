@@ -42,6 +42,21 @@ actually changes — don't touch them for a release:
   unzips to a folder of its own name holding `Hollowreach`, `README.md`,
   `LICENSE` and `CHANGELOG.md`.
 
+> **The Windows asset name is now load-bearing.** Since 2.2.0 the in-game
+> updater accepts exactly one asset per release, matched against
+> `Hollowreach-v<version>-Windows.zip` — deliberately, so that nothing else
+> attached to a release can be downloaded and run. Rename it, drop the `v`,
+> change the platform suffix, or publish the Windows build under a different
+> shape, and **every copy already in the wild silently stops finding updates**:
+> they will report "has no Windows download yet" and there is nothing a player
+> can do about it. `release.py` produces the right name on its own; the risk is
+> in attaching one by hand. The matcher is `assetNameOk` in
+> `src/platform/update.cpp`.
+>
+> The updater also only ever looks at **published, non-draft, non-prerelease**
+> releases — that is what `releases/latest` means on the GitHub API. A draft is
+> invisible to it, which is what makes reviewing one safe.
+
 ## The release flow
 
 **0. While developing** — describe changes in the `[Latest]` section of
@@ -62,6 +77,8 @@ wrong in a shipped or nearly-shipped build:
 | `src/ui/menu.cpp` `kControls` | The About screen's key list, which drifted from the README's. |
 | Settings row labels | Keys named inside a label, e.g. "Minimap (needs the Atlas · M)". |
 | `CHANGELOG.md` known limitations | Limitations that were fixed and never struck out. 2.0.0 shipped claiming remote players were invisible; they had rendered since the fork. |
+| `CHANGELOG.md` version references | A `[Latest]` entry naming the version it expects to ship as. One said "2.1.2 games do not accept 2.1.1" in the release that went out as 2.2.0. |
+| `README.md` assertion count | The `--selftest` figure, which moves on nearly every change. |
 
 The last row is the one to be most careful with. A stale *limitation* is worse
 than a stale feature: it tells players something is broken when it is not, and

@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.2.0] - 2026-08-02
+
 ### Added
 - **Paintings.** Craft one from 8 planks, wool and azurite, hang it on a wall, and
   right-click it to put any screenshot you have taken on display. The picture lives
@@ -30,6 +32,19 @@ version heading when it's time to ship.
   It adds and overwrites only what was in the release zip, so `data/`, resource
   packs and anything else you keep beside the game are untouched. Windows only for
   now, and it never checks or installs on its own.
+
+### Changed
+- **Clicking a recipe in the book lays it out for you.** If the book was opened
+  from a crafting screen and you have the ingredients, the grid fills itself —
+  no more remembering shapes. Short of something and it leaves the grid alone
+  rather than half-filling it.
+- **Charcoal takes any log**, not just oak. It read "Oak Log" and meant it: the
+  smelting table matched by name, so a forge in a pine forest refused every log
+  fed into it while the book said logs make charcoal. It now says "Any Logs" and
+  does.
+- **The Atlas recipe shows its three paper as three slots**, which is what it
+  actually wants. One chip reading "paper x3" said the opposite, and stacking
+  three paper into one square is not the recipe.
 
 ### Fixed
 - **Paintings no longer shimmer.** The picture sat exactly on the plane of its own
@@ -60,24 +75,12 @@ version heading when it's time to ship.
   whatever the hand is holding. For a pickaxe that is 7× more downward travel than
   sideways, where before it was nearly 2× the other way.
 
-### Changed
-- **Clicking a recipe in the book lays it out for you.** If the book was opened
-  from a crafting screen and you have the ingredients, the grid fills itself —
-  no more remembering shapes. Short of something and it leaves the grid alone
-  rather than half-filling it.
-- **Charcoal takes any log**, not just oak. It read "Oak Log" and meant it: the
-  smelting table matched by name, so a forge in a pine forest refused every log
-  fed into it while the book said logs make charcoal. It now says "Any Logs" and
-  does.
-- **The Atlas recipe shows its three paper as three slots**, which is what it
-  actually wants. One chip reading "paper x3" said the opposite, and stacking
-  three paper into one square is not the recipe.
-
 ### Multiplayer
-- **The network protocol moved to version 2**, so 2.1.2 games do not accept 2.1.1
+- **The network protocol moved to version 2**, so 2.2.0 games do not accept 2.1.1
   ones and say so at the join screen. Paintings need a message that 2.1.1 has no
   handler for, and a lobby where half the players silently cannot see the art on the
-  walls is worse than a clear refusal.
+  walls is worse than a clear refusal. Worlds and saves are unaffected — a 2.1.1
+  save loads here and a save from here loads there.
 
 ## [2.1.1] - 2026-08-01
 
@@ -364,7 +367,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.1.1...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.0.0
