@@ -88,6 +88,7 @@ constexpr Control kControls[] = {
     {"Mouse", "Look around"},
     {"Ctrl", "Sprint"},
     {"Space", "Jump \xC2\xB7 double-tap to fly"},
+    {"Shift", "Crouch \xC2\xB7 holds an edge"},
     {"L-click", "Break block"},
     {"R-click", "Place / use / eat"},
     {"M-click", "Pick block to hand"},

@@ -636,9 +636,13 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
 }
 
 void World::applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta) {
+  // Saved and restored rather than simply cleared, so that if a write ever does
+  // reach this from inside another one the outer call keeps its silence instead of
+  // having it switched off underneath it.
+  const bool was = applyingRemote_;
   applyingRemote_ = true;
   setBlock(wx, wy, wz, id, meta);
-  applyingRemote_ = false;
+  applyingRemote_ = was;
 }
 
 // The water simulation's own write. Deliberately not setBlock: it must not relight

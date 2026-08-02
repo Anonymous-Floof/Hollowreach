@@ -442,6 +442,9 @@ void Host::onPose(PeerState& st, const PoseMsg& m, double now) {
     }
   }
   st.lastPose = m.pos;
+  st.lastYaw = m.yaw;
+  st.lastPitch = m.pitch;
+  st.flags = m.flags;
   st.havePose = true;
   st.lastPoseTime = now;
   st.health = m.health;
@@ -480,7 +483,13 @@ void Host::onEdit(PeerState& st, const EditMsg& m, double now) {
     spillBlockEntity(m.x, m.y, m.z);
   }
 
-  game_.world->setBlock(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
+  // applyRemoteEdit, so the host's own edit sink stays quiet: it feeds
+  // pendingEdits_, and the explicit push below already puts this edit there. Going
+  // through setBlock queued every guest edit twice and sent each one out to
+  // everybody twice. Anything the edit sets off later — water finding a new level,
+  // a support giving way — runs on a later tick outside this call and still
+  // reaches the sink normally, which is what relays the consequences.
+  game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
   pendingEdits_.push_back(m);
 }
 
@@ -929,6 +938,7 @@ void Host::sendSnapshot() {
     self.yaw = game_.player->yaw();
     self.pitch = game_.player->pitch();
     self.flags = static_cast<std::uint8_t>((game_.player->swimming() ? 1 : 0) |
+                                           (game_.player->sneaking() ? 2 : 0) |
                                            (game_.player->flying() ? 4 : 0) |
                                            (game_.player->sprinting() ? 8 : 0));
     self.health = game_.player->health();
@@ -939,6 +949,14 @@ void Host::sendSnapshot() {
     SnapPlayer p;
     p.playerId = st.playerId;
     p.pos = st.lastPose;
+    // Relayed the same way the position is. These were left at their defaults,
+    // which the host never noticed because it draws guests from their poses
+    // directly — but a guest only ever learns about another guest through this
+    // snapshot, so with three people in a world the other two faced north and
+    // never moved their heads.
+    p.yaw = st.lastYaw;
+    p.pitch = st.lastPitch;
+    p.flags = st.flags;
     p.health = st.health;
     snap.players.push_back(std::move(p));
   }

@@ -15,6 +15,69 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.3.0] - 2026-08-02
+
+### Changed
+- **Crouching does something you can see.** Holding Shift now lowers your head —
+  the same drop Minecraft uses — so it is obvious the key is doing anything at all,
+  and it keeps you on the block you are standing on: walk at a ledge while crouched
+  and you lean out over the edge instead of stepping off it. Diagonally, only the
+  direction that would drop you is refused, so you slide along the rim rather than
+  stopping dead.
+- **Caves are no longer drowned.** Underground water used to be one line drawn
+  across the whole world, with everything carved below it filled in. That line was
+  set when the world was less than half as deep, and when the world grew it came
+  along — until it sat at y=66, which is very nearly the entire underground and
+  *every one* of the four ores worth going to find. Mining the only tier that
+  rewards mining meant mining underwater. Water now collects in lakes instead,
+  filling a cave from its floor up to its own level, so the deeps are mostly dry
+  and water is something you come across rather than something you swim through.
+  Measured on one seed, the deep ore band went from 100% flooded to 9%.
+  **New worlds only** — an existing world keeps the terrain it was made with, so a
+  drowned cave stays drowned in the world you found it in.
+- **Water stops where it should.** Poured out on flat ground it spread seven blocks
+  and stopped, as it always has. Poured off any height it spread at full strength
+  from every level of the fall at once, and each cell it reached fed the next — so
+  it did not stop: one bucket off a twenty-block wall wet ninety-six thousand
+  cells. Water now falls before it spreads. One bucket, one column, and seven
+  blocks out from wherever it lands.
+
+### Fixed
+- **Joining a world that has actually been played.** A guest silently threw away
+  any world larger than 64 KB — about a minute of play — and then sat there until
+  the connection timed out, reporting that the host had never sent one. A brand new
+  world squeaked under the limit, so whether multiplayer worked at all came down to
+  how much the host had built. Worlds up to 24 MB now transfer.
+- **Building as a guest.** A guest applied the host's edits back through the very
+  path it uses to *ask* for one, so everything the host changed was immediately
+  requested back, granted, relayed and requested again. The loop ran until the host
+  stopped trusting the guest — at which point the blocks being refused were the
+  ones the player had actually placed, appearing for an instant and vanishing.
+- **Which way everybody is facing.** Player bodies were drawn half a turn out, so
+  two people looking straight at each other each saw the other's back. Guests were
+  also never told which way *other guests* were facing, which left everyone but the
+  host frozen looking north in a world with three or more players.
+- **Falling sand no longer throws you through walls.** Sand landing on you put a
+  solid block where you were standing, and the physics answer to a body inside a
+  block is to move it to the nearest way out — which can be on the far side of a
+  wall, the same way closing a door on yourself used to. Sand now waits on top of
+  you and lands the moment you step aside.
+
+### Multiplayer
+- **The network protocol moved to version 3**, so this release and 2.2.0 do not
+  play together and say so at the join screen. Nothing about the wire format
+  changed — the reason is that all three multiplayer faults above are in the code
+  that *reads* it. A 2.2.0 guest would still throw away a world it could not fit in
+  one message, still bounce every edit the host sent it straight back, and still
+  draw everybody facing the wrong way, and it would do all of that after a
+  handshake that looked fine. The same rule 2.2.0 applied to 2.1.1: a clear refusal
+  beats a session that quietly does not work.
+- **Terrain generation moved to version 4** for the underground water change. That
+  is not a compatibility break — the version travels inside each world, so an older
+  world keeps generating exactly the terrain it always has, wherever it is opened,
+  and a guest builds the host's world to the host's version. Worlds and saves are
+  unaffected in both directions.
+
 ## [2.2.0] - 2026-08-02
 
 ### Added
@@ -367,7 +430,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.2.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.0

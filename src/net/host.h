@@ -77,6 +77,12 @@ class Host {
     bool active = false;   // has applied the world snapshot
     bool greeted = false;  // has sent a valid hello
     Vec3 lastPose;
+    // Kept beside the position because a snapshot has to carry them on to the
+    // other guests: this is the only record the host has of which way a guest is
+    // facing, and without it everyone but the host saw them staring north.
+    float lastYaw = 0;
+    float lastPitch = 0;
+    std::uint8_t flags = 0;
     bool havePose = false;
     double lastPoseTime = 0;
     float health = 20.0f;

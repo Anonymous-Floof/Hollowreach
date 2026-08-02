@@ -90,7 +90,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 385 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 427 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -102,7 +102,7 @@ all and is the fastest way to know a change did not break something.
 | Jump / swim up | Space |
 | Sprint (1.3×) | Hold Left Ctrl while moving |
 | Fly (toggle) | Double-tap Space |
-| Sneak (slow) | Left Shift |
+| Crouch (slower, and will not walk off a ledge) | Left Shift |
 | Break block / attack | Left mouse (hold) |
 | Place / use station / open door / sleep / **eat** | Right mouse |
 | Pick block (bring one you own to hand) | Middle mouse |
@@ -140,9 +140,13 @@ your file manager. They are ordinary PNGs in `data/screenshots/`.
 
 | Render distance | Low | High | Ultra |
 |---|---|---|---|
-| 4  | 1.11 (901 fps) | 2.88 (347 fps) | 3.61 (277 fps) |
-| 8  | 1.48 (676 fps) | 3.33 (301 fps) | 4.02 (249 fps) |
-| 12 | 2.20 (455 fps) | 3.98 (251 fps) | 4.71 (212 fps) |
+| 4  | 0.67 (1490 fps) | 1.61 (621 fps) | 2.05 (487 fps) |
+| 8  | 0.93 (1077 fps) | 1.88 (532 fps) | 2.32 (432 fps) |
+| 12 | 0.68 (1481 fps) | 2.38 (420 fps) | 2.81 (356 fps) |
+
+The Low row does not order by distance, and that is not a misprint: under a
+millisecond the frame is no longer bound by how much world is in it, so the three
+cells are measuring the overhead around the render rather than the render.
 
 Every cell comes from one command, so you can reproduce or dispute it:
 
@@ -157,14 +161,24 @@ that pass is about half the frame. An earlier version of this table quoted
 numbers a third lower with no camera attached to them, which made it impossible
 to tell a real change from a different place to stand.
 
-Repeated runs settle within about 5%, with the occasional much faster outlier
-when the GPU happens to be clocked up for the whole window. Do not read a
-difference that size between releases as a change to the renderer; check the
-per-pass breakdown before believing one.
+**These numbers are only comparable to each other.** Repeated runs in one sitting
+settle within about 5%, but the same binary measured on different days moves far
+more than that — this table's predecessor read 4.71 ms for the bottom-right cell,
+and the *identical shipped executable* re-measured 2.91 ms in the session that
+produced the table above. Nothing about the build changed; the machine was in a
+different state. So a number here is evidence about this machine on one afternoon
+and nothing else.
+
+The consequence is worth stating plainly, because it is easy to get wrong: you
+cannot compare a release against a number written down for an earlier one. To ask
+whether a change cost anything, run both binaries back to back in the same
+sitting. That was done for this release against 2.2.0 — 2.81 vs 2.91 at Ultra/12,
+2.07 vs 2.08 at Ultra/4 — which is how we know the renderer is unchanged despite
+the table moving by a third.
 
 Neither lever costs much. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,
-and the whole spread from Low to Ultra at distance 12 is about 2.6 ms. If you do
+and the whole spread from Low to Ultra at distance 12 is about 2.1 ms. If you do
 need to claw some back, **Render Resolution** is the biggest single control —
 it draws the world at a fraction of the window and scales it up, leaving the
 interface sharp — and turning individual effects off (God Rays, Water

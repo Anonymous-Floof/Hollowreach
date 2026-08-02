@@ -49,7 +49,28 @@ inline constexpr int topClamp(int ver) { return (ver >= 3 ? WH : 128) - 14; }
 inline constexpr int ravineFloorMin(int ver) { return seaLevel(ver) - 38; }
 inline constexpr int deepOreCeiling(int ver) { return seaLevel(ver) - 45; }
 
-inline constexpr int kGenVersion = 3;
+// Underground water, and why v4 exists.
+//
+// v2 flooded every carved cell at or below `seaLevel - 34`. With sea level at 46
+// that was y<=12 — a ten-layer sump sitting on the bedrock, which is where a sump
+// belongs. v3 moved sea level to 100 and the water line came with it, to y=66.
+// That is sixty-five layers, very nearly the whole of the mineable underground,
+// and all four of the ores worth going to find (aetherite, gloamite, sparkstone,
+// sunbrass) top out at or below y=55 — inside it, every one of them. Mining the
+// only tier that rewards mining meant mining underwater.
+//
+// v4 removes the line. Underground water becomes lakes instead: a low-frequency
+// field decides where a body of water sits, and how far that field rises above its
+// threshold decides how high the water fills, so a lake thins away to nothing at
+// its edges rather than stopping at a wall of water. A cell is wet only when it is
+// below its own column's level, so water is always filled from the floor upward
+// and never left hanging in mid-air.
+inline constexpr int kPocketCeilingDrop = 30;   // no pocket reaches above sea - this
+inline constexpr double kPocketThreshold = 0.10;  // below this the column is dry
+inline constexpr double kPocketSpan = 0.22;       // rise over which a lake fills up
+inline constexpr int pocketCeiling(int ver) { return seaLevel(ver) - kPocketCeilingDrop; }
+
+inline constexpr int kGenVersion = 4;
 
 enum class Biome : std::uint8_t { Meadow = 0, Forest = 1, Birch = 2, Desert = 3, Snow = 4 };
 inline constexpr int kBiomeCount = 5;
@@ -72,6 +93,8 @@ class NoiseSet {
   const Noise mount;   // where mountain ranges live (mask)
   const Noise ridge;   // ridged peaks inside the mask
   const Noise ravine;  // thin surface canyons
+  // ---- v4 fields ----
+  const Noise aquifer;  // where underground lakes sit, and how full they are
 
  private:
   std::uint32_t seed_;

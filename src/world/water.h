@@ -70,7 +70,10 @@ class WaterSim {
   // The level this flowing cell should hold, given its neighbours. Returns 0 for a
   // newly-merged source, kDry when nothing feeds it any more.
   int recompute(int x, int y, int z) const;
-  void spread(int x, int y, int z, int level, bool falling);
+  // `falling` means the cell reads as full depth — a source, or a column fed from
+  // above. `source` separates the two, because only a column has somewhere left to
+  // fall to and so has to reach the bottom before it may spread outward.
+  void spread(int x, int y, int z, int level, bool falling, bool source);
 
   static constexpr int kDry = -1;
   // Seconds between batches, and cells per batch. Roughly six updates a second.

@@ -80,7 +80,7 @@ void WaterSim::process(int x, int y, int z) {
   // Settled — a source, or flowing at the level it should be. Push water onward.
   const bool falling = source || (meta & kWaterFalling) != 0;
   const int level = source ? 0 : (meta & 7);
-  spread(x, y, z, level, falling);
+  spread(x, y, z, level, falling, source);
 }
 
 int WaterSim::recompute(int x, int y, int z) const {
@@ -104,7 +104,7 @@ int WaterSim::recompute(int x, int y, int z) const {
   return minAdj;
 }
 
-void WaterSim::spread(int x, int y, int z, int level, bool falling) {
+void WaterSim::spread(int x, int y, int z, int level, bool falling, bool source) {
   const BlockId water = wk().water;
 
   // 1) Descend. Water prefers to fall, but only into a cell that can take more of
@@ -139,7 +139,28 @@ void WaterSim::spread(int x, int y, int z, int level, bool falling) {
     }
   }
 
-  // 2) Spread horizontally, one level thinner.
+  // 2) Spread horizontally, one level thinner — but only once the water has
+  // somewhere to rest. Water goes down before it goes out, and everything standing
+  // over a fall belongs to the fall.
+  //
+  // Two ways a cell can still be on its way down. The water beneath it is itself a
+  // descending column, which is true of a source poured over a ledge the moment its
+  // first cell has dropped — that one fanned the source out across the top of its
+  // own waterfall, and every cell of the fan started a fresh column of its own.
+  if (below == water && (world_.getMeta(x, y - 1, z) & kWaterFalling) != 0) return;
+  // Or this cell is part of such a column and has not reached the bottom: it is
+  // standing on water rather than on ground.
+  const bool onGround = below != kAir && below != water;
+  if (falling && !source && !onGround) return;
+  //
+  // Together these are what stops a waterfall pushing outward at full strength from
+  // every height at once — which it could not recover from, because each cell it
+  // reached then had water directly above it, and recompute() promotes that to a
+  // full column, so it spread at full strength too. Nothing thinned, so nothing
+  // dried. A bucket emptied off a twenty-block wall covered ninety-six thousand
+  // cells and took seventeen hundred ticks to settle, against a hundred and
+  // thirteen cells for the same bucket poured out on flat ground.
+
   if (!falling && level >= kWaterMaxLevel) return;  // too thin to continue
   const int next = (falling ? 1 : level + 1) & 7;
   for (const auto& d : kHDirs) {

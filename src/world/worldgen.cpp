@@ -73,9 +73,29 @@ int ravineFloor(const NoiseSet& n, int wx, int wz, int h, int ver) {
   return floorY > floorMin ? floorY : floorMin;
 }
 
-// Water line for flooded deep caverns (v2): carved space at or below this level
-// fills with still water instead of air. 46 - 34 = 12 keeps v2 exactly as it was.
+// Water line for flooded deep caverns (v2 and v3): carved space at or below this
+// level fills with still water instead of air. 46 - 34 = 12 keeps v2 exactly as it
+// was. v4 abandons the line for pockets — see waterPocketTop and the note in
+// worldgen.h — but the arithmetic stays here because a v2 or v3 world has to keep
+// generating the terrain it was made with.
 int deepWaterY(int ver) { return seaLevel(ver) - 34; }
+
+// v4: the level an underground lake fills to in this column, or 0 for a dry one.
+//
+// `where` is a broad, slow field, and most of the world sits under the threshold
+// and holds no water at all. Where it does rise, how far it has risen is what sets
+// the level — so a lake is deepest through the middle of the region carrying it
+// and tapers away at the rim. Scaling the ceiling rather than adding to a floor is
+// what lets the taper actually reach nothing: out at the edge the level is a few
+// blocks off bedrock, so only the very bottom of a cave there is wet, and past the
+// edge there is no water at all.
+int waterPocketTop(const NoiseSet& n, int wx, int wz, int ver) {
+  if (ver < 4) return 0;
+  const double where = n.aquifer.fbm2(wx * 0.0060 + 13.0, wz * 0.0060 - 29.0, 2);
+  if (where <= kPocketThreshold) return 0;
+  const double t = std::min(1.0, (where - kPocketThreshold) / kPocketSpan);
+  return static_cast<int>(std::floor(t * pocketCeiling(ver)));
+}
 
 // Ore veins. Deepest and rarest first so they win ties. Higher `scale` means
 // higher-frequency noise and so smaller, more broken-up veins; higher `threshold`
@@ -474,6 +494,7 @@ NoiseSet::NoiseSet(std::uint32_t seed)
       mount(seed ^ 0x14e9u),
       ridge(seed ^ 0x7f23u),
       ravine(seed ^ 0x2ba7u),
+      aquifer(seed ^ 0x6dc5u),
       seed_(seed) {}
 
 const char* biomeName(Biome biome) {
@@ -557,6 +578,14 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
       const int h = info.h;
       const bool beach = h <= sea + 1;
       const int rvFloor = ver >= 2 ? ravineFloor(n, wx, wz, h, ver) : 0;
+      const int pocket = waterPocketTop(n, wx, wz, ver);
+      // What a cell that has been carved out becomes. Up to v3 that was decided by
+      // one world-wide water line; from v4 it is this column's own lake level, and
+      // most columns have none.
+      const auto carved = [&](int cy) {
+        if (ver >= 4) return cy <= pocket ? w.water : kAir;
+        return (ver >= 2 && cy <= deepWater) ? w.water : kAir;
+      };
 
       for (int y = 0; y < WH; ++y) {
         BlockId id = kAir;
@@ -578,7 +607,7 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
 
           // Ravines slice from the surface into the deeps (v2).
           if (rvFloor && y >= rvFloor && id != w.bedrock) {
-            id = y <= deepWater ? w.water : kAir;
+            id = carved(y);
           }
           // Otherwise carve caves out of underground solid — not the very top,
           // not bedrock.
@@ -586,7 +615,7 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
             if (y <= sea && depth <= 2) {
               // Keep the sea floor sealed.
             } else {
-              id = (ver >= 2 && y <= deepWater) ? w.water : kAir;
+              id = carved(y);
             }
           }
         } else if (y <= sea) {

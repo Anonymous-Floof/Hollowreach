@@ -6,10 +6,11 @@
 namespace hr::net {
 namespace {
 
+constexpr float kPi = 3.14159265358979f;
+
 // Shortest way round the circle, so a remote player turning past north does not
 // spin the long way to catch up.
 float lerpAngle(float a, float b, float t) {
-  constexpr float kPi = 3.14159265358979f;
   float d = b - a;
   while (d > kPi) d -= 2.0f * kPi;
   while (d < -kPi) d += 2.0f * kPi;
@@ -175,7 +176,17 @@ void Ghosts::update(double now) {
       if (!body) continue;
     }
     body->pos = pos;
-    body->yaw = yaw;
+    // The one place a *player's* yaw becomes an *entity's*, and the two do not
+    // mean the same thing. Every model in the game is built facing +z and every
+    // mob derives its yaw from where it is walking, but a player's yaw 0 looks
+    // down -z (core/mat4.cpp lookDir) — half a turn apart, which is why two people
+    // standing face to face each saw the other's back. The boat hit this first and
+    // answered it by flipping its hull (render/entityrenderer.cpp:332); a body has
+    // a front and a back that have to agree with its limbs, so the conversion
+    // belongs here instead, where a pose crosses into the entity that draws it.
+    // Only the heading turns: a rotation about y leaves up and down alone, so the
+    // head's pitch bone still tips the face the way the remote player is looking.
+    body->yaw = yaw + kPi;
     body->pitch = pitch;
     body->data.health = g.health;
     body->data.hurtFlash = g.hurt ? 0.25f : 0.0f;

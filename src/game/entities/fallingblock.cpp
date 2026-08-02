@@ -22,6 +22,8 @@
 
 #include "game/entities/manager.h"
 #include "game/entities/types.h"
+#include "game/physics.h"
+#include "game/player.h"
 #include "world/blocks.h"
 #include "world/world.h"
 
@@ -45,6 +47,22 @@ bool restsOn(const world::World& w, int x, int y, int z) {
   // Water does not hold sand up; it fills in around it as the sand sinks through.
   if (id == world::wk().water) return false;
   return true;
+}
+
+// True when a body is standing in this cell.
+//
+// The local player is the only one checked, which is the same limit the door rule
+// has: a guest's body lives on their own machine and the host holds only a pose
+// for them.
+bool bodyIn(const EntityContext& ctx, int x, int y, int z) {
+  if (!ctx.player) return false;
+  const Body& b = ctx.player->body();
+  return b.pos.x + b.hw > static_cast<float>(x) &&
+         b.pos.x - b.hw < static_cast<float>(x + 1) &&
+         b.pos.y + b.h > static_cast<float>(y) &&
+         b.pos.y < static_cast<float>(y + 1) &&
+         b.pos.z + b.hw > static_cast<float>(z) &&
+         b.pos.z - b.hw < static_cast<float>(z + 1);
 }
 
 void land(Entity& e, EntityContext& ctx, int x, int y, int z) {
@@ -95,6 +113,23 @@ void fallingUpdate(Entity& e, float dt, EntityContext& ctx) {
   // cell below the block's own base is what it comes to rest on.
   const int belowY = static_cast<int>(std::floor(e.pos.y)) - 1;
   if (e.vel.y <= 0.0f && restsOn(w, x, belowY, z)) {
+    // Somebody is standing exactly where this would become a block. Writing it
+    // there leaves a body inside a solid, and the physics sweep resolves that by
+    // snapping the body to the nearest face of the box — a jump rather than a
+    // slide, and the nearest face can be on the far side of a wall. That is the
+    // old close-a-door-on-yourself teleport, which doors avoid by refusing to
+    // close at all (game/interact.cpp:233).
+    //
+    // So it waits, resting on them, and lands the moment they step aside. Waiting
+    // rather than settling a cell higher matters: a cell higher would have nothing
+    // holding it up once they moved, so the support rule would drop it again
+    // immediately and the sand would sit bouncing on their head for as long as
+    // they stood there.
+    if (bodyIn(ctx, x, belowY + 1, z)) {
+      e.vel = Vec3{0, 0, 0};
+      e.pos.y = static_cast<float>(belowY + 1);
+      return;
+    }
     land(e, ctx, x, belowY + 1, z);
   }
 }

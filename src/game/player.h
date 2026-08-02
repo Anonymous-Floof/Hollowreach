@@ -37,6 +37,15 @@ inline constexpr float kFlowPush = 7.0f;  // how hard a current shoves the playe
 inline constexpr float kClimb = 3.2f;     // ladder climb and descend speed
 inline constexpr float kStep = 0.6f;      // auto-step height on land
 inline constexpr float kSneakScale = 0.45f;
+// Crouching sinks the head this far, eased in and out at this rate. The drop is
+// applied to the aiming eye and not only to the camera, so what you can see under
+// an overhang is what you can reach under it.
+inline constexpr float kSneakDrop = 0.35f;  // 1.62 standing to 1.27 crouched
+inline constexpr float kSneakRate = 14.0f;
+// How far below the feet the ground is looked for when crouching near a drop, and
+// how much of a foothold counts. A crouching player will not step off solid ground
+// into nothing, so this is the test for "is there still something under me".
+inline constexpr float kLedgeProbe = 0.06f;
 // Camera catch-up after an auto-step. Exponential, so the eye is never left
 // visibly low, with a linear floor in blocks per second so it actually arrives
 // instead of asymptoting for the rest of the walk. A cap, because the swimming
@@ -143,9 +152,12 @@ class Player {
   }
 
   // The eye used for aiming and raycasts. Deliberately excludes head bob so the
-  // crosshair does not drift while walking.
+  // crosshair does not drift while walking — but it does include the crouch, which
+  // is a real change of where the head is rather than a camera flourish.
   Vec3 eye() const {
-    return {body_.pos.x, body_.pos.y + playerConst::kEyeHeight, body_.pos.z};
+    return {body_.pos.x,
+            body_.pos.y + playerConst::kEyeHeight - sneakSmooth_ * playerConst::kSneakDrop,
+            body_.pos.z};
   }
   // Added to the render camera only: the walk bob, plus whatever is left of the
   // last auto-step's rise. Both are presentation, which is why the aiming eye
@@ -162,6 +174,10 @@ class Player {
   bool swimming() const { return swimming_; }
   bool climbing() const { return climbing_; }
   bool sprinting() const { return sprinting_; }
+  bool sneaking() const { return sneaking_; }
+  // How far into the crouch the head currently is, 0 to 1. Presentation reads this
+  // to pose the body; the eye already has it applied.
+  float sneakAmount() const { return sneakSmooth_; }
 
   // Mouse look, applied per frame at render rate so aim latency stays low.
   void look(double dx, double dy, const PlayerOptions& options);
@@ -217,6 +233,9 @@ class Player {
   void stepMove(const world::World& world, int axis, float delta, bool swimming,
                 bool movingInto, bool wasGround);
   bool moveAxis(const world::World& world, int axis, float delta);
+  // Is there anything solid immediately under the body's footprint? The crouch
+  // edge-guard asks this before and after each horizontal step.
+  bool groundBelow(const world::World& world) const;
   // Hands the camera the vertical distance an auto-step just moved the body.
   void noteStepRise(float rise);
 
@@ -253,6 +272,8 @@ class Player {
   // auto-step moves the body a whole half-block in one frame, and without this the
   // eye teleports with it — every stair tread a visible jolt.
   float stepSmooth_ = 0.0f;
+  bool sneaking_ = false;
+  float sneakSmooth_ = 0.0f;
 
   float health_ = survivalConst::kMaxHealth;
   float hunger_ = survivalConst::kMaxHunger;

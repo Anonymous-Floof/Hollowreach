@@ -67,6 +67,16 @@ bool Player::moveAxis(const world::World& world, int axis, float delta) {
   return sweepAxis(world, body_, axis, delta);
 }
 
+bool Player::groundBelow(const world::World& world) const {
+  // A thin slab just under the feet. Deliberately the full width of the body: any
+  // corner still over solid ground counts as a foothold, which is what lets a
+  // crouching player stand right on the lip of a block rather than being held back
+  // half a block from it.
+  const Vec3 lo {body_.pos.x - kHalfWidth, body_.pos.y - kLedgeProbe, body_.pos.z - kHalfWidth};
+  const Vec3 hi {body_.pos.x + kHalfWidth, body_.pos.y - EPS, body_.pos.z + kHalfWidth};
+  return aabbBlocked(world, lo, hi);
+}
+
 void Player::noteStepRise(float rise) {
   if (rise <= 0.0f) return;
   stepSmooth_ = std::min(kStepSmoothMax, stepSmooth_ + rise);
@@ -171,6 +181,14 @@ void Player::update(float dt, const Input& input, const world::World& world,
   swimming_ = !flying_ && inWater(world);
   climbing_ = !flying_ && !swimming_ && onLadder(world);
   const bool sneak = input.down(Key::ShiftLeft) && !flying_ && !swimming_;
+  sneaking_ = sneak;
+  // Eased rather than snapped, so the head sinks into the crouch and rises out of
+  // it. A step change here reads as a glitch; this reads as ducking.
+  {
+    const float want = sneak ? 1.0f : 0.0f;
+    sneakSmooth_ += (want - sneakSmooth_) * std::min(1.0f, dt * kSneakRate);
+    if (std::fabs(want - sneakSmooth_) < 0.001f) sneakSmooth_ = want;
+  }
 
   float speed = flying_ ? kFly : (swimming_ ? kSwim : (sneak ? kWalk * kSneakScale : kWalk));
   sprinting_ = !swimming_ && !sneak && len > 0 && input.down(Key::ControlLeft);
@@ -234,8 +252,30 @@ void Player::update(float dt, const Input& input, const world::World& world,
 
   onGround_ = false;
   const bool movingInto = len > 0;
+
+  // Crouching on solid ground will not walk you off it. The guard is armed from
+  // what was under the feet *before* the step, so a player already over a drop —
+  // mid-fall, or standing where the ground was just mined away — is not frozen in
+  // the air by holding crouch.
+  //
+  // Each axis is tested and undone on its own, which is what makes it feel right
+  // rather than merely safe: walking diagonally at a corner, the component that
+  // would take you off is refused and the one along the edge still goes through,
+  // so you slide along the rim instead of stopping dead against nothing.
+  const bool edgeGuard = sneak && wasGround && groundBelow(world);
+
+  const float savedX = body_.pos.x;
   stepMove(world, 0, vel_.x * dt, swimming_, movingInto, wasGround);
+  if (edgeGuard && !groundBelow(world)) {
+    body_.pos.x = savedX;
+    vel_.x = 0.0f;
+  }
+  const float savedZ = body_.pos.z;
   stepMove(world, 2, vel_.z * dt, swimming_, movingInto, wasGround);
+  if (edgeGuard && !groundBelow(world)) {
+    body_.pos.z = savedZ;
+    vel_.z = 0.0f;
+  }
   const bool hitVertical = moveAxis(world, 1, vel_.y * dt);
 
   if (hitVertical) {
@@ -387,8 +427,11 @@ void Player::teleport(const Vec3& p) {
   falling_ = false;
   fallStartY_ = p.y;
   // A warp is not a step, and easing the camera into one would drag the view up
-  // out of the ground you arrived on.
+  // out of the ground you arrived on. The crouch goes with it: whatever the head
+  // was doing before the jump has nothing to do with where it lands.
   stepSmooth_ = 0.0f;
+  sneaking_ = false;
+  sneakSmooth_ = 0.0f;
 }
 
 void Player::reviveFull() {
@@ -447,6 +490,8 @@ void Player::loadState(const PlayerState& s) {
   falling_ = false;
   fallStartY_ = body_.pos.y;
   stepSmooth_ = 0.0f;
+  sneaking_ = false;
+  sneakSmooth_ = 0.0f;
 }
 
 Vec3 Player::viewOffset() const {

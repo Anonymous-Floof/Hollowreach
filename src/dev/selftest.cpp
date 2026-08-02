@@ -651,6 +651,108 @@ void testCrafting() {
 // Breath, hunger and regeneration are coupled through damage(), which is what makes them
 // worth asserting together rather than reading three constants back.
 
+// --- crouching ---------------------------------------------------------------
+
+void testCrouch() {
+  std::printf("crouching\n");
+  const world::BlockId stone = world::wk().greystone;
+  game::PlayerOptions options;
+  options.fallDamageEnabled = false;
+
+  // A one-block-wide ledge with a long drop off the +x side, and the player stood
+  // on it. kY - 1 is solid; everything beyond x = 9 is open air down to the pocket
+  // floor, which makes "did they walk off" a question with an obvious answer.
+  const auto makeLedge = [&] {
+    auto w = makeWorld();
+    for (int x = 4; x <= 9; ++x) {
+      for (int z = 4; z <= 12; ++z) w->setBlock(x, kY - 1, z, stone, 0);
+    }
+    return w;
+  };
+
+  const auto hold = [](Input& in, bool shift, bool forward) {
+    in.endFrame();
+    in.feedKey(Key::ShiftLeft, shift, false);
+    in.feedKey(Key::D, forward, false);  // +x when facing -z, i.e. toward the drop
+  };
+
+  // --- the view drops, and comes back ----------------------------------------
+  {
+    auto w = makeLedge();
+    game::Player player(6.5f, static_cast<float>(kY), 6.5f);
+    Input in;
+    const float standing = player.eye().y - player.pos().y;
+
+    for (int i = 0; i < 60; ++i) {
+      hold(in, true, false);
+      player.update(1.0f / 60.0f, in, *w, options, i / 60.0);
+    }
+    const float crouched = player.eye().y - player.pos().y;
+    checkf(standing - crouched > 0.2f,
+           "crouching lowers the eye by something you can see (%.3f blocks)",
+           standing - crouched);
+    check(player.sneaking(), "and the player reports that they are crouching");
+    checkf(player.sneakAmount() > 0.99f, "with the ease fully in (%.3f)", player.sneakAmount());
+
+    for (int i = 0; i < 60; ++i) {
+      hold(in, false, false);
+      player.update(1.0f / 60.0f, in, *w, options, 1.0 + i / 60.0);
+    }
+    checkf(std::fabs((player.eye().y - player.pos().y) - standing) < 0.001f,
+           "and standing up puts it back exactly (%.3f vs %.3f)",
+           player.eye().y - player.pos().y, standing);
+    check(!player.sneaking(), "and clears the flag");
+  }
+
+  // --- walking off the edge, which is what it is for --------------------------
+  {
+    auto w = makeLedge();
+    game::Player walker(8.5f, static_cast<float>(kY), 6.5f);
+    Input in;
+    for (int i = 0; i < 180; ++i) {
+      hold(in, false, true);
+      walker.update(1.0f / 60.0f, in, *w, options, i / 60.0);
+    }
+    checkf(walker.pos().y < kY - 2.0f, "walking off a ledge upright falls off it (y %.2f)",
+           walker.pos().y);
+
+    auto w2 = makeLedge();
+    game::Player crouched(8.5f, static_cast<float>(kY), 6.5f);
+    Input in2;
+    for (int i = 0; i < 180; ++i) {
+      hold(in2, true, true);
+      crouched.update(1.0f / 60.0f, in2, *w2, options, i / 60.0);
+    }
+    checkf(crouched.pos().y >= static_cast<float>(kY) - 0.01f,
+           "but crouching holds you on it (y %.2f)", crouched.pos().y);
+    // The last solid cell is x=9, so its far face is at x=10. A foothold is any
+    // part of the footprint still over ground, which lets you lean out over the
+    // drop by up to half a body width and no further — the same overhang Minecraft
+    // gives you, and the reason crouching at an edge looks like leaning rather than
+    // like hitting an invisible wall.
+    checkf(crouched.pos().x > 9.5f && crouched.pos().x <= 10.0f + game::playerConst::kHalfWidth,
+           "right out to the lip, hanging over it but not off it (x %.2f)", crouched.pos().x);
+    check(crouched.onGround(), "and still standing on something");
+  }
+
+  // --- but it is not a licence to hover ---------------------------------------
+  //
+  // The guard is armed from the ground that was under the feet before the step, so
+  // someone already over a drop is not held up by holding crouch. Without that, a
+  // player whose footing was mined out from under them would hang in the air.
+  {
+    auto w = makeLedge();
+    game::Player faller(6.5f, static_cast<float>(kY) + 6.0f, 6.5f);
+    Input in;
+    for (int i = 0; i < 30; ++i) {
+      hold(in, true, true);
+      faller.update(1.0f / 60.0f, in, *w, options, i / 60.0);
+    }
+    checkf(faller.pos().y < static_cast<float>(kY) + 6.0f,
+           "crouching in mid-air does not stop you falling (y %.2f)", faller.pos().y);
+  }
+}
+
 void testSurvival() {
   std::printf("survival\n");
   auto world = makeWorld();
@@ -1756,6 +1858,112 @@ std::unique_ptr<world::World> makeWaterWorld() {
   return w;
 }
 
+// --- underground water (v4) ---------------------------------------------------
+//
+// v2 flooded every carved cell below `seaLevel - 34`, which at a sea level of 46
+// meant y<=12: a ten-layer sump on the bedrock. v3 raised sea level to 100 and the
+// line rose with it to y=66 -- sixty-five layers, and every ore worth mining for
+// sits under it. Measured on this seed, v3 leaves *100%* of the carved space in
+// the deep ore band underwater. v4 replaces the line with lakes.
+//
+// The numbers are asserted loosely, as bands rather than exact values: the point
+// is "caves are mostly dry and water is a thing you come across", and pinning that
+// to three significant figures would just break every time the field is retuned.
+void testCaveWater() {
+  std::printf("underground water\n");
+  const world::NoiseSet noise(3918175327u);
+
+  struct Survey {
+    long long carved = 0, wet = 0, deepCarved = 0, deepWet = 0;
+    int floating = 0, aboveCeiling = 0, columns = 0, wetColumns = 0;
+    long long joined = 0;
+  };
+
+  const auto survey = [&](int ver) {
+    Survey s;
+    for (int cx = -5; cx <= 5; ++cx) {
+      for (int cz = -5; cz <= 5; ++cz) {
+        world::Chunk chunk;
+        chunk.cx = cx;
+        chunk.cz = cz;
+        chunk.data = std::make_shared<world::ChunkData>();
+        world::generate(chunk, noise, ver);
+        for (int x = 0; x < world::CX; ++x) {
+          for (int z = 0; z < world::CZ; ++z) {
+            const int h = world::heightAt(noise, cx * 16 + x, cz * 16 + z, ver);
+            ++s.columns;
+            bool colWet = false;
+            for (int y = 3; y < h && y < world::WH; ++y) {
+              const world::BlockId id = chunk.data->voxels[world::localIdx(x, y, z)];
+              const bool isWater = id == world::wk().water;
+              if (!isWater && id != world::kAir) continue;
+              ++s.carved;
+              if (y <= world::deepOreCeiling(ver)) ++s.deepCarved;
+              if (!isWater) continue;
+              ++s.wet;
+              colWet = true;
+              if (y <= world::deepOreCeiling(ver)) ++s.deepWet;
+              if (y > world::pocketCeiling(ver)) ++s.aboveCeiling;
+              // Nothing may hang in the air: a lake is filled from its floor up,
+              // so whatever is under a wet cell is either rock or more water.
+              const world::BlockId under = chunk.data->voxels[world::localIdx(x, y - 1, z)];
+              if (under == world::kAir) ++s.floating;
+              // Does it touch more water sideways? A lake should read as a body of
+              // water rather than as a scattering of single wet cells, and noise
+              // asked for a cell at a time is exactly how you get the scattering.
+              // Chunk-interior only, so the borders do not count as isolated.
+              if (x > 0 && x < world::CX - 1 && z > 0 && z < world::CZ - 1) {
+                const bool touch =
+                    chunk.data->voxels[world::localIdx(x + 1, y, z)] == world::wk().water ||
+                    chunk.data->voxels[world::localIdx(x - 1, y, z)] == world::wk().water ||
+                    chunk.data->voxels[world::localIdx(x, y, z + 1)] == world::wk().water ||
+                    chunk.data->voxels[world::localIdx(x, y, z - 1)] == world::wk().water;
+                if (touch) ++s.joined;
+              }
+            }
+            if (colWet) ++s.wetColumns;
+          }
+        }
+      }
+    }
+    return s;
+  };
+
+  const Survey v3 = survey(3);
+  const Survey v4 = survey(4);
+  const auto pct = [](long long a, long long b) {
+    return 100.0 * static_cast<double>(a) / static_cast<double>(std::max(1LL, b));
+  };
+
+  // The complaint, measured. This is what a v3 world does and why v4 exists.
+  checkf(pct(v3.deepWet, v3.deepCarved) > 99.0,
+         "a v3 world floods the whole deep ore band (%.1f%% of carved cells)",
+         pct(v3.deepWet, v3.deepCarved));
+
+  checkf(pct(v4.deepWet, v4.deepCarved) < 45.0,
+         "v4 leaves the deep ore band mostly dry (%.1f%% wet, was %.1f%%)",
+         pct(v4.deepWet, v4.deepCarved), pct(v3.deepWet, v3.deepCarved));
+  checkf(pct(v4.wet, v4.carved) < 25.0, "and the underground as a whole (%.1f%% wet, was %.1f%%)",
+         pct(v4.wet, v4.carved), pct(v3.wet, v3.carved));
+
+  // But it is still there to be found -- an underground with no water at all would
+  // be its own kind of wrong, and would pass every check above.
+  checkf(pct(v4.wet, v4.carved) > 1.0, "while still putting water underground at all (%.1f%%)",
+         pct(v4.wet, v4.carved));
+  checkf(pct(v4.wetColumns, v4.columns) > 5.0,
+         "spread over enough of the world to be met rather than hunted (%.1f%% of columns)",
+         pct(v4.wetColumns, v4.columns));
+
+  // The two structural promises, which are what stop a pocket behaving oddly.
+  checkf(v4.floating == 0, "every pocket rests on something rather than hanging (%d floating)",
+         v4.floating);
+  checkf(v4.aboveCeiling == 0, "and none of it reaches above the pocket ceiling (%d cells)",
+         v4.aboveCeiling);
+  checkf(pct(v4.joined, v4.wet) > 70.0,
+         "and it pools into bodies rather than scattering (%.1f%% of wet cells touch another)",
+         pct(v4.joined, v4.wet));
+}
+
 // --- worldgen depth (v3) -----------------------------------------------------
 //
 // The v3 promise is a arithmetic one — "rare ore ends below where any ravine can
@@ -2471,6 +2679,86 @@ void testBlockSupport() {
     checkf(stillFalling == 0, "and no falling block is left in the air (%d)", stillFalling);
   }
 
+  // --- sand settles on top of the player, never around them ---------------------
+  //
+  // A solid block appearing where a body already stands is the one thing the
+  // physics sweep cannot resolve gracefully: it snaps the body to the nearest face
+  // of the box it is inside, which is a jump rather than a slide, and the nearest
+  // face can be through a wall. That is the old close-a-door-on-yourself teleport,
+  // and doors refuse to close for exactly that reason. Falling sand is the other
+  // way the situation arises and had no such rule.
+  {
+    auto w = makeWorld();
+    game::Player player(12.5f, static_cast<float>(kY) - 1.0f, 12.5f);
+    game::Inventory inv;
+    game::EntityManager entities;
+    Input input;
+    game::EntityContext ctx;
+    ctx.world = w.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+    ctx.input = &input;
+
+    w->fallSink = [&](float fx, float fy, float fz, world::BlockId id, int meta) {
+      if (game::Entity* e = entities.spawn(game::EntityType::FallingBlock, Vec3{fx, fy, fz})) {
+        e->data.dura = static_cast<int>(id);
+        e->data.key = world::blocks().def(id).key;
+        e->data.count = meta;
+      }
+    };
+
+    // Floor to stand on, a wall pressed against one side of the player, and a
+    // block of sand in the air directly overhead. The wall is what turns a bad
+    // ejection into a visible one: through it is the shortest way out.
+    for (int x = 10; x <= 14; ++x) {
+      for (int z = 10; z <= 14; ++z) w->setBlock(x, kY - 2, z, stone, 0);
+    }
+    for (int y = kY - 1; y <= kY + 1; ++y) w->setBlock(13, y, 12, stone, 0);
+    w->setBlock(12, kY + 3, 12, sand, 0);
+    settleBlocks(*w);
+
+    const Vec3 before = player.pos();
+    game::PlayerOptions options;
+    for (int i = 0; i < 240; ++i) {
+      entities.tick(1.0f / 60.0f, ctx);
+      w->tickBlockUpdates(1.0f / 60.0f);
+      // The player is stepped too: an ejection happens on the next sweep, so a
+      // test that never sweeps could not see one.
+      player.update(1.0f / 60.0f, input, *w, options, i / 60.0);
+    }
+
+    const Vec3 after = player.pos();
+    checkf(std::fabs(after.x - before.x) < 0.05f && std::fabs(after.z - before.z) < 0.05f,
+           "sand landing on the player does not shove them anywhere (%.2f,%.2f -> %.2f,%.2f)",
+           before.x, before.z, after.x, after.z);
+    check(after.x < 13.0f, "and certainly not through the wall beside them");
+    check(w->getBlock(12, kY - 1, 12) != sand && w->getBlock(12, kY, 12) != sand,
+          "and no sand is written into a cell they are standing in");
+
+    // It is still there, held as an entity resting on them, rather than lost.
+    int waiting = 0;
+    for (const game::Entity& fb : entities.all()) {
+      if (!fb.dead && fb.type == game::EntityType::FallingBlock) ++waiting;
+    }
+    checkf(waiting == 1, "the sand waits on top of them instead of vanishing (%d)", waiting);
+
+    // And the moment they step aside it finishes the trip. Landing a cell higher
+    // instead would have left it unsupported and falling again on the next tick.
+    player.setPos(Vec3{10.5f, static_cast<float>(kY) - 1.0f, 10.5f});
+    for (int i = 0; i < 240; ++i) {
+      entities.tick(1.0f / 60.0f, ctx);
+      w->tickBlockUpdates(1.0f / 60.0f);
+      player.update(1.0f / 60.0f, input, *w, options, (240 + i) / 60.0);
+    }
+    check(w->getBlock(12, kY - 1, 12) == sand, "and lands as soon as they move away");
+    int stuck = 0;
+    for (const game::Entity& fb : entities.all()) {
+      if (!fb.dead && fb.type == game::EntityType::FallingBlock) ++stuck;
+    }
+    checkf(stuck == 0, "leaving nothing hanging in the air (%d)", stuck);
+  }
+
   // --- water washes a plant away, but only when it actually flows in ------------
   {
     auto w = makeWaterWorld();
@@ -2540,17 +2828,61 @@ void testWater() {
     check(w->getBlock(8, kY + 1, 8) == water &&
               (w->getMeta(8, kY + 1, 8) & world::kWaterFalling) != 0,
           "water falls, and the column is flagged as falling");
-    // A falling column spreads sideways at *every* level it passes, and each of
-    // those cells then pushes down into the layer below and deepens it into a
-    // column of its own. So the floor beside the fall is falling rather than a
-    // thin film — which looks wrong until you notice it is what makes a waterfall
-    // widen at its base, and is exactly what the web build does.
-    check(w->getBlock(9, kY, 8) == water &&
-              (w->getMeta(9, kY, 8) & world::kWaterFalling) != 0,
-          "the fall widens at its base rather than trickling out one level thinner");
+    // The fall fans out from the cell that reaches the bottom, one level thinner,
+    // and nothing spreads partway down.
+    //
+    // This used to assert the opposite, and said so: a falling column spread
+    // sideways at *every* level it passed, each of those cells deepened the layer
+    // below into a column of its own, and the note here called that "what makes a
+    // waterfall widen at its base... exactly what the web build does". It was a
+    // faithful port and it does not converge. Every cell the flood reached had
+    // water above it, recompute() promotes exactly that to a full column, and a
+    // full column spreads at full strength again — so the spill re-energised itself
+    // for as long as there was anywhere left to go. Measured: a source poured off a
+    // twenty-block wall wet ninety-six thousand cells and took seventeen hundred
+    // ticks to stop, against a hundred and thirteen for the same source on flat
+    // ground. Water goes down before it goes out now.
+    check(w->getBlock(9, kY, 8) == water, "the fall fans out across the floor it lands on");
+    checkf((w->getMeta(9, kY, 8) & world::kWaterFalling) == 0 &&
+               (w->getMeta(9, kY, 8) & 7) == 1,
+           "as a level-one flow rather than a column of its own (meta %d)",
+           w->getMeta(9, kY, 8));
+    check(w->getBlock(9, kY + 1, 8) != water,
+          "and nothing creeps out sideways partway down the fall");
     checkf(w->getBlock(12, kY, 8) == water,
-           "and water still reaches four cells from the impact (meta %d)",
+           "while water still reaches four cells from the impact (meta %d)",
            w->getMeta(12, kY, 8));
+  }
+
+  // --- a spill is bounded, which is the whole point of the rule above -----------
+  //
+  // The measurement that found it, kept as a test because "it spreads too far" is
+  // not something a reader can check by eye. A source on flat ground reaches seven
+  // cells; the same source dropped down a shaft has to land before it spreads, so
+  // it reaches seven from the impact and no further.
+  {
+    auto w = makeWaterWorld();
+    w->setBlock(8, kY + 12, 8, water, 0);
+    const int ticks = settleWater(*w, 2000);
+    int wet = 0, reach = 0, sideways = 0;
+    for (int x = kPondMin; x <= kPondMax; ++x) {
+      for (int z = kPondMin; z <= kPondMax; ++z) {
+        for (int y = kY; y <= kY + 12; ++y) {
+          if (w->getBlock(x, y, z) != water) continue;
+          ++wet;
+          reach = std::max(reach, std::abs(x - 8) + std::abs(z - 8));
+          // Anything off the column's own axis, above the floor, is water that
+          // spread while it was still falling.
+          if (y > kY && (x != 8 || z != 8)) ++sideways;
+        }
+      }
+    }
+    checkf(sideways == 0, "a fall stays one cell wide the whole way down (%d cells beside it)",
+           sideways);
+    checkf(reach <= world::kWaterMaxLevel,
+           "and reaches no further from the impact than water on flat ground (%d)", reach);
+    checkf(wet < 200, "so the whole spill is %d cells, not thousands", wet);
+    checkf(ticks < 100, "and settles in %d ticks", ticks);
   }
 
   // --- two sources over solid ground merge into a third -------------------------
@@ -2847,6 +3179,16 @@ void testNetSession() {
     refs.entities = &guestEntities;
     refs.sky = &guestSky;
     client.attachGame(refs);
+    // The sink App::adoptRemoteWorld installs, and the reason it is worth
+    // duplicating here: a guest's world offers every write to the host for
+    // approval. Leaving it out left the harness unable to reproduce anything that
+    // goes wrong on the way back out of the world — which is most of what a guest
+    // does — and a guest that only ever calls sendEdit directly is not the guest
+    // the game runs.
+    guestWorld->setEditSink([&client](int x, int y, int z, world::BlockId id, int meta) {
+      client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
+                      static_cast<std::uint8_t>(meta));
+    });
   };
 
   if (!client.start("127.0.0.1", host.port(), "pguest000001", "Bob", guestHooks, &error)) {
@@ -2947,11 +3289,30 @@ void testNetSession() {
     pump(40);
     check(hostWorld->getBlock(900, kY, 900) != stone,
           "an edit a thousand blocks away is refused rather than applied");
+
+    // And it is still accepted once the host has been busy. A guest applies what
+    // the host sends it, and for a while each of those went back out again as a
+    // request of its own: the host accepted it, relayed it to everyone, and round
+    // it went. This does not watch the loop — it watches what the loop cost, which
+    // was the host running out of patience with the guest and refusing the edits
+    // the player had actually made.
+    for (int i = 0; i < 80; ++i) {
+      const int bx = 20 + (i % 8), bz = 20 + (i / 8);
+      hostWorld->setBlock(bx, kY, bz, stone, 0);
+      host.onLocalEdit(bx, kY, bz, static_cast<std::uint16_t>(stone), 0);
+    }
+    pump(60);
+    client.sendEdit(6, kY, 7, static_cast<std::uint16_t>(stone), 0);
+    pump(40);
+    check(hostWorld->getBlock(6, kY, 7) == stone,
+          "and a guest's edit still lands after the host has sent a burst of its own");
   }
 
   // --- the host's body arrives as a ghost -------------------------------------
   {
     hostPlayer.setPos(Vec3{kOriginX + 4.0f, static_cast<float>(kY), kOriginZ});
+    // Facing +x, so the body's heading is something the check below can name.
+    hostPlayer.setLook(kYawPlusX, 0.0f);
     pump(60);
     const game::Entity* body = nullptr;
     for (const game::Entity& e : guestEntities.all()) {
@@ -2963,6 +3324,17 @@ void testNetSession() {
       // matching it — the check is that it is following, not that it is exact.
       const float dx = std::fabs(body->pos.x - (kOriginX + 4.0f));
       checkf(dx < 4.0f, "and follows where the host actually is (%.2f blocks behind)", dx);
+
+      // Every model faces +z; a player's yaw 0 looks down -z. The ghost carries
+      // the model's convention, so it is half a turn from the pose that fed it —
+      // and when it was not, two players facing each other saw one another's back.
+      constexpr float kPi = 3.14159265358979f;
+      float turned = body->yaw - (kYawPlusX + kPi);
+      while (turned > kPi) turned -= 2.0f * kPi;
+      while (turned < -kPi) turned += 2.0f * kPi;
+      checkf(std::fabs(turned) < 0.01f,
+             "and faces the way the host is facing, not away from it (%.3f rad off)",
+             turned);
     }
     check(!client.ghosts().nameplates().empty() &&
               client.ghosts().nameplates().front().name == "Alice",
@@ -3069,6 +3441,273 @@ void testNetSession() {
   // --- leaving ----------------------------------------------------------------
   checkf(host.guestCount() == 0, "the host drops a guest that says goodbye (%d left)",
          host.guestCount());
+  host.stop();
+}
+
+// The seam that stops a guest and its host arguing about the same block. A guest's
+// world carries a sink that offers everything written to it to the host for
+// approval, so the host's own edits have to arrive through a door that does not
+// ring the bell — otherwise they go straight back where they came from, the host
+// accepts and relays them, and the two ends spend the session telling each other
+// about a block neither of them changed.
+void testRemoteEditSink() {
+  std::printf("remote edits do not echo\n");
+  auto world = makeWorld();
+  const world::BlockId stone = world::wk().greystone;
+  int offered = 0;
+  world->setEditSink([&offered](int, int, int, world::BlockId, int) { ++offered; });
+
+  world->setBlock(4, kY, 4, stone, 0);
+  checkf(offered == 1, "an edit made here is offered to the sink (%d)", offered);
+
+  world->applyRemoteEdit(5, kY, 5, stone, 0);
+  checkf(offered == 1, "one that came from the network is not sent back out (%d)", offered);
+  check(world->getBlock(5, kY, 5) == stone, "and is applied to the world all the same");
+
+  // Writing the value a cell already holds still reaches the sink. That is what
+  // left the echo nothing to settle on: every lap round the loop looked exactly
+  // as new as the first one.
+  world->setBlock(4, kY, 4, stone, 0);
+  checkf(offered == 2, "a local write that changes nothing still counts (%d)", offered);
+}
+
+// A world too big to fit in one ordinary message. The session test above shares a
+// world a few edits deep, which encodes to a few hundred bytes — so it could never
+// have caught the guest silently dropping anything larger, and a world about a
+// minute old already is. Everything here exists to make the payload realistic in
+// the one dimension that matters: its size.
+void testNetBigWorld() {
+  std::printf("multiplayer: a world larger than one message\n");
+
+  auto hostWorld = makeWorld();
+  game::Player hostPlayer(kOriginX, kY, kOriginZ);
+  game::Inventory hostInventory;
+  game::EntityManager hostEntities;
+  render::Sky hostSky;
+  hostSky.time = 0.55f;
+
+  // A slab of edits, well above the pocket floor so nothing else is standing
+  // there. The only thing being bought is bytes.
+  const world::BlockId fill = world::wk().greystone;
+  for (int y = kY + 6; y < kY + 18; ++y) {
+    for (int x = 0; x < 40; ++x) {
+      for (int z = 0; z < 40; ++z) hostWorld->setBlock(x, y, z, fill, 0);
+    }
+  }
+
+  net::GameRefs hostRefs;
+  hostRefs.world = hostWorld.get();
+  hostRefs.player = &hostPlayer;
+  hostRefs.inventory = &hostInventory;
+  hostRefs.entities = &hostEntities;
+  hostRefs.sky = &hostSky;
+
+  net::SessionHooks hostHooks;
+  hostHooks.buildSave = [&] {
+    save::WorldSave data;
+    data.meta.id = "wbigworld00";
+    data.meta.name = "Big";
+    data.meta.seed = hostWorld->seed();
+    data.meta.genVersion = hostWorld->genVersion();
+    data.meta.time = hostSky.time;
+    data.edits = hostWorld->edits();
+    data.player = hostPlayer.state();
+    return data;
+  };
+  hostHooks.notify = [](const std::string&) {};
+
+  // Measured rather than assumed: if the save format ever gets dense enough that
+  // this payload slips back under the cap, the test is no longer covering the
+  // thing it was written for and should say so here rather than passing quietly.
+  const std::vector<std::uint8_t> payload = save::encode(hostHooks.buildSave());
+  checkf(payload.size() > net::kMaxMessage,
+         "the shared world is larger than one ordinary message (%zu bytes, cap %zu)",
+         payload.size(), net::kMaxMessage);
+
+  net::Host host;
+  std::string error;
+  if (!host.start(0, "phostbig0001", "Alice", hostRefs, hostHooks, &error)) {
+    checkf(false, "the host binds a port (%s)", error.c_str());
+    return;
+  }
+
+  std::unique_ptr<world::World> guestWorld;
+  game::Player guestPlayer(kOriginX, kY, kOriginZ);
+  game::Inventory guestInventory;
+  game::EntityManager guestEntities;
+  render::Sky guestSky;
+  bool adopted = false;
+
+  net::Client client;
+  net::SessionHooks guestHooks;
+  guestHooks.notify = [](const std::string&) {};
+  guestHooks.onDisconnected = [](const std::string&) {};
+  guestHooks.adoptWorld = [&](const save::WorldSave& data) {
+    guestWorld = std::make_unique<world::World>(data.meta.seed, 2, data.meta.genVersion);
+    guestWorld->setEdits(data.edits);
+    guestWorld->primeSpawn(kOriginX, kOriginZ);
+    guestSky.time = data.meta.time;
+    adopted = true;
+
+    net::GameRefs refs;
+    refs.world = guestWorld.get();
+    refs.player = &guestPlayer;
+    refs.inventory = &guestInventory;
+    refs.entities = &guestEntities;
+    refs.sky = &guestSky;
+    client.attachGame(refs);
+    guestWorld->setEditSink([&client](int x, int y, int z, world::BlockId id, int meta) {
+      client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
+                      static_cast<std::uint8_t>(meta));
+    });
+  };
+
+  if (!client.start("127.0.0.1", host.port(), "pguestbig001", "Bob", guestHooks, &error)) {
+    checkf(false, "the guest connects (%s)", error.c_str());
+    host.stop();
+    return;
+  }
+
+  double now = 0.0;
+  for (int i = 0; i < 250; ++i) {
+    now += 0.02;
+    host.update(0.02, now);
+    client.update(0.02, now);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (adopted && client.state() == net::Client::State::Playing) break;
+  }
+
+  checkf(adopted && client.state() == net::Client::State::Playing,
+         "a guest receives a world that does not fit in one message");
+  if (adopted && guestWorld) {
+    check(guestWorld->getBlock(20, kY + 10, 20) == fill,
+          "and the far side of the payload arrived intact");
+  }
+
+  client.stop(false);
+  host.stop();
+}
+
+// Two guests in one world. What one guest knows about another arrives only through
+// the host's snapshot, which is a different path from the poses the host itself
+// draws from — so the host can be watching both of them behave perfectly while the
+// two of them see each other standing frozen, facing north. With one guest nothing
+// ever travels that path, which is why it took a third person to notice.
+void testNetGuestToGuest() {
+  std::printf("multiplayer: two guests\n");
+
+  auto hostWorld = makeWorld();
+  game::Player hostPlayer(kOriginX, static_cast<float>(kY), kOriginZ);
+  game::Inventory hostInventory;
+  game::EntityManager hostEntities;
+  render::Sky hostSky;
+
+  net::GameRefs hostRefs;
+  hostRefs.world = hostWorld.get();
+  hostRefs.player = &hostPlayer;
+  hostRefs.inventory = &hostInventory;
+  hostRefs.entities = &hostEntities;
+  hostRefs.sky = &hostSky;
+
+  net::SessionHooks hostHooks;
+  hostHooks.notify = [](const std::string&) {};
+  hostHooks.buildSave = [&] {
+    save::WorldSave data;
+    data.meta.id = "wtwoguests0";
+    data.meta.seed = hostWorld->seed();
+    data.meta.genVersion = hostWorld->genVersion();
+    data.edits = hostWorld->edits();
+    data.player = hostPlayer.state();
+    return data;
+  };
+
+  net::Host host;
+  std::string error;
+  if (!host.start(0, "phost0000002", "Alice", hostRefs, hostHooks, &error)) {
+    checkf(false, "the host binds a port (%s)", error.c_str());
+    return;
+  }
+
+  struct Guest {
+    std::unique_ptr<world::World> world;
+    game::Player player{kOriginX, static_cast<float>(kY), kOriginZ};
+    game::Inventory inventory;
+    game::EntityManager entities;
+    render::Sky sky;
+    net::Client client;
+    bool adopted = false;
+  };
+  Guest bob, carol;
+
+  const auto join = [&](Guest& g, const char* id, const char* name) {
+    net::SessionHooks hooks;
+    hooks.notify = [](const std::string&) {};
+    hooks.onDisconnected = [](const std::string&) {};
+    hooks.adoptWorld = [&g](const save::WorldSave& data) {
+      g.world = std::make_unique<world::World>(data.meta.seed, 2, data.meta.genVersion);
+      g.world->setEdits(data.edits);
+      g.world->primeSpawn(kOriginX, kOriginZ);
+      g.adopted = true;
+      net::GameRefs refs;
+      refs.world = g.world.get();
+      refs.player = &g.player;
+      refs.inventory = &g.inventory;
+      refs.entities = &g.entities;
+      refs.sky = &g.sky;
+      g.client.attachGame(refs);
+    };
+    std::string why;
+    return g.client.start("127.0.0.1", host.port(), id, name, hooks, &why);
+  };
+
+  if (!join(bob, "pguestbob001", "Bob") || !join(carol, "pguestcar002", "Carol")) {
+    check(false, "two guests connect to the same host");
+    host.stop();
+    return;
+  }
+
+  double now = 0.0;
+  const auto pump = [&](int steps) {
+    for (int i = 0; i < steps; ++i) {
+      now += 0.02;
+      host.update(0.02, now);
+      bob.client.update(0.02, now);
+      carol.client.update(0.02, now);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  };
+
+  pump(200);
+  checkf(bob.adopted && carol.adopted && host.guestCount() == 2,
+         "two guests join one world (%d in the roster)", host.guestCount());
+
+  // They stand on opposite sides of the host, and Carol faces +x.
+  bob.player.setPos(Vec3{kOriginX + 5.0f, static_cast<float>(kY), kOriginZ});
+  carol.player.setPos(Vec3{kOriginX - 5.0f, static_cast<float>(kY), kOriginZ});
+  carol.player.setLook(kYawPlusX, 0.0f);
+  pump(120);
+
+  // In Bob's world the host stands at the origin and Carol five blocks past it.
+  const game::Entity* seen = nullptr;
+  for (const game::Entity& e : bob.entities.all()) {
+    if (e.ghost && e.type == game::EntityType::RemotePlayer && !e.dead &&
+        e.pos.x < kOriginX - 1.0f) {
+      seen = &e;
+    }
+  }
+  checkf(seen != nullptr, "one guest can see the other's body");
+  if (seen) {
+    constexpr float kPi = 3.14159265358979f;
+    float turned = seen->yaw - (kYawPlusX + kPi);
+    while (turned > kPi) turned -= 2.0f * kPi;
+    while (turned < -kPi) turned += 2.0f * kPi;
+    checkf(std::fabs(turned) < 0.2f,
+           "and which way they are facing, which only the snapshot carries (%.3f rad off)",
+           turned);
+  }
+
+  bob.client.stop(false);
+  carol.client.stop(false);
   host.stop();
 }
 
@@ -3278,6 +3917,7 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testCrouch();
   testSurvival();
   testLayout();
   testEntities();
@@ -3289,8 +3929,12 @@ int runSelfTest() {
   testRecipeConvenience();
   testWater();
   testBlockSupport();
+  testCaveWater();
   testNet();
+  testRemoteEditSink();
   testNetSession();
+  testNetBigWorld();
+  testNetGuestToGuest();
   testThreading();
   testAudio();
   std::printf("\n%d checks, %d failure(s)\n", gChecks, gFailures);

@@ -46,7 +46,13 @@ namespace hr::net {
 // else's. Bumped rather than left tolerant, because a clear "different version"
 // at the join screen is a much better answer than a world that silently disagrees
 // with itself about what is on the walls.
-inline constexpr std::uint16_t kNetVersion = 2;
+// 3: the guest half of the protocol was wrong in three ways that the wire format
+// cannot express. A 2.2.0 guest drops any world bigger than one message, echoes
+// every edit the host sends it back as a request of its own, and draws every body
+// half a turn out — and it does all of that after a handshake that succeeds. The
+// layout is unchanged, so this bump buys nothing technical; it buys a refusal at
+// the join screen instead of a session that looks connected and does not work.
+inline constexpr std::uint16_t kNetVersion = 3;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

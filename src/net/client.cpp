@@ -158,6 +158,7 @@ void Client::sendPose() {
   m.pitch = game_.player->pitch();
   m.health = game_.player->health();
   m.flags = static_cast<std::uint8_t>((game_.player->swimming() ? 1 : 0) |
+                                      (game_.player->sneaking() ? 2 : 0) |
                                       (game_.player->flying() ? 4 : 0) |
                                       (game_.player->sprinting() ? 8 : 0));
   send(MsgType::Pose, m, Channel::Fast);
@@ -181,9 +182,17 @@ void Client::sendPlayerState() {
 }
 
 void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
-  if (size > kMaxMessage) return;
   const MsgType type = peekType(data, size);
   if (type == MsgType::None) return;
+  // The world payload is the one message that is legitimately enormous: it is the
+  // entire save, which the host bounds with kMaxWorldBytes rather than kMaxMessage.
+  // Holding it to the 64 KB cap silently dropped every world bigger than that —
+  // about a minute of play — and the guest then sat through the handshake timeout
+  // reporting that the host had sent nothing, which is exactly what it looked like
+  // from the outside. Every other type keeps the small cap, so a peer still cannot
+  // use an ordinary message to make this end allocate megabytes.
+  const std::size_t cap = type == MsgType::World ? kMaxWorldBytes + kMaxMessage : kMaxMessage;
+  if (size > cap) return;
   ByteReader r(data, size);
   r.skip(1);
 
@@ -235,13 +244,23 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       if (decode(r, m) && game_.sky) game_.sky->time = m.time;
       break;
     }
+    // Every one of these applies through applyRemoteEdit rather than setBlock, and
+    // the difference is not cosmetic. A guest's world carries an edit sink that
+    // sends whatever is written to the host for approval; writing the host's own
+    // edits through it sent them straight back where they came from. The host then
+    // accepted each one, relayed it to everyone, and the guest echoed it again —
+    // a loop with nothing to damp it, because setBlock does not skip a write that
+    // changes nothing. Within a second or two of the first edit anywhere in the
+    // world that traffic drained the guest's edit budget, and from then on the
+    // host answered the player's real edits with a denial: a placed block appeared
+    // and vanished, and a broken one came back.
     case MsgType::Edits: {
       EditsMsg m;
       if (!decode(r, m) || !game_.world) break;
       const world::BlockRegistry& blocks = world::BlockRegistry::get();
       for (const EditMsg& e : m.list) {
         if (e.id >= blocks.count()) continue;
-        game_.world->setBlock(e.x, e.y, e.z, static_cast<world::BlockId>(e.id), e.meta);
+        game_.world->applyRemoteEdit(e.x, e.y, e.z, static_cast<world::BlockId>(e.id), e.meta);
       }
       break;
     }
@@ -252,8 +271,9 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       const world::BlockRegistry& blocks = world::BlockRegistry::get();
       if (m.id >= blocks.count()) break;
       // A denial and an authoritative edit are the same operation: put the cell
-      // back to what the host says it is.
-      game_.world->setBlock(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
+      // back to what the host says it is. A denial especially must not go back out
+      // — that is the rejected edit being sent for a second refusal.
+      game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
       break;
     }
     case MsgType::Teleport: {
