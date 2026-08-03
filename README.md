@@ -580,6 +580,11 @@ headless tool working, and means the threaded and single-threaded builds run the
   `CMakeLists.txt`; changes are outlined in `CHANGELOG.md` and
   `tools/release.py` bumps, packages and publishes the GitHub release — see
   [docs/RELEASING.md](docs/RELEASING.md).
+- **What is planned next:** the engine work queued behind 2.4.0 — incremental
+  lighting, re-anchoring the golden comparison to the previous release rather
+  than the archived web build, palette chunk storage, and what 3.0 is reserved
+  for — is written down with its measurements in
+  [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Built with a resource pack loader in mind
 
