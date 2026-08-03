@@ -366,7 +366,25 @@ bool World::installResults(double deadlineMs) {
     // to raise anything it started from.
     auto relightIfNeeded = [&](int dx, int dz, int axis, int at, int mirror) {
       LoadedChunk* n = chunkAt(lc->chunk.cx + dx, lc->chunk.cz + dz);
-      if (!n || !n->chunk.lit || n->chunk.lightDirty) return;
+      if (!n || n->chunk.lightDirty) return;  // already going to be redone
+      // A neighbour with a job OUT read a snapshot of this chunk taken before the
+      // values being installed here existed, so whatever it returns is answering a
+      // question that has since changed. It cannot be compared against — the data
+      // it is holding is pre-light — so it is dirtied unconditionally, which makes
+      // installResults discard the stale result rather than store it.
+      //
+      // Skipping these was a real bug and a subtle one: `lit` is false for a first
+      // pass in flight, so the old guard treated "has not been lit yet" and "is
+      // being lit right now off older data" as the same case. Inline jobs finish at
+      // submit and can never be in flight, so the fault appeared only with workers
+      // — surfacing as the world hash differing between 0 and 8 threads about once
+      // in twenty-five runs.
+      if (n->chunk.lightInFlight) {
+        n->chunk.lightDirty = true;
+        return;
+      }
+      // Never lit and nothing out: it will read these values when its turn comes.
+      if (!n->chunk.lit) return;
       if (neighbourWouldChange(d, *r.working, *n->chunk.data, axis, at, mirror)) {
         n->chunk.lightDirty = true;
       }

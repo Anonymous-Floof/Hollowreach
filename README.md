@@ -90,7 +90,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 493 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 494 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls

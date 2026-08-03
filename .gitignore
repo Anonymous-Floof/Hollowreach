@@ -13,3 +13,13 @@ dist/
 # setup rather than anybody's personal preference.
 .claude/*
 !.claude/launch.json
+
+# A data directory the game made somewhere it should not have. This happens when
+# a scripted run passes --data-dir with an empty value and the flag swallows the
+# next argument instead: you get a folder literally called "--world", holding a
+# log with this machine's absolute asset path in it. Ignored because the cost of
+# not noticing is publishing a build machine's username, which is the one thing
+# the release check exists to catch.
+--*/
+data/
+

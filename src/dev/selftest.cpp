@@ -4326,6 +4326,25 @@ void testThreading() {
           "4 workers build the same world");
     check(eight.print.hash == inline0.print.hash && eight.print.chunks == inline0.print.chunks,
           "8 workers build the same world");
+
+    // Repeated, because the interesting failures here are races and a race that
+    // shows up once in twenty-five runs will pass a single comparison all day.
+    // One did: a light install skipped a neighbour whose own first light job was
+    // still out, so that job installed values computed from a snapshot taken
+    // before the install and nothing ever corrected them. Inline jobs complete at
+    // submit and cannot be in flight, which is why only the threaded builds
+    // disagreed, and why one sample of each was not enough to see it.
+    int mismatches = 0;
+    for (int i = 0; i < 12; ++i) {
+      const WorldFingerprintTimed again = buildWorldWith(8);
+      if (again.print.hash != inline0.print.hash ||
+          again.print.chunks != inline0.print.chunks) {
+        ++mismatches;
+      }
+    }
+    jobs::system().stop();
+    checkf(mismatches == 0, "and does so every time over twelve more builds (%d differed)",
+           mismatches);
     // Not asserted — a loaded machine would make it flaky — but printed, because
     // "identical output" is only half of what this milestone claims.
     std::printf("    ...  build times: inline %.0f ms, 1 worker %.0f, 4 workers %.0f, "
