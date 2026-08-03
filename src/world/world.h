@@ -95,6 +95,14 @@ class World {
     const LoadedChunk* lc = chunkAt(cx, cz);
     return lc && lc->chunk.generated;
   }
+  // Stronger than chunkReady: the light arrays hold real values rather than the
+  // zeros they were allocated with. Anything that *reads* light to make a
+  // decision — as opposed to drawing with it — has to ask this first, or it will
+  // read an unlit chunk as pitch black. See Chunk::lit.
+  bool lightReady(int cx, int cz) const {
+    const LoadedChunk* lc = chunkAt(cx, cz);
+    return lc && lc->chunk.generated && lc->chunk.lit;
+  }
   const std::unordered_map<ChunkKey, std::unique_ptr<LoadedChunk>>& chunks() const {
     return chunks_;
   }

@@ -241,7 +241,20 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
     }
     case MsgType::Time: {
       TimeMsg m;
-      if (decode(r, m) && game_.sky) game_.sky->time = m.time;
+      if (!decode(r, m) || !game_.sky) break;
+      game_.sky->time = m.time;
+      // The host jumped the clock for a sleep everyone agreed to, so everyone who
+      // agreed wakes rested. A guest's own tiredness counter is advancing locally
+      // and has no other way to learn that the night it just skipped was slept.
+      if (m.sleeping) game_.sky->markRested();
+      break;
+    }
+    case MsgType::SleepState: {
+      SleepStateMsg m;
+      if (!decode(r, m)) break;
+      sleepActive_ = m.active;
+      sleepTarget_ = m.target;
+      sleepProposer_ = m.proposer;
       break;
     }
     // Every one of these applies through applyRemoteEdit rather than setBlock, and
@@ -453,10 +466,11 @@ void Client::sendBoatMount(int entityId, bool on) {
   send(MsgType::BoatMount, m);
 }
 
-void Client::sendSleep(bool on) {
+void Client::sendSleep(bool on, float target) {
   if (state_ != State::Playing) return;
   SleepMsg m;
   m.on = on;
+  m.target = target;
   send(MsgType::Sleep, m);
 }
 

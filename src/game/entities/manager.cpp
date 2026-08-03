@@ -134,6 +134,29 @@ void EntityManager::tick(float dt, EntityContext& ctx) {
     }
     // Ghosts are driven by remote snapshots, never simulated here.
     if (entities_[i].ghost) continue;
+
+    // Hostiles that have got a long way from the player are removed rather than
+    // frozen. This has to come BEFORE the unloaded-chunk skip below, because a
+    // far mob is in an unloaded chunk almost by definition — it is exactly the
+    // one the skip would leave sitting there forever, holding a spawn slot.
+    // Nothing else despawns: an animal you walked home stays where you put it.
+    // Measured from the host's own player in a multiplayer world, which is the
+    // same player the spawner works around — one limitation, not two.
+    {
+      const EntityDef* d = defOf(entities_[i].type);
+      if (d && d->flags.hostile && ctx.player) {
+        const Vec3 p = ctx.player->pos();
+        const float dx = entities_[i].pos.x - p.x;
+        const float dy = entities_[i].pos.y - p.y;
+        const float dz = entities_[i].pos.z - p.z;
+        if (dx * dx + dy * dy + dz * dz > kHostileDespawn * kHostileDespawn) {
+          entities_[i].dead = true;
+          anyDead = true;
+          continue;
+        }
+      }
+    }
+
     // Freeze entities whose chunk is not loaded — a death drop you walked away
     // from stays put, with no physics and no ageing, until you come back.
     {
@@ -264,25 +287,118 @@ void EntityManager::trySpawnGrazer(world::World& world, EntityType type, float p
   }
 }
 
-void EntityManager::trySpawnZombie(world::World& world, float px, float pz, float dayFactor) {
-  if (dayFactor > 0.35f || randomUnit() > 0.5) return;
+int effectiveLight(const world::World& world, int wx, int wy, int wz, float dayFactor) {
+  if (!world.lightReady(world::World::floorDiv16(wx), world::World::floorDiv16(wz))) return 15;
+  // Truncation, not rounding: skylight has to fall the whole way to zero before a
+  // cell counts as dark, so the surface stops being spawnable at the first hint of
+  // dawn rather than halfway through it. 15 * dayFactor reaches 1 at a day factor
+  // of 0.067, which is a sun still below the horizon.
+  const int sky = static_cast<int>(static_cast<float>(world.getSky(wx, wy, wz)) * dayFactor);
+  return std::max(world.getBlockLight(wx, wy, wz), sky);
+}
+
+bool monsterSpawnable(const world::World& world, int wx, int wy, int wz, float dayFactor) {
+  if (wy < 1 || wy + 1 >= world::WH) return false;
+  // Footing. `solid` already excludes water and every plant, and an unloaded
+  // chunk reads as air — so this one test is also what keeps a spawn out of the
+  // sea, out of a flower bed, and out of terrain that does not exist yet.
+  if (!world::blocks().solid(world.getBlock(wx, wy - 1, wz))) return false;
+  // Room for the body. Air, strictly: water here would drown it, and a slab or a
+  // ladder would leave it clipping.
+  if (world.getBlock(wx, wy, wz) != world::kAir) return false;
+  if (world.getBlock(wx, wy + 1, wz) != world::kAir) return false;
+  return effectiveLight(world, wx, wy, wz, dayFactor) == 0;
+}
+
+void EntityManager::trySpawnZombie(world::World& world, const Vec3& player, float dayFactor) {
+  if (randomUnit() > 0.5) return;
   int n = 0;
   for (const Entity& e : entities_) {
     if (e.type == EntityType::Zombie && !e.dead) ++n;
   }
   if (n >= kMaxZombies) return;
 
-  // Any walkable surface, not just grass — but never on or in water.
+  // Darkness is the whole rule now, so the search cannot be "walk down to the
+  // surface" any more — the surface is the one place that is lit at noon. Pick a
+  // column in the ring, sweep a band of it from well below the player to a little
+  // above, and take one of the dark ledges it passes.
+  //
+  // Reservoir sampling rather than "first hit going up": a column through a
+  // cave system offers several floors, and always taking the lowest would put
+  // every spawn at the bottom of the deepest cavern under you.
+  const int loY = std::max(1, static_cast<int>(std::floor(player.y)) - kSpawnBandDown);
+  const int hiY = std::min(world::WH - 2, static_cast<int>(std::floor(player.y)) + kSpawnBandUp);
+
   for (int t = 0; t < 12; ++t) {
     const float ang = static_cast<float>(randomUnit()) * 6.28318530718f;
     const float dist = R(20.0f, 40.0f);
-    const int wx = static_cast<int>(std::floor(px + std::cos(ang) * dist));
-    const int wz = static_cast<int>(std::floor(pz + std::sin(ang) * dist));
-    const int ts = topSolidY(world, wx, wz);
-    if (ts < 0 || world.getBlock(wx, ts, wz) == world::wk().water) continue;
-    if (world.getBlock(wx, ts + 1, wz) != world::kAir) continue;
-    if (world.getBlock(wx, ts + 2, wz) != world::kAir) continue;
-    spawn(EntityType::Zombie, Vec3{wx + 0.5f, static_cast<float>(ts + 1), wz + 0.5f});
+    const int wx = static_cast<int>(std::floor(player.x + std::cos(ang) * dist));
+    const int wz = static_cast<int>(std::floor(player.z + std::sin(ang) * dist));
+
+    int chosen = -1;
+    int seen = 0;
+    for (int wy = loY; wy <= hiY; ++wy) {
+      if (!monsterSpawnable(world, wx, wy, wz, dayFactor)) continue;
+      ++seen;
+      if (randomUnit() * seen < 1.0) chosen = wy;
+    }
+    if (chosen < 0) continue;
+    spawn(EntityType::Zombie, Vec3{wx + 0.5f, static_cast<float>(chosen), wz + 0.5f});
+    return;
+  }
+}
+
+void EntityManager::tickEvilAltars(world::World& world, const Vec3& player, float dayFactor) {
+  const world::BlockId altar = world::blocks().idOf("evil_altar");
+  if (altar == world::kAir) return;
+
+  const int px = static_cast<int>(std::floor(player.x));
+  const int py = static_cast<int>(std::floor(player.y));
+  const int pz = static_cast<int>(std::floor(player.z));
+
+  // A box scan rather than a list of altars kept somewhere. It is 15^3 reads on a
+  // four-second timer, which is nothing, and it costs no save format, no block
+  // entity and no bookkeeping to go stale — an altar mined out of the world stops
+  // working because it is no longer there to be found.
+  for (int dy = -kAltarRange; dy <= kAltarRange; ++dy) {
+    const int ay = py + dy;
+    if (ay < 0 || ay >= world::WH) continue;
+    for (int dz = -kAltarRange; dz <= kAltarRange; ++dz) {
+      for (int dx = -kAltarRange; dx <= kAltarRange; ++dx) {
+        if (world.getBlock(px + dx, ay, pz + dz) != altar) continue;
+        spawnFromAltar(world, px + dx, ay, pz + dz, dayFactor);
+      }
+    }
+  }
+}
+
+void EntityManager::spawnFromAltar(world::World& world, int ax, int ay, int az,
+                                   float dayFactor) {
+  // Its own crowd limit, counted in a sphere around the altar. This is what makes
+  // an altar a threat instead of a trickle: the world cap of two would otherwise
+  // be spent on whatever the night had already produced elsewhere.
+  // `crowd`, not `near`: `near` and `far` are macros in the older Windows headers
+  // and this file is one include away from meeting them.
+  int crowd = 0;
+  for (const Entity& e : entities_) {
+    if (e.dead || e.type != EntityType::Zombie) continue;
+    const float dx = e.pos.x - (ax + 0.5f);
+    const float dy = e.pos.y - static_cast<float>(ay);
+    const float dz = e.pos.z - (az + 0.5f);
+    if (dx * dx + dy * dy + dz * dz <= kAltarCrowdRadius * kAltarCrowdRadius) ++crowd;
+  }
+  if (crowd >= kAltarCrowd) return;
+
+  // Four tries for one zombie, in the 9x3x9 box Minecraft's spawner uses. Note
+  // this goes through monsterSpawnable like everything else, so an altar in a
+  // torch-lit room is inert — the same way a player disarms a spawner by lighting
+  // the room rather than by digging it out.
+  for (int t = 0; t < 4; ++t) {
+    const int wx = ax + static_cast<int>(std::floor(R(-4.0f, 5.0f)));
+    const int wy = ay + static_cast<int>(std::floor(R(-1.0f, 2.0f)));
+    const int wz = az + static_cast<int>(std::floor(R(-4.0f, 5.0f)));
+    if (!monsterSpawnable(world, wx, wy, wz, dayFactor)) continue;
+    spawn(EntityType::Zombie, Vec3{wx + 0.5f, static_cast<float>(wy), wz + 0.5f});
     return;
   }
 }

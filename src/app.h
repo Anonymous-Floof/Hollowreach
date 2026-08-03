@@ -52,6 +52,8 @@ enum class AppState {
   // The Gallery again, opened from a painting to choose what hangs in it. A state
   // of its own so Escape returns you to the world rather than to the main menu.
   PaintingPick,
+  // A bed's 24-hour dial: read the clock, or pick an hour and sleep to it.
+  TimeWheel,
 };
 
 struct AppOptions {

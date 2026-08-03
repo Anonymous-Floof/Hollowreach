@@ -97,6 +97,7 @@ const char* typeName(MsgType type) {
     case MsgType::PlayerJoin: return "pjoin";
     case MsgType::PlayerLeave: return "pleave";
     case MsgType::Notify: return "notify";
+    case MsgType::SleepState: return "sleepstate";
     default: return "?";
   }
 }
@@ -360,10 +361,30 @@ bool decode(ByteReader& r, DamageMsg& m) {
          okF(m.knockback.y, -40, 40) && okF(m.knockback.z, -40, 40);
 }
 
-void encode(ByteWriter& w, const SleepMsg& m) { w.boolean(m.on); }
+void encode(ByteWriter& w, const SleepMsg& m) {
+  w.boolean(m.on);
+  w.f32(m.target);
+}
 bool decode(ByteReader& r, SleepMsg& m) {
   m.on = r.boolean();
-  return r.ok();
+  m.target = r.f32();
+  return r.ok() && okF(m.target, 0, 1);
+}
+
+void encode(ByteWriter& w, const SleepStateMsg& m) {
+  w.boolean(m.active);
+  w.f32(m.target);
+  w.str(m.proposer);
+  w.u8(m.votes);
+  w.u8(m.needed);
+}
+bool decode(ByteReader& r, SleepStateMsg& m) {
+  m.active = r.boolean();
+  m.target = r.f32();
+  m.proposer = r.str();
+  m.votes = r.u8();
+  m.needed = r.u8();
+  return r.ok() && okF(m.target, 0, 1) && m.proposer.size() <= kMaxName;
 }
 
 void encode(ByteWriter& w, const SfxMsg& m) {

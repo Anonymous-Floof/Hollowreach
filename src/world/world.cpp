@@ -226,6 +226,54 @@ void World::submitMesh(LoadedChunk& lc) {
 
 // ---- installing -------------------------------------------------------------
 
+namespace {
+
+// Would relighting the neighbour on one face of this chunk actually change
+// anything? `axis` is 0 for an x face and 1 for a z face; `at` is 0 or 15, the
+// local coordinate of this chunk's plane, and `mirror` the coordinate of the
+// neighbour's touching plane.
+//
+// Two reasons to say yes, one per direction light can move:
+//
+//   * this face is now brighter than the neighbour's touching cell by more than
+//     the one level a step across the border costs, so the neighbour has light
+//     coming to it that it does not have;
+//   * this face got *darker*, so whatever the neighbour is holding there may have
+//     come from a source that is now gone — the removed torch that keeps glowing
+//     through the seam.
+//
+// Deliberately not a plain "did my border change at all". On open ground both
+// sides sit at full skylight and stay there, so a chunk lighting for the first
+// time next to an already-lit one has a face that *changed* (0 -> 15) and yet
+// gives its neighbour nothing. Answering the sharper question is what keeps the
+// initial world load from re-lighting almost every chunk a second time to
+// discover it had nothing to do.
+//
+// The opaque test is not an optimisation, it is what makes this terminate.
+// seedBorders refuses to seed an opaque cell, so a wall on the neighbour's side of
+// the line can never accept the light being offered — and without this guard the
+// offer stands forever: each chunk sees a face brighter than the rock facing it,
+// says "you would change", and dirties the other back for eternity. Ask only about
+// cells that can actually take the light.
+bool neighbourWouldChange(const ChunkData& before, const ChunkData& after,
+                          const ChunkData& neighbour, int axis, int at, int mirror) {
+  const BlockRegistry& reg = blocks();
+  for (int y = 0; y < WH; ++y) {
+    for (int t = 0; t < 16; ++t) {
+      const int n = axis == 0 ? localIdx(mirror, y, t) : localIdx(t, y, mirror);
+      if (reg.opaque(neighbour.voxels[n])) continue;
+      const int i = axis == 0 ? localIdx(at, y, t) : localIdx(t, y, at);
+      if (after.skylight[i] > neighbour.skylight[n] + 1) return true;
+      if (after.blocklight[i] > neighbour.blocklight[n] + 1) return true;
+      if (after.skylight[i] < before.skylight[i]) return true;
+      if (after.blocklight[i] < before.blocklight[i]) return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 bool World::installResults(double deadlineMs) {
   std::vector<GenResult> gen;
   std::vector<LightResult> light;
@@ -298,10 +346,41 @@ bool World::installResults(double deadlineMs) {
     // Only the light arrays, never the whole working copy: a metadata edit (a door
     // opening) does not dirty light, so it can land mid-job and must survive.
     ChunkData& d = mutableData(*lc);
+
+    // Which of the four faces this chunk shows its neighbours changed. Measured
+    // before the copy, because `d` is about to stop being the old values.
+    //
+    // computeLight rebuilds a chunk from zero and seeds its border from whatever
+    // its neighbours are storing *at submit time*, which makes the whole system a
+    // fixed-point iteration over the loaded chunks — and an iteration nothing was
+    // driving. A chunk's light install re-meshed its neighbours (so their faces
+    // resampled) but never re-lit them, so light only ever crossed a seam when the
+    // two chunks happened to be lit in the right order. A torch a block from a
+    // border lit its own chunk and stopped at the line; take that torch away again
+    // and the far side kept its glow, because the neighbour was still reading the
+    // snapshot from before. Both halves of that are the same missing edge.
+    // Only a neighbour that has ALREADY been lit needs asking: one that has not
+    // will read these new values when its own first pass runs. And it settles
+    // rather than ringing, because light loses a level per cell and a chunk is
+    // sixteen wide — a value cannot cross a border, travel the chunk and come back
+    // to raise anything it started from.
+    auto relightIfNeeded = [&](int dx, int dz, int axis, int at, int mirror) {
+      LoadedChunk* n = chunkAt(lc->chunk.cx + dx, lc->chunk.cz + dz);
+      if (!n || !n->chunk.lit || n->chunk.lightDirty) return;
+      if (neighbourWouldChange(d, *r.working, *n->chunk.data, axis, at, mirror)) {
+        n->chunk.lightDirty = true;
+      }
+    };
+    relightIfNeeded(-1, 0, 0, 0, CX - 1);
+    relightIfNeeded(1, 0, 0, CX - 1, 0);
+    relightIfNeeded(0, -1, 1, 0, CZ - 1);
+    relightIfNeeded(0, 1, 1, CZ - 1, 0);
+
     d.skylight = r.working->skylight;
     d.blocklight = r.working->blocklight;
     lc->chunk.emitters = std::move(r.emitters);
     lc->chunk.meshDirty = true;
+    lc->chunk.lit = true;
 
     // Light is baked into vertices, and a face samples the neighbour cell it looks
     // into — so a relit chunk invalidates its neighbours' meshes as well. Skipping

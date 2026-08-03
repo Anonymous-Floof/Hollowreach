@@ -1,0 +1,37 @@
+[22:50:07 info ] Hollowreach 2.3.0 (native) starting
+[22:50:07 info ] data directory: --world
+[22:50:07 info ] assets: reading from D:/Users/AnonymousFloof/Desktop/Code Projects/C++/Hollowreach/assets (overriding embedded copies)
+[22:50:07 info ] GL 3.3.0 Core Profile Context 26.7.1.260713
+[22:50:07 info ] GPU AMD Radeon RX 5700 XT (ATI Technologies Inc.)
+[22:50:07 info ] GLSL 4.60
+[22:50:07 info ] packstack: added provider "built-in"
+[22:50:07 info ] packstack: added provider "built-in item sprites"
+[22:50:07 info ] blocks: 125 registered (last = evil_altar)
+[22:50:07 info ] atlas: 159 tiles at 16px (gutter 1, 1 mip level) -> 256x256
+[22:50:07 info ] icon atlas: 189 items in 512x512
+[22:50:07 info ] audio: SteelSeries Sonar - Gaming (SteelSeries Sonar Virtual Audio Device), 48000 Hz, 374-frame periods
+[22:50:07 info ] interface fonts: C:\Windows\Fonts\segoeui.ttf
+[22:50:07 info ] jobs: 5 worker thread(s)
+[22:50:07 info ] world: seed 3918175327, gen v4, render distance 12
+[22:50:08 info ] world ready at (0.0, 102.0, 0.0)
+[22:50:09 info ] GPU 0.55 (sh 0.00 sky 0.01 ter 0.05 ent 0.00 ao 0.06 co 0.38 wa 0.03 gr 0.00 pr 0.02) | CPU wo 0.03 en 0.00 li 0.00 vi 0.00 su 0.06
+[22:50:09 info ] streaming on the main thread over 2500 frames: mean 0.041 ms, worst 3.13 ms at frame 275 (5 chunk worker(s))
+[22:50:09 info ] --- frame breakdown (mean over the last window) ---
+[22:50:09 info ]   frame          0.65 ms  (1533 fps)
+[22:50:09 info ]   GPU passes     0.54 ms
+[22:50:09 info ]     shadow       0.00 ms   0.0%
+[22:50:09 info ]     sky          0.01 ms   2.7%
+[22:50:09 info ]     terrain      0.05 ms   9.1%
+[22:50:09 info ]     entities     0.00 ms   0.0%
+[22:50:09 info ]     ssao         0.06 ms  11.3%
+[22:50:09 info ]     composite    0.37 ms  68.5%
+[22:50:09 info ]     water        0.03 ms   5.5%
+[22:50:09 info ]     godray       0.00 ms   0.0%
+[22:50:09 info ]     present      0.02 ms   2.9%
+[22:50:09 info ]   CPU phases
+[22:50:09 info ]     world        0.05 ms
+[22:50:09 info ]     entities     0.00 ms
+[22:50:09 info ]     lights       0.00 ms
+[22:50:09 info ]     visibility   0.00 ms
+[22:50:09 info ]     submit       0.06 ms
+[22:50:09 info ] shutting down

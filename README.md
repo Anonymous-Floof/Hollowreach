@@ -90,7 +90,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 427 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 493 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -171,10 +171,25 @@ and nothing else.
 
 The consequence is worth stating plainly, because it is easy to get wrong: you
 cannot compare a release against a number written down for an earlier one. To ask
-whether a change cost anything, run both binaries back to back in the same
-sitting. That was done for this release against 2.2.0 — 2.81 vs 2.91 at Ultra/12,
-2.07 vs 2.08 at Ultra/4 — which is how we know the renderer is unchanged despite
-the table moving by a third.
+whether a change cost anything, run both binaries back to back **interleaved** in
+the same sitting. That was done for 2.4.0 against 2.3.0 — 2.77 vs 2.75 at
+Ultra/12, 2.02 vs 2.00 at Ultra/4 — which is how we know the renderer is
+unchanged.
+
+Two traps found the hard way while measuring that, both of which produce
+confident-looking numbers that mean nothing:
+
+- **Sweeping the grid inflates the later cells.** Running all nine in sequence
+  reads about 1.6× the interleaved pairing by the end — the GPU clocks down as
+  the run goes on, so cell nine is measured on a hotter machine than cell one.
+  Pair each cell against its counterpart instead of sweeping and then comparing
+  two sweeps.
+- **An old binary unzipped somewhere else brings its own `data/` with it**, and
+  therefore its own resolution and its own world. That silently makes it a
+  1280×720 comparison against a 1920×1080 one, which roughly doubles every GPU
+  pass and looks exactly like a catastrophic regression in the new build. Point
+  both at the same data directory, or check the reported resolution before
+  believing anything.
 
 Neither lever costs much. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,
@@ -188,8 +203,14 @@ If you want to know where a frame actually goes, `--perf` prints a per-pass GPU
 and CPU breakdown while you play and a summary when you quit.
 
 **Bed** — craft from 3 planks + 3 wool (from a sheep), place it (it lays out two cells, pillow
-always at the head whichever way you face), then right-click at night to
-fast-forward to morning. Sleeping advances the actual game clock, so
+always at the head whichever way you face), then right-click it to open the
+**Time Wheel**: a 24-hour dial, painted with the day it describes, showing the
+hour it is now. Closing it again costs nothing, which makes a bed the closest
+thing to a clock in the game. Drag the handle to the hour you want to wake at and
+confirm, and you sleep until then — a nap through the worst of a night is a
+different decision from sleeping the whole of it. You can only sleep **8 game
+hours after the last time you did**; until then the wheel tells you how long is
+left. Sleeping advances the actual game clock, so
 time-of-day mechanics (like grass spreading) move forward while you sleep. **Boat** —
 craft from 5 planks, right-click to set it on water (or ground); right-click it
 to ride (look where you want to go, W/S throttle, A/D strafe), **Shift** to
@@ -260,15 +281,28 @@ in the forge for much better food, and right-click a cow with an empty bucket
 to **milk** it. All of them climb hills and steer clear of water, so they stay
 on dry land instead of drowning.
 
-**Monsters:** **zombies** rise on solid ground after dark. They need genuine
-line of sight to notice you — no seeing through walls — and once they spot you
-they path around obstacles to reach you, remembering roughly where you last
-were for a few seconds if you break their sight, clawing for damage when they
-close in (armour softens the blow). They burn away in direct sunlight, so
-they're a night-time threat — hole up or fight back. A slain zombie drops
-**rotten flesh** (edible, but a gamble — it might feed you a point or sicken
-you for two). Like the animals they climb 1-block ledges and won't wade into
-the sea. (Turn them off in Settings.)
+**Monsters:** **zombies** rise wherever it is pitch dark — light level zero, and
+nothing else. On open ground that means after nightfall, as it always did. In a
+cave, a mineshaft or any room you have roofed over it means *at any hour*, so
+digging without a torch in your hand is now its own decision. Lighting a space
+is what stops them, exactly as you'd expect: a torch has a radius, and inside it
+nothing spawns. They need genuine line of sight to notice you — no seeing through
+walls — and once they spot you they path around obstacles to reach you,
+remembering roughly where you last were for a few seconds if you break their
+sight, clawing for damage when they close in (armour softens the blow). They burn
+away in direct sunlight, so one that follows you out of a cave at noon does not
+last long. A slain zombie drops **rotten flesh** (edible, but a gamble — it might
+feed you a point or sicken you for two). Like the animals they climb 1-block
+ledges and won't wade into the sea. One that has got a long way from you is
+removed rather than left standing in the dark forever. (Turn them off in
+Settings.)
+
+**Evil Altar:** a dark, caged block with something burning inside it that breeds
+zombies around itself while you are near, in daylight as readily as at night. It
+answers to the same rule as everything else — light the room and it goes quiet —
+so a torch is the way to disarm one you would rather keep. There is **no recipe**
+for it and mining it destroys it: it is here for the dungeons it will be placed
+in, and for now `--give evil_altar` is the only way to hold one.
 
 **Survival:** a **hunger** bar (next to your hearts) slowly drains as you live and
 act — sprinting and swimming burn it faster. Eat to refill it; when it empties you
@@ -405,7 +439,17 @@ everything the host can: place, ride and break **boats** (riding is predicted
 client-side, so it feels instant), **milk cows**, use **Wayshards**, land
 falling **critical hits**, and attune a **Soul Anchor** — a guest's spawn
 point, inventory and position are all saved inside the host's world and
-restored if they reconnect. While connected as a guest, the world-list
+restored if they reconnect.
+
+**Sleeping together** works like a proposal rather than a poll. Whoever opens a
+bed first picks the hour, and only *they* have to be tired enough to sleep;
+everyone else's bed then shows their name and their hour, and all it asks is
+whether you agree. The night moves once everyone has. That way a group is never
+held awake because one of them happened to nap more recently than the rest — and
+because the host owns the clock, it is the host that sweeps it and tells everyone,
+rather than each client fast-forwarding its own copy and drifting apart doing it.
+
+While connected as a guest, the world-list
 "Export World" button becomes **Leave World** instead, since it's the host's
 save, not yours.
 
@@ -511,7 +555,11 @@ headless tool working, and means the threaded and single-threaded builds run the
 
 - **New block:** add one entry to `src/world/blocks.cpp` and a matching painter
   in `src/resource/painters.cpp`. Saves stay valid because blocks are stored by
-  stable string key, not numeric id.
+  stable string key, not numeric id — but the entry must go **last** in the table,
+  because ids are handed out in table order and inserting in the middle renumbers
+  everything after it. Add its tiles to `KNOWN_EXTRA` in
+  `tools/compare_golden.py` at the same time, which is where the golden-vector
+  gate is told the difference is intentional.
 - **New recipe:** add a row to `src/game/recipes.cpp`. It appears in the in-game
   Recipe Book (press **R**) automatically — the book is generated from the data.
 - **New entity** (mob, boat, projectile…): add a definition under

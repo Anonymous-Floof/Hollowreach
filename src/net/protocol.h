@@ -52,7 +52,11 @@ namespace hr::net {
 // half a turn out — and it does all of that after a handshake that succeeds. The
 // layout is unchanged, so this bump buys nothing technical; it buys a refusal at
 // the join screen instead of a session that looks connected and does not work.
-inline constexpr std::uint16_t kNetVersion = 3;
+// 4: sleeping. A sleep vote now carries the hour it is voting for, and the host
+// broadcasts whose proposal is on the table — a genuine layout change on one
+// message and one new type, so a 2.3.0 peer would misread the vote it was sent and
+// silently drop the state it needs to answer.
+inline constexpr std::uint16_t kNetVersion = 4;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -109,6 +113,10 @@ enum class MsgType : std::uint8_t {
   PlayerJoin,   // h->c roster add
   PlayerLeave,  // h->c roster remove
   Notify,       // h->c toast
+  // Who, if anyone, is currently waiting for the rest of us to come to bed, and
+  // what hour they asked for. Appended rather than slotted in beside Sleep: the
+  // tag is a byte on the wire and every value after an insertion would shift.
+  SleepState,   // h->c
   Count,
 };
 
@@ -231,8 +239,22 @@ struct DamageMsg {
   Vec3 knockback;
 };
 
+// A sleep vote. `target` is the hour on the 0..1 clock the sender would like to
+// wake at; only the first voter's is used, because the rest are agreeing to that
+// hour rather than proposing their own.
 struct SleepMsg {
   bool on = false;
+  float target = 0.27f;
+};
+
+// The host's running tally, so a bed opened by anyone else shows the hour already
+// on the table instead of offering a second one nobody voted for.
+struct SleepStateMsg {
+  bool active = false;
+  float target = 0.27f;
+  std::string proposer;  // display name, for "Ada wants to sleep"
+  std::uint8_t votes = 0;
+  std::uint8_t needed = 0;
 };
 
 struct SfxMsg {
@@ -348,6 +370,8 @@ void encode(ByteWriter& w, const DamageMsg& m);
 bool decode(ByteReader& r, DamageMsg& m);
 void encode(ByteWriter& w, const SleepMsg& m);
 bool decode(ByteReader& r, SleepMsg& m);
+void encode(ByteWriter& w, const SleepStateMsg& m);
+bool decode(ByteReader& r, SleepStateMsg& m);
 void encode(ByteWriter& w, const SfxMsg& m);
 bool decode(ByteReader& r, SfxMsg& m);
 void encode(ByteWriter& w, const BeRequestMsg& m);

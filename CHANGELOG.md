@@ -15,6 +15,62 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.4.0] - 2026-08-03
+
+### Added
+- **The Time Wheel.** A bed no longer sleeps the moment you touch it. It opens a
+  24-hour dial, painted with the day it describes — blue through the night, pale
+  gold through the middle of the day, warm at the two crossings — with the hour it
+  is now marked on it. Closing it again costs nothing, which makes a bed the
+  nearest thing to a clock in the game and worth opening even when you have no
+  intention of sleeping. Drag the handle to the hour you want to wake at and
+  confirm, and you sleep until then: a nap through the worst of a night is now a
+  different decision from sleeping the whole of it.
+- **Evil Altar.** A dark, caged block with something burning inside it. While you
+  are near one it breeds zombies into the space around it — in daylight as readily
+  as at night — up to a small crowd, and then waits. It obeys the same darkness
+  rule as everything else, so lighting the room is what shuts it off, the same way
+  you would disarm one in Minecraft rather than digging it out. There is **no
+  recipe** and mining it destroys it: it exists for the dungeons that will place
+  it, and until then `--give evil_altar` is the only way to hold one.
+
+### Changed
+- **You have to have earned a night's sleep.** A bed will not take you until **8
+  game hours** after the last time you slept, and the wheel says how long is left
+  when it will not. Sleeping was a button that deleted any night you did not fancy;
+  now it is something you do about once a day. In multiplayer only the person who
+  *opens* a bed has to be tired — everyone else is voting on their hour, not
+  proposing one of their own, so a group is never held awake because one of them
+  napped more recently than the rest. Whoever asks first picks the time, and the
+  rest see their name and their hour on their own bed.
+
+- **Monsters spawn in the dark, not after dark.** The rule was the clock: past
+  dusk, on the surface, anywhere solid. It is now light level zero and nothing
+  else. On open ground that works out the same — the sky goes dark and they come
+  — but a cave, a mineshaft or a room you have roofed over is pitch dark at noon
+  too, and now spawns them at noon. Digging without a torch in your hand has
+  become a decision. Lighting a space still stops them completely, because the one
+  rule is the one rule: inside a torch's radius nothing spawns, underground or out.
+- **Zombies that get a long way from you are removed.** Previously the sun did
+  this job — every zombie burned away at dawn, so the two-at-a-time limit cleared
+  itself daily. Cave spawns never see the sun, and a mob in ground you have walked
+  away from is frozen rather than deleted, so without this the limit would have
+  filled once with monsters nobody would ever meet again and the nights would have
+  gone quiet for good. Animals are untouched: one you walked home stays where you
+  put it.
+
+### Fixed
+- **Light now crosses a chunk border.** Placing a torch within a block or two of
+  an invisible chunk line lit your side of it and stopped dead at the line — and
+  taking that torch away again left the *far* side still glowing, lit by a torch
+  that no longer existed. Sealed rooms that straddled a line kept a strip of
+  daylight along the seam. Lighting is worked out one chunk at a time, each reading
+  its neighbours, which only settles if a chunk that changes tells the neighbours it
+  changed for — and nothing ever did. It does now, and only when it has something
+  they would actually take, so the common case still costs nothing. Loading a world
+  at render distance 12 takes about a second longer for it; running frames are
+  unaffected.
+
 ## [2.3.0] - 2026-08-02
 
 ### Changed
@@ -430,7 +486,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.3.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.1.1

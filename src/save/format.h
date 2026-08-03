@@ -111,6 +111,11 @@ struct WorldSave {
   std::vector<game::EntitySave> entities;
   std::vector<WaypointSave> waypoints;
   std::vector<GuestSave> guests;
+  // Game hours the player has been awake, for the bed's tiredness gate. Its own
+  // section, so a world written by an older build simply loads at zero — well
+  // rested, and unable to sleep for the first eight hours, which is the harmless
+  // reading of "we do not know".
+  float hoursAwake = 0.0f;
 };
 
 // Encodes to bytes. Deterministic: every map is written in sorted key order, so

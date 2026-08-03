@@ -65,6 +65,9 @@ void printUsage() {
       "  --check-update [ver] ask GitHub for the latest release, print it, and exit\n"
       "  --apply-update [ver] download the latest release and install it over this one\n"
       "  --hang <png>        build a wall at spawn with this picture in a painting\n"
+      "  --screen <name>     open a screen straight away: menu, worlds, newworld,\n"
+      "                      about, join, pause, settings, inventory, workbench,\n"
+      "                      forge, chest, recipes, map, gallery, bed, bed-early\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
       "  --verbose           log at debug level\n"
       "  --help              this message\n");

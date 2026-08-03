@@ -31,6 +31,11 @@ constexpr std::uint32_t kTagExplored = makeTag('E', 'X', 'P', 'L');
 constexpr std::uint32_t kTagWaypoints = makeTag('W', 'A', 'Y', 'P');
 constexpr std::uint32_t kTagGuests = makeTag('R', 'P', 'L', 'R');
 constexpr std::uint32_t kTagPaintings = makeTag('P', 'A', 'N', 'T');
+// How long the player has been awake. A section of its own for the same reason
+// paintings got one: it belongs with the player, and the player section's layout
+// is frozen without a version bump and a migration. An older build skips this tag
+// and loads a world whose owner is simply well rested.
+constexpr std::uint32_t kTagRest = makeTag('R', 'E', 'S', 'T');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -583,6 +588,8 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   encodeWaypoints(waypoints, save.waypoints);
   ByteWriter guests;
   encodeGuests(guests, save.guests);
+  ByteWriter rest;
+  rest.f32(save.hoursAwake);
 
   ByteWriter payload;
   appendSection(payload, kTagMeta, meta);
@@ -596,6 +603,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagWaypoints, waypoints);
   appendSection(payload, kTagGuests, guests);
   appendSection(payload, kTagPaintings, paintings);
+  appendSection(payload, kTagRest, rest);
 
   ByteWriter out;
   out.bytes(kMagic, sizeof kMagic);
@@ -657,6 +665,7 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
       case kTagExplored: decodeExplored(body, out.explored); break;
       case kTagWaypoints: decodeWaypoints(body, out.waypoints); break;
       case kTagGuests: decodeGuests(body, out.guests); break;
+      case kTagRest: out.hoursAwake = body.f32(); break;
       default:
         // A section this build does not know. Its length is right there, so it is
         // skipped rather than fatal — which is what lets a section be added without

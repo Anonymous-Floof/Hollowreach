@@ -46,7 +46,14 @@ class Host {
   void onLocalSfx(const std::string& kind, const Vec3& pos);
   // The host's own vote. Everyone in the world has to want it before the night
   // is skipped, which is the whole point of a vote rather than a button.
-  void onLocalSleep(bool on);
+  // The host's own vote. `target` is only read from the first voter — whoever
+  // opens the question owns the hour, and everyone after them is answering it.
+  void onLocalSleep(bool on, float target);
+
+  // The proposal currently on the table, or -1 when nobody has asked. App reads
+  // these to decide whether a bed opens a chooser or a yes/no.
+  float proposedSleep() const { return sleepVotes_.empty() ? -1.0f : sleepTarget_; }
+  const std::string& proposer() const { return sleepProposer_; }
 
   // Guest progress to write into the save, and progress read back out of one.
   std::vector<save::GuestSave> guestsForSave() const;
@@ -86,6 +93,11 @@ class Host {
     bool havePose = false;
     double lastPoseTime = 0;
     float health = 20.0f;
+    // Game hours since this guest last slept, counted by the host off its own
+    // clock. Held here rather than trusted from the guest for the same reason
+    // every other limit is checked on this side, and runtime-only: a guest who
+    // rejoins arrives freshly rested and has to earn the next night again.
+    float hoursAwake = 0.0f;
     // Per-action rate limits, from js/net/host.js:102.
     Bucket edit{40, 120};
     Bucket hit{5, 10};
@@ -153,9 +165,14 @@ class Host {
   // Containers a guest has open, so two people cannot stir the same forge.
   std::unordered_map<std::uint64_t, std::string> beLocks_;
   std::unordered_map<std::string, StoredGuest> stored_;
-  // Who currently wants to sleep, by player id, including the host.
+  // Who currently wants to sleep, by player id, including the host — and the hour
+  // the first of them asked for, which is what the rest are voting on. Cleared
+  // together, so "is there a proposal" is just "is anyone voting".
   std::unordered_set<std::string> sleepVotes_;
+  float sleepTarget_ = 0.27f;
+  std::string sleepProposer_;
   void tallySleep();
+  void broadcastSleepState();
 };
 
 }  // namespace hr::net

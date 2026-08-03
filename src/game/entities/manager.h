@@ -56,6 +56,25 @@ struct EntityRayHit {
   float dist = 0;
 };
 
+// --- where monsters are allowed to appear ------------------------------------
+//
+// The light a spawn check sees, 0..15. Block light is absolute — a torch is a
+// torch at every hour — while baked skylight is scaled by the day factor, which
+// is the same thing the shader does to it (render/sky.h:daylight). So this
+// number is, near enough, the darkness you are actually looking at: 15 on open
+// ground at noon, 0 on the same ground at midnight, 0 in a sealed cave either
+// way, and never 0 within reach of a torch.
+//
+// Returns 15 — "bright, do not spawn" — for a chunk whose light has not been
+// computed yet, rather than reading its zeroed arrays as darkness.
+int effectiveLight(const world::World& world, int wx, int wy, int wz, float dayFactor);
+
+// Can a monster stand with its feet in this cell? Solid footing below, two clear
+// cells for the body, and no light. This is the whole spawn rule, in one place,
+// because the world spawner and the Evil Altar have to agree on it — an altar
+// you can switch off with torches is the behaviour worth having.
+bool monsterSpawnable(const world::World& world, int wx, int wy, int wz, float dayFactor);
+
 // The subset of an entity that survives a save.
 //
 // The web build gave each type its own `serialize`/`deserialize` pair, each a
@@ -112,9 +131,9 @@ class EntityManager {
                       int dura);
 
   // Occasionally place a passive grazer on grass near the player in daylight, or a
-  // zombie on any walkable ground at night, each under its own cap. Called on a
-  // four-second timer, and each call is itself a coin flip — the world fills up
-  // slowly rather than all at once.
+  // zombie anywhere dark enough, each under its own cap. Called on a four-second
+  // timer, and each call is itself a coin flip — the world fills up slowly rather
+  // than all at once.
   //
   // The caps below are what actually decide how many mobs a world holds: the timer
   // and the coin flip only set how fast it fills to them. The web build's were
@@ -125,11 +144,43 @@ class EntityManager {
   static constexpr int kMaxSheep = 2;
   static constexpr int kMaxPig = 2;
   static constexpr int kMaxCow = 1;
+  // Zombies are no longer bounded by dawn — a cave is dark at noon — so this cap
+  // is now the only thing standing between the player and an endless queue of
+  // them. Two at a time near you, same as before, plus whatever an altar is
+  // making, which is counted separately and deliberately.
   static constexpr int kMaxZombies = 2;
+
+  // How far a hostile may drift from the player before it is culled. Under the
+  // old rules the sun did this job: every zombie burned away at dawn, so the cap
+  // cleared itself daily. Cave spawns never see the sun, and a mob in an unloaded
+  // chunk is frozen rather than removed, so without this the two slots fill once
+  // with mobs nobody will ever meet again and the night goes quiet forever.
+  // Comfortably outside the 40-block spawn ring, so nothing is culled the moment
+  // it appears.
+  static constexpr float kHostileDespawn = 72.0f;
+
+  // How far up and down a column the spawn search sweeps, around the player's own
+  // height. Deeper than it is tall because that is where the dark is: the ceiling
+  // of the band only has to clear a hill you are standing at the foot of.
+  static constexpr int kSpawnBandDown = 32;
+  static constexpr int kSpawnBandUp = 16;
+
+  // Evil Altar. Range is the half-width of the box searched around the player, so
+  // an altar wakes at 7 blocks; the crowd limit is how many zombies may already be
+  // standing within kAltarCrowdRadius of it before it stops adding more.
+  static constexpr int kAltarRange = 7;
+  static constexpr int kAltarCrowd = 4;
+  static constexpr float kAltarCrowdRadius = 12.0f;
 
   void trySpawnGrazer(world::World& world, EntityType type, float px, float pz, float dayFactor,
                       int cap);
-  void trySpawnZombie(world::World& world, float px, float pz, float dayFactor);
+  // `player` rather than a flat (x, z): the search is a vertical band around the
+  // player now, not a walk down to the surface, so it needs their height too.
+  void trySpawnZombie(world::World& world, const Vec3& player, float dayFactor);
+  // Every Evil Altar within range of the player gets a chance to breed. Separate
+  // from trySpawnZombie because an altar answers to its own local cap: a dungeon
+  // that stopped at the world's two-zombie ceiling would not be a dungeon.
+  void tickEvilAltars(world::World& world, const Vec3& player, float dayFactor);
 
   std::vector<Entity>& all() { return entities_; }
   const std::vector<Entity>& all() const { return entities_; }
@@ -148,6 +199,9 @@ class EntityManager {
   const AIServices& ai() const { return ai_; }
 
  private:
+  // One altar's turn: its own crowd check, then four tries at a cell around it.
+  void spawnFromAltar(world::World& world, int ax, int ay, int az, float dayFactor);
+
   std::vector<Entity> entities_;
   AIServices ai_;
   int nextId_ = 1;

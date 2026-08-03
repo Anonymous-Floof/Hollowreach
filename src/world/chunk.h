@@ -98,6 +98,13 @@ struct Chunk {
   bool generated = false;
   bool meshDirty = true;
   bool lightDirty = true;
+  // Has a light pass ever landed here? Distinct from `!lightDirty`, which is
+  // cleared at *submit* — so between submit and install a never-lit chunk claims
+  // to be clean while both its light arrays are still all zero. That reads as
+  // pitch darkness, which the renderer forgives (the chunk has no mesh yet
+  // either) and the monster spawner absolutely must not: it would take a sunlit
+  // meadow that had just streamed in for a cave.
+  bool lit = false;
 
   // A job of each kind is either out or not. The dirty flag above is what makes
   // the result usable: it is cleared at submit and set again by anything that

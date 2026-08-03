@@ -138,7 +138,11 @@ void Host::forget(PeerState& st) {
   if (!announce) return;
 
   ghosts_.removePlayer(pid);
+  // Their vote goes with them, and if they were the one who proposed the hour the
+  // question closes — the rest were answering them, not the clock.
   sleepVotes_.erase(pid);
+  if (sleepVotes_.empty()) sleepProposer_.clear();
+  broadcastSleepState();
   PlayerLeaveMsg leave;
   leave.playerId = pid;
   broadcast(MsgType::PlayerLeave, leave);
@@ -206,6 +210,18 @@ void Host::update(double dt, double now) {
       m.time = game_.sky->time;
       m.sleeping = game_.sky->isSleeping();
       broadcast(MsgType::Time, m, kNoPeer, Channel::Fast);
+    }
+  }
+
+  // Every guest gets tired at the same rate the host does, measured off the host's
+  // own clock — so the answer to "may I propose a sleep" is the same however
+  // laggy, paused or modified the asking client is.
+  if (game_.sky) {
+    const float hours = game_.sky->advanced() * render::Sky::kHoursPerDay;
+    if (hours > 0.0f) {
+      for (PeerState& p : peers_) {
+        p.hoursAwake = std::min(p.hoursAwake + hours, render::Sky::kHoursPerDay);
+      }
     }
   }
 }
@@ -668,40 +684,86 @@ void Host::onToss(PeerState& st, const TossMsg& m, double now) {
   game_.entities->spawnTossed(m.pos, m.dir, m.key, m.count, m.dura);
 }
 
+// A vote arriving from a guest. The tiredness rule is checked HERE and only for
+// the person who opens the question: whoever proposes an hour has to have earned
+// it, and everyone after them is simply agreeing. That is the whole point of the
+// rework — a group should not be held awake because one of them happens to have
+// napped more recently than the others.
 void Host::onSleep(PeerState& st, const SleepMsg& m) {
   if (!st.active) return;
   if (m.on) {
+    if (sleepVotes_.empty()) {
+      // Opening the question. The host owns the clock, so the host is also the one
+      // that knows whether this player is tired — it has been counting their hours
+      // since they joined.
+      if (st.hoursAwake < render::Sky::kRestedHours) {
+        NotifyMsg no;
+        no.message = "You are not tired yet";
+        sendTo(st.peer, MsgType::Notify, no);
+        return;
+      }
+      sleepTarget_ = m.target;
+      sleepProposer_ = st.name;
+    }
     sleepVotes_.insert(st.playerId);
   } else {
     sleepVotes_.erase(st.playerId);
+    if (sleepVotes_.empty()) sleepProposer_.clear();
   }
   tallySleep();
 }
 
-void Host::onLocalSleep(bool on) {
+void Host::onLocalSleep(bool on, float target) {
   if (on) {
+    if (sleepVotes_.empty()) {
+      if (game_.sky && !game_.sky->tired()) {
+        if (hooks_.notify) hooks_.notify("You are not tired yet");
+        return;
+      }
+      sleepTarget_ = target;
+      sleepProposer_ = name_;
+    }
     sleepVotes_.insert(playerId_);
   } else {
     sleepVotes_.erase(playerId_);
+    if (sleepVotes_.empty()) sleepProposer_.clear();
   }
   tallySleep();
+}
+
+void Host::broadcastSleepState() {
+  SleepStateMsg s;
+  s.active = !sleepVotes_.empty();
+  s.target = sleepTarget_;
+  s.proposer = sleepProposer_;
+  s.votes = static_cast<std::uint8_t>(std::min<std::size_t>(sleepVotes_.size(), 255));
+  s.needed = static_cast<std::uint8_t>(std::min(guestCount() + 1, 255));
+  broadcast(MsgType::SleepState, s);
 }
 
 void Host::tallySleep() {
   const std::size_t present = static_cast<std::size_t>(guestCount()) + 1;  // and the host
+  broadcastSleepState();
   NotifyMsg note;
   if (sleepVotes_.size() < present) {
     note.message = std::to_string(sleepVotes_.size()) + "/" + std::to_string(present) +
-                   " in bed";
+                   " in bed \xC2\xB7 until " + render::Sky::clockStringAt(sleepTarget_);
     broadcast(MsgType::Notify, note);
     if (hooks_.notify) hooks_.notify(note.message);
     return;
   }
   // Unanimous. The clock is the host's, so it sweeps here and the guests are told;
   // they do not each fast-forward their own copy and drift apart doing it.
-  if (game_.sky) game_.sky->startSleep();
+  const float span = game_.sky ? std::fmod(sleepTarget_ - game_.sky->time + 1.0f, 1.0f) : 0.0f;
+  if (game_.sky) game_.sky->startSleep(sleepTarget_);
+  // Everyone who was in bed wakes rested, which on this side means every peer:
+  // the tally only fires when all of them voted.
+  for (PeerState& p : peers_) p.hoursAwake = 0.0f;
   sleepVotes_.clear();
-  note.message = "Everyone slept through the night";
+  sleepProposer_.clear();
+  broadcastSleepState();
+  note.message = "Everyone sleeps for " +
+                 render::Sky::spanString(span <= 0.0005f ? 1.0f : span);
   broadcast(MsgType::Notify, note);
   if (hooks_.notify) hooks_.notify(note.message);
   if (game_.sky) {

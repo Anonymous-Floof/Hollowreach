@@ -34,24 +34,71 @@ void Sky::update(float dt) {
     time = std::fmod(time + step, 1.0f);
     advanced_ = step;
     sleepRemaining_ -= step;
-    if (sleepRemaining_ <= 1e-4f) sleeping_ = false;
+    if (sleepRemaining_ <= 1e-4f) {
+      sleeping_ = false;
+      // You wake rested. Hours slept deliberately do not count toward the next
+      // sleep — otherwise a twelve-hour night would leave you tired again on
+      // waking, and a bed would be usable twice in a row.
+      hoursAwake_ = 0.0f;
+    }
     return;
   }
 
   const float step = dt / dayLength;
   time = std::fmod(time + step, 1.0f);
   advanced_ = step;
+  hoursAwake_ += step * kHoursPerDay;
 }
 
 void Sky::startSleep(float target, float durationSeconds) {
   float remaining = std::fmod(target - time + 1.0f, 1.0f);
-  if (remaining < 1e-4f) remaining = 1.0f;  // already at dawn, so sleep a full day
+  if (remaining < 1e-4f) remaining = 1.0f;  // asked for the hour it already is: go round
+  // Scaled by how far there is to go, floored so a short nap is still a visible
+  // sweep rather than a cut. A full day round comes out at the 1.6 s the fixed
+  // duration used to be, which is what the fade was tuned against.
+  if (durationSeconds <= 0.0f) durationSeconds = 0.55f + 1.05f * remaining;
   sleeping_ = true;
+  sleepTarget_ = target;
   sleepRemaining_ = remaining;
   sleepRate_ = remaining / durationSeconds;
 }
 
-float Sky::sunHeight() const { return -std::cos(time * kPi * 2.0f); }
+void Sky::setHoursAwake(float hours) {
+  // Clamped rather than trusted: this arrives from a save file and from the
+  // network, and a nonsense value here would either lock a bed forever or unlock
+  // it permanently. A day's worth is as tired as it is meaningful to be.
+  if (!(hours > 0.0f)) hours = 0.0f;  // also catches NaN
+  hoursAwake_ = hours < kHoursPerDay ? hours : kHoursPerDay;
+}
+
+float Sky::sunHeightAt(float t) { return -std::cos(t * kPi * 2.0f); }
+float Sky::dayFactorAt(float t) { return clamp01((sunHeightAt(t) + 0.2f) / 1.2f); }
+
+std::string Sky::clockStringAt(float t) {
+  t = t - std::floor(t);
+  const int mins = static_cast<int>(t * 24.0f * 60.0f);
+  char buf[8];
+  std::snprintf(buf, sizeof(buf), "%02d:%02d", mins / 60, mins % 60);
+  return buf;
+}
+
+std::string Sky::spanString(float days) {
+  if (days < 0.0f) days = 0.0f;
+  // Rounded to the minute, then carried, so 59.7 minutes reads "1h 0m" rather than
+  // "0h 60m".
+  int total = static_cast<int>(std::lround(days * 24.0f * 60.0f));
+  const int hours = total / 60;
+  const int mins = total % 60;
+  char buf[24];
+  if (hours > 0) {
+    std::snprintf(buf, sizeof(buf), "%dh %dm", hours, mins);
+  } else {
+    std::snprintf(buf, sizeof(buf), "%dm", mins);
+  }
+  return buf;
+}
+
+float Sky::sunHeight() const { return sunHeightAt(time); }
 
 Vec3 Sky::sunDir() const {
   const float a = time * kPi * 2.0f;
@@ -60,7 +107,7 @@ Vec3 Sky::sunDir() const {
   return l > 0 ? d * (1.0f / l) : Vec3 {0, 1, 0};
 }
 
-float Sky::dayFactor() const { return clamp01((sunHeight() + 0.2f) / 1.2f); }
+float Sky::dayFactor() const { return dayFactorAt(time); }
 
 float Sky::daylight() const { return 0.12f + 0.88f * dayFactor(); }
 
@@ -107,11 +154,6 @@ Vec3 Sky::horizon() const {
 
 Vec3 Sky::zenith() const { return lerp3(kNightZenith, kDayZenith, dayFactor()); }
 
-std::string Sky::clockString() const {
-  const int mins = static_cast<int>(time * 24.0f * 60.0f);
-  char buf[8];
-  std::snprintf(buf, sizeof(buf), "%02d:%02d", mins / 60, mins % 60);
-  return buf;
-}
+std::string Sky::clockString() const { return clockStringAt(time); }
 
 }  // namespace hr::render

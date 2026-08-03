@@ -455,22 +455,25 @@ game::InteractHooks App::makeInteractHooks() {
     state_ = AppState::Inventory;
     window_.setPointerCaptured(false);
   };
+  // A bed no longer sleeps on contact. It opens the wheel, which is a clock you can
+  // read for nothing and a chooser you can only act on when you are tired enough.
+  // The decision of what the confirm button *does* is made here rather than in the
+  // screen, because it differs by mode and the screen should not know about the
+  // network at all.
   hooks.onSleep = [this] {
-    // Alone, a bed is just a bed. In company it is a vote, and the host is the
-    // only clock — a guest fast-forwarding its own sky would drift out of step
-    // with everyone else's night.
-    if (netGuest()) {
-      net::SleepMsg m;
-      m.on = true;
-      netClient_.sendSleep(m.on);
-      return;
+    if (!world_) return;
+    const float proposed = netHosting() ? netHost_.proposedSleep()
+                                        : (netGuest() ? netClient_.proposedSleep() : -1.0f);
+    if (proposed >= 0.0f) {
+      // Somebody is already waiting on an hour. Show theirs, and make this a yes.
+      interface_.timeWheel().openVote(
+          sky_.time, proposed,
+          netHosting() ? netHost_.proposer() : netClient_.proposer());
+    } else {
+      interface_.timeWheel().open(sky_.time);
     }
-    if (netHosting()) {
-      netHost_.onLocalSleep(true);
-      return;
-    }
-    sky_.startSleep();
-    interface_.notify().push("You slept through the night");
+    state_ = AppState::TimeWheel;
+    window_.setPointerCaptured(false);
   };
   // The Soul Anchor, from js/main.js:765-780. The bound point is a save field, which
   // is why binding it lands here rather than with the sleep and respawn systems it
@@ -591,6 +594,7 @@ void App::syncScreen() {
     case AppState::Map: interface_.setScreen(ui::Screen::Map); break;
     case AppState::Gallery: interface_.setScreen(ui::Screen::Gallery); break;
     case AppState::PaintingPick: interface_.openPaintingPicker(); break;
+    case AppState::TimeWheel: interface_.setScreen(ui::Screen::TimeWheel); break;
   }
 }
 
@@ -700,6 +704,25 @@ void App::wireInterface() {
     } else {
       applyPainting(x, y, z, std::move(art));
     }
+  };
+  interface_.timeWheel().onCancel = [this] { closeCurrentScreen(); };
+  interface_.timeWheel().onConfirm = [this](float target) {
+    closeCurrentScreen();
+    // Alone, a bed is just a bed. In company it is a proposal, and the host is the
+    // only clock — a guest fast-forwarding its own sky would drift out of step with
+    // everyone else's night.
+    if (netGuest()) {
+      netClient_.sendSleep(true, target);
+      return;
+    }
+    if (netHosting()) {
+      netHost_.onLocalSleep(true, target);
+      return;
+    }
+    const float span = std::fmod(target - sky_.time + 1.0f, 1.0f);
+    sky_.startSleep(target);
+    interface_.notify().push("You sleep for " +
+                             render::Sky::spanString(span <= 0.0005f ? 1.0f : span));
   };
   interface_.recipeBook().onAutoFill = [this](const game::Recipe& recipe) {
     // Only from a crafting screen: the book reached with H from the world has no
@@ -925,6 +948,7 @@ void App::closeCurrentScreen() {
     case AppState::RecipeBook:
     case AppState::Map:
     case AppState::PaintingPick:
+    case AppState::TimeWheel:
       resumePlaying();
       break;
     case AppState::Gallery:
@@ -982,6 +1006,7 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     inventory_ = loaded->inventory;
     entities_.load(loaded->entities);
     sky_.time = loaded->meta.time;
+    sky_.setHoursAwake(loaded->hoursAwake);
     hasSpawn_ = loaded->meta.hasSpawn;
     spawn_ = loaded->meta.spawn;
 
@@ -1228,6 +1253,7 @@ save::WorldSave App::buildSave() {
   out.meta.savedAt = save::nowSeconds();
   out.meta.gameVersion = HR_VERSION;
   out.meta.time = sky_.time;
+  out.hoursAwake = sky_.hoursAwake();
   out.meta.hasSpawn = hasSpawn_;
   out.meta.spawn = spawn_;
   if (world_) {
@@ -1557,9 +1583,9 @@ void App::updatePlaying(double dt) {
     entities_.tick(fdt, entityContext_);
   }
 
-  // Passive grazers on nearby grass in daylight, zombies on nearby ground at
-  // night, both capped and both on a four-second cadence. The host owns every
-  // entity in a multiplayer world, so a guest spawns nothing at all.
+  // Passive grazers on nearby grass in daylight, zombies anywhere dark enough,
+  // both capped and both on a four-second cadence. The host owns every entity in
+  // a multiplayer world, so a guest spawns nothing at all.
   if (netGuest()) {
     grazerSpawnT_ = zombieSpawnT_ = 0.0f;
   } else {
@@ -1579,7 +1605,11 @@ void App::updatePlaying(double dt) {
   if (zombieSpawnT_ >= 4.0f) {
     zombieSpawnT_ = 0.0f;
     if (ui::settings().flag("monsters")) {
-      entities_.trySpawnZombie(*world_, player_->pos().x, player_->pos().z, sky_.dayFactor());
+      const float day = sky_.dayFactor();
+      entities_.trySpawnZombie(*world_, player_->pos(), day);
+      // Altars share the timer but not the cap, and are equally subject to the
+      // setting: turning monsters off has to turn off every source of them.
+      entities_.tickEvilAltars(*world_, player_->pos(), day);
     }
   }
   }
@@ -1896,6 +1926,18 @@ bool App::applyStartScreen(const std::string& name) {
       {"map", AppState::Map, ui::MenuPage::Main, world::Station::None, false},
       {"gallery", AppState::Gallery, ui::MenuPage::Main, world::Station::None, false},
   };
+  // The bed is not in the table because it is the one screen that needs seeding
+  // rather than merely opening: the wheel has to be told the hour, and whether the
+  // sleep button is live is a property of the world rather than of the screen.
+  // "bed" captures the usable state and "bed-early" the refusal.
+  if (name == "bed" || name == "bed-early") {
+    sky_.setHoursAwake(name == "bed" ? render::Sky::kRestedHours : 1.5f);
+    interface_.timeWheel().open(sky_.time);
+    state_ = AppState::TimeWheel;
+    syncScreen();
+    window_.setPointerCaptured(false);
+    return true;
+  }
   for (const Entry& e : kEntries) {
     if (name != e.name) continue;
     state_ = e.state;

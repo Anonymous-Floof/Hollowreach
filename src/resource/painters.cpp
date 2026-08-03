@@ -994,6 +994,68 @@ std::vector<PainterEntry> buildPainters() {
     px(img, ox, oy, 8, 2, 150, 240, 226);
   });
 
+  // ---- evil altar: the soul anchor's opposite number --------------------------
+  //
+  // Same construction as the anchor — near-black stone with something burning
+  // inside it — turned from teal to ember, and caged. The block emits no light at
+  // all (a lit altar would stop monsters spawning around it), so every bit of the
+  // glow has to be painted: the bars are drawn lighter on the side facing the core
+  // and darker away from it, which is what sells an interior light source on a
+  // texture that never actually contributes one.
+  add("evil_altar_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x16121a), 8, rng);
+    // Interior glow, brightest at the middle and gone by the frame.
+    for (int y = 1; y < T - 1; ++y) {
+      for (int x = 1; x < T - 1; ++x) {
+        const double d = std::hypot(x - 7.5, y - 7.5);
+        if (d > 6.5) continue;
+        const double f = 1.0 - d / 6.5;
+        px(img, ox, oy, x, y, 22 + 150 * f * f, 18 + 44 * f * f, 26 + 30 * f * f);
+      }
+    }
+    // The ember at the heart of it.
+    static constexpr int kCore[][2] = {{7, 7}, {8, 7}, {7, 8}, {8, 8}};
+    for (const auto& p : kCore) px(img, ox, oy, p[0], p[1], 248, 158, 96);
+    px(img, ox, oy, 7, 6, 226, 96, 52);
+    px(img, ox, oy, 8, 9, 226, 96, 52);
+    // Cage: four bars, each with a lit edge on the side the ember is.
+    for (const int bx : {2, 6, 9, 13}) {
+      for (int y = 1; y < T - 1; ++y) {
+        px(img, ox, oy, bx, y, 44, 38, 50);
+        px(img, ox, oy, bx + (bx < 8 ? 1 : -1), y, 72, 58, 62);
+      }
+    }
+    // Frame, so stacked altars read as separate blocks.
+    for (int i = 0; i < T; ++i) {
+      px(img, ox, oy, i, 0, 58, 50, 62);
+      px(img, ox, oy, i, 15, 12, 10, 14);
+      px(img, ox, oy, 0, i, 48, 42, 54);
+      px(img, ox, oy, 15, i, 20, 17, 23);
+    }
+  });
+  add("evil_altar_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x16121a), 8, rng);
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double d = std::hypot(x - 7.5, y - 7.5);
+        if (d < 1.9) {
+          px(img, ox, oy, x, y, 250, 176, 112);  // the shaft down into the fire
+        } else if (d < 3.6 && rng.next() < 0.85) {
+          px(img, ox, oy, x, y, 186, 62, 44);
+        } else if (std::abs(d - 5.6) < 0.7) {
+          px(img, ox, oy, x, y, 96, 30, 34);  // a scored ring around the mouth
+        }
+      }
+    }
+    // Four notches on the ring, at the compass points, so the top has a facing.
+    static constexpr int kNotches[][2] = {{7, 1}, {8, 14}, {1, 8}, {14, 7}};
+    for (const auto& p : kNotches) px(img, ox, oy, p[0], p[1], 150, 48, 46);
+    for (int i = 0; i < T; ++i) {
+      px(img, ox, oy, i, 0, 52, 44, 56);
+      px(img, ox, oy, 0, i, 52, 44, 56);
+    }
+  });
+
   // ---- papyrus ----
   add("papyrus_stem", [](Image& img, int ox, int oy, Mulberry32& rng) {
     for (const auto& stem : kPapyrusStems) {

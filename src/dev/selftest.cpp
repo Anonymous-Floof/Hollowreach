@@ -28,6 +28,7 @@
 #include "game/items.h"
 #include "game/player.h"
 #include "game/raycast.h"
+#include "game/recipes.h"
 #include "render/sky.h"
 #include "render/viewmodel.h"
 #include "ui/inventoryui.h"
@@ -42,6 +43,7 @@
 #include "save/transfer.h"
 #include "ui/dom.h"
 #include "ui/text.h"
+#include "ui/timewheel.h"
 #include "world/water.h"
 #include "world/world.h"
 
@@ -1424,6 +1426,253 @@ void testEntities() {
            burned ? burned->data.health : 0.0f);
   }
 
+  // --- where monsters may appear ---------------------------------------------
+  //
+  // The rule is light level zero and nothing else: no clock, no "must be the
+  // surface". Every check below is the same predicate the world spawner and the
+  // Evil Altar both run.
+  {
+    auto world = makeArena();
+    world->waitForIdle(kOriginX, kOriginZ);
+
+    // A sealed chamber inside the arena: floor already there at kY-1, walls at
+    // kY..kY+1 around a 5x5, roof at kY+2. Nothing else in the arena is roofed,
+    // so this is the only genuinely dark cell in it.
+    for (int x = 17; x <= 23; ++x) {
+      for (int z = 17; z <= 23; ++z) {
+        world->setBlock(x, kY + 2, z, world::wk().greystone, 0);
+        const bool wall = x == 17 || x == 23 || z == 17 || z == 23;
+        if (!wall) continue;
+        world->setBlock(x, kY, z, world::wk().greystone, 0);
+        world->setBlock(x, kY + 1, z, world::wk().greystone, 0);
+      }
+    }
+    world->waitForIdle(kOriginX, kOriginZ);
+
+    render::Sky sky;
+    sky.time = 0.5f;
+    const float noon = sky.dayFactor();
+    sky.time = 0.0f;
+    const float midnight = sky.dayFactor();
+    checkf(noon > 0.9f && midnight == 0.0f, "noon is %.2f and midnight is %.2f", noon, midnight);
+
+    checkf(game::effectiveLight(*world, 10, kY, 10, noon) == 15,
+           "open arena floor reads full light at noon (%d)",
+           game::effectiveLight(*world, 10, kY, 10, noon));
+    check(!game::monsterSpawnable(*world, 10, kY, 10, noon),
+          "so nothing spawns on open ground in daylight");
+    checkf(game::effectiveLight(*world, 10, kY, 10, midnight) == 0,
+           "the same cell reads zero at midnight (%d)",
+           game::effectiveLight(*world, 10, kY, 10, midnight));
+    check(game::monsterSpawnable(*world, 10, kY, 10, midnight),
+          "and monsters spawn on it after dark, as they always did");
+
+    // The headline change: a roofed cave is dark at noon.
+    checkf(game::effectiveLight(*world, 20, kY, 20, noon) == 0,
+           "a sealed chamber reads zero light at noon (%d)",
+           game::effectiveLight(*world, 20, kY, 20, noon));
+    check(game::monsterSpawnable(*world, 20, kY, 20, noon),
+          "so monsters spawn in caves regardless of the time of day");
+    check(game::monsterSpawnable(*world, 20, kY, 20, midnight),
+          "and at night too, which is the same rule and not a second one");
+
+    // A torch is a torch at every hour.
+    world->setBlock(21, kY, 20, world::wk().emberlight, 0);
+    world->waitForIdle(kOriginX, kOriginZ);
+    checkf(game::effectiveLight(*world, 20, kY, 20, noon) > 0,
+           "a torch lights the chamber (%d)", game::effectiveLight(*world, 20, kY, 20, noon));
+    check(!game::monsterSpawnable(*world, 20, kY, 20, noon),
+          "and lighting a cave is what stops it spawning");
+    world->setBlock(21, kY, 20, world::kAir, 0);
+    world->waitForIdle(kOriginX, kOriginZ);
+    check(game::monsterSpawnable(*world, 20, kY, 20, noon), "take the torch away and it is back");
+
+    // Standing room and dry footing, both still required.
+    world->setBlock(20, kY + 1, 20, world::wk().greystone, 0);
+    check(!game::monsterSpawnable(*world, 20, kY, 20, noon),
+          "a cell with no headroom is not a spawn");
+    world->setBlock(20, kY + 1, 20, world::kAir, 0);
+    world->setBlock(20, kY - 1, 20, world::wk().water, 0);
+    check(!game::monsterSpawnable(*world, 20, kY, 20, noon),
+          "and nor is one standing on water");
+    world->setBlock(20, kY - 1, 20, world::wk().greystone, 0);
+
+    // A generated-but-unlit chunk must read as bright, not as dark. Its light
+    // arrays are all zero until a pass lands on them, and zero is exactly what a
+    // cave looks like — so without the guard every meadow that had just streamed
+    // in would be a spawn site for the frame or two before it was lit.
+    //
+    // The apron ring is the reproducible version of that window: generation
+    // reaches renderDistance + 1 and lighting only reaches renderDistance, so a
+    // chunk out there is generated and permanently unlit. Here that is chunk 3,
+    // which at this render distance sits inside the 20-40 block spawn ring.
+    constexpr int kApronX = 3 * 16 + 8;
+    check(world->chunkReady(3, 0), "the apron chunk is generated");
+    check(!world->lightReady(3, 0), "and deliberately never lit");
+    world->setBlock(kApronX, kY - 1, 8, world::wk().greystone, 0);
+    world->setBlock(kApronX, kY, 8, world::kAir, 0);
+    world->setBlock(kApronX, kY + 1, 8, world::kAir, 0);
+    checkf(game::effectiveLight(*world, kApronX, kY, 8, noon) == 15,
+           "an unlit chunk reads bright rather than dark (%d)",
+           game::effectiveLight(*world, kApronX, kY, 8, noon));
+    check(!game::monsterSpawnable(*world, kApronX, kY, 8, noon),
+          "so ground whose light has not been computed is not a spawn site");
+  }
+
+  // --- the world spawner finds a cave ----------------------------------------
+  {
+    auto world = makeArena();
+    world->waitForIdle(kOriginX, kOriginZ);
+
+    // A sealed room out in the 20-40 block spawn ring, at (39, 8) — 30 blocks from
+    // the player's column. Its own floor, because out here the arena's has ended.
+    //
+    // Kept clear of a chunk border on purpose: lighting is chunk-local with
+    // one-cell neighbour seeding (world/lighting.h), so a sealed room straddling a
+    // seam keeps a little leaked skylight along it for as long as neither side is
+    // relit again. That is a known approximation of the lighting, not of the spawn
+    // rule, and a test of the spawn rule should not be measuring it.
+    constexpr int kRx = 39, kRz = 8;
+    for (int x = kRx - 3; x <= kRx + 3; ++x) {
+      for (int z = kRz - 3; z <= kRz + 3; ++z) {
+        world->setBlock(x, kY - 1, z, world::wk().greystone, 0);
+        world->setBlock(x, kY, z, world::kAir, 0);
+        world->setBlock(x, kY + 1, z, world::kAir, 0);
+        world->setBlock(x, kY + 2, z, world::wk().greystone, 0);
+        const bool wall = x == kRx - 3 || x == kRx + 3 || z == kRz - 3 || z == kRz + 3;
+        if (!wall) continue;
+        world->setBlock(x, kY, z, world::wk().greystone, 0);
+        world->setBlock(x, kY + 1, z, world::wk().greystone, 0);
+      }
+    }
+    world->waitForIdle(kOriginX, kOriginZ);
+
+    render::Sky sky;
+    sky.time = 0.5f;  // noon, where the old rule would have refused outright
+    game::EntityManager entities;
+    const Vec3 player{kOriginX, static_cast<float>(kY), kOriginZ};
+
+    // Stated separately from the search below, so a failure says whether the room
+    // is not dark or the search is not finding it.
+    checkf(game::monsterSpawnable(*world, kRx, kY, kRz, sky.dayFactor()),
+           "the buried room is spawnable ground at noon (light %d)",
+           game::effectiveLight(*world, kRx, kY, kRz, sky.dayFactor()));
+
+    int inRoom = 0, elsewhere = 0;
+    for (int i = 0; i < 600; ++i) {
+      entities.trySpawnZombie(*world, player, sky.dayFactor());
+      for (game::Entity& e : entities.all()) {
+        if (e.dead) continue;
+        const bool here = std::fabs(e.pos.x - (kRx + 0.5f)) <= 2.5f &&
+                          std::fabs(e.pos.z - (kRz + 0.5f)) <= 2.5f &&
+                          std::fabs(e.pos.y - static_cast<float>(kY)) < 0.5f;
+        if (here) {
+          ++inRoom;
+        } else {
+          ++elsewhere;
+        }
+        e.dead = true;  // clear the cap so the next call is a fresh draw
+      }
+    }
+    checkf(inRoom > 0, "the spawner finds a buried room at noon (%d spawns in it)", inRoom);
+    checkf(elsewhere == 0, "and puts nothing on the sunlit ground around it (%d)", elsewhere);
+  }
+
+  // --- hostiles despawn at range, animals do not ------------------------------
+  {
+    auto world = makeArena();
+    game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::Inventory inv;
+    game::EntityManager entities;
+    render::Sky sky;
+    game::EntityContext ctx;
+    ctx.world = world.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+    ctx.sky = &sky;
+
+    const float far = game::EntityManager::kHostileDespawn + 20.0f;
+    entities.spawn(game::EntityType::Zombie, Vec3{kOriginX + far, static_cast<float>(kY), kOriginZ});
+    entities.spawn(game::EntityType::Sheep, Vec3{kOriginX + far, static_cast<float>(kY), kOriginZ});
+    entities.spawn(game::EntityType::Zombie, Vec3{kOriginX + 6.0f, static_cast<float>(kY),
+                                                  kOriginZ});
+    entities.tick(1.0f / 60.0f, ctx);
+
+    int zombies = 0, sheep = 0;
+    for (const game::Entity& e : entities.all()) {
+      if (e.dead) continue;
+      if (e.type == game::EntityType::Zombie) ++zombies;
+      if (e.type == game::EntityType::Sheep) ++sheep;
+    }
+    checkf(zombies == 1, "a hostile far from the player is culled, a near one is not (%d left)",
+           zombies);
+    check(sheep == 1, "and an animal you left somewhere stays there");
+  }
+
+  // --- the Evil Altar ---------------------------------------------------------
+  {
+    const world::BlockId altar = world::blocks().idOf("evil_altar");
+    check(altar != world::kAir, "the Evil Altar is registered");
+    check(world::blocks().def(altar).drop.empty(),
+          "and mining one destroys it rather than dropping it");
+    bool crafted = false;
+    for (const game::Recipe& r : game::recipeBook().recipes()) {
+      if (r.outKey == "evil_altar") crafted = true;
+    }
+    check(!crafted, "and there is no recipe for one");
+
+    auto world = makeArena();
+    world->waitForIdle(kOriginX, kOriginZ);
+    // The same sealed chamber as above, with an altar in the middle of it.
+    for (int x = 17; x <= 23; ++x) {
+      for (int z = 17; z <= 23; ++z) {
+        world->setBlock(x, kY + 2, z, world::wk().greystone, 0);
+        const bool wall = x == 17 || x == 23 || z == 17 || z == 23;
+        if (!wall) continue;
+        world->setBlock(x, kY, z, world::wk().greystone, 0);
+        world->setBlock(x, kY + 1, z, world::wk().greystone, 0);
+      }
+    }
+    world->setBlock(20, kY, 20, altar, 0);
+    world->waitForIdle(kOriginX, kOriginZ);
+
+    render::Sky sky;
+    sky.time = 0.5f;  // noon: a dungeon does not wait for nightfall
+    game::EntityManager entities;
+    const Vec3 player{20.5f, static_cast<float>(kY), 20.5f};
+
+    for (int i = 0; i < 60 && entities.count() == 0; ++i) {
+      entities.tickEvilAltars(*world, player, sky.dayFactor());
+    }
+    checkf(entities.count() > 0, "an altar breeds zombies around itself at noon (%d)",
+           entities.count());
+
+    // It fills its own room and then stops, rather than emptying into it forever.
+    for (int i = 0; i < 400; ++i) entities.tickEvilAltars(*world, player, sky.dayFactor());
+    checkf(entities.count() <= game::EntityManager::kAltarCrowd,
+           "and stops at its own crowd limit (%d of %d)", entities.count(),
+           game::EntityManager::kAltarCrowd);
+
+    // Light the room and it goes quiet — the same rule, so the same off switch.
+    for (game::Entity& e : entities.all()) e.dead = true;
+    world->setBlock(19, kY, 19, world::wk().emberlight, 0);
+    world->setBlock(21, kY, 21, world::wk().emberlight, 0);
+    world->waitForIdle(kOriginX, kOriginZ);
+    game::EntityManager lit;
+    for (int i = 0; i < 200; ++i) lit.tickEvilAltars(*world, player, sky.dayFactor());
+    checkf(lit.count() == 0, "torching the room disarms the altar (%d)", lit.count());
+
+    // Out of range it does nothing at all, which is what keeps a distant dungeon
+    // from filling the world while you are nowhere near it.
+    for (game::Entity& e : entities.all()) e.dead = true;
+    game::EntityManager away;
+    const Vec3 distant{20.5f + game::EntityManager::kAltarRange + 4.0f,
+                       static_cast<float>(kY), 20.5f};
+    for (int i = 0; i < 200; ++i) away.tickEvilAltars(*world, distant, sky.dayFactor());
+    check(away.count() == 0, "and an altar nobody is near stays asleep");
+  }
+
   // --- the boat --------------------------------------------------------------
   {
     auto world = makeArena();
@@ -1523,6 +1772,10 @@ save::WorldSave makeSave() {
 
   s.explored = {world::chunkKey(0, 0), world::chunkKey(-2, -3), world::chunkKey(9, -9)};
 
+  // How long the player has been awake, so the bed's gate survives a reload rather
+  // than handing everyone a fresh night every time they load the world.
+  s.hoursAwake = 5.75f;
+
   game::BlockEntity chest = game::makeChest();
   chest.slots[2] = game::ItemStack{"planks", 31, -1};
   s.blockEntities[game::blockEntityKey(-5, 70, 12)] = chest;
@@ -1592,6 +1845,9 @@ void testSaves() {
   // and it only holds because the encoder sorts every map it writes.
   const std::vector<std::uint8_t> again = save::encode(back);
   check(again == bytes, "and re-encodes to byte-identical output");
+
+  checkf(back.hoursAwake == original.hoursAwake, "how long you have been awake survives (%.2f)",
+         back.hoursAwake);
 
   checkf(back.meta.name == original.meta.name && back.meta.seed == original.meta.seed &&
              back.meta.genVersion == original.meta.genVersion &&
@@ -2516,6 +2772,173 @@ int settleBlocks(world::World& w, int maxTicks) {
   return maxTicks;
 }
 
+// --- lighting across a chunk border ------------------------------------------
+//
+// Lighting is per chunk: each pass rebuilds one chunk from zero, reading its eight
+// neighbours' *stored* light to seed its border. That makes the whole thing a
+// fixed-point iteration, and a fixed-point iteration only converges if something
+// keeps kicking it — which for a long time nothing did. Installing a chunk's light
+// re-meshed its neighbours but never re-lit them, so light that had to cross a seam
+// crossed it only if the two chunks happened to be lit in the right order, and a
+// torch a block from a border lit its own chunk and stopped dead at the line.
+void testLighting() {
+  std::printf("lighting across chunk borders\n");
+
+  const world::BlockId torch = world::wk().emberlight;
+  auto w = makeArena();
+  w->waitForIdle(kOriginX, kOriginZ);
+
+  // A torch in the last column of chunk 0. Its light has to reach chunk 1, which
+  // begins one cell away.
+  w->setBlock(15, kY, 8, torch, 0);
+  w->waitForIdle(kOriginX, kOriginZ);
+
+  checkf(w->getBlockLight(15, kY, 8) == 14, "a torch lights its own cell to 14 (%d)",
+         w->getBlockLight(15, kY, 8));
+  checkf(w->getBlockLight(14, kY, 8) == 13, "and 13 one cell away inside its chunk (%d)",
+         w->getBlockLight(14, kY, 8));
+  // The seam. Same distance from the torch as the cell above, different chunk.
+  checkf(w->getBlockLight(16, kY, 8) == 13, "and 13 one cell away ACROSS the seam (%d)",
+         w->getBlockLight(16, kY, 8));
+  checkf(w->getBlockLight(20, kY, 8) == 9, "still falling off correctly five cells in (%d)",
+         w->getBlockLight(20, kY, 8));
+
+  // And it has to go away again the same way.
+  w->setBlock(15, kY, 8, world::kAir, 0);
+  w->waitForIdle(kOriginX, kOriginZ);
+  checkf(w->getBlockLight(16, kY, 8) == 0, "taking the torch away unlights the far side (%d)",
+         w->getBlockLight(16, kY, 8));
+
+  // Skylight has the same problem in reverse: a sealed room straddling a seam kept
+  // whatever daylight had leaked along it. This is the case the monster spawner
+  // trips over, since a lit cell is a cell it will not spawn in.
+  for (int x = 12; x <= 20; ++x) {
+    for (int z = 4; z <= 12; ++z) {
+      w->setBlock(x, kY + 2, z, world::wk().greystone, 0);
+      const bool wall = x == 12 || x == 20 || z == 4 || z == 12;
+      if (!wall) continue;
+      w->setBlock(x, kY, z, world::wk().greystone, 0);
+      w->setBlock(x, kY + 1, z, world::wk().greystone, 0);
+    }
+  }
+  w->waitForIdle(kOriginX, kOriginZ);
+  int brightest = 0;
+  for (int x = 13; x <= 19; ++x) {
+    for (int z = 5; z <= 11; ++z) brightest = std::max(brightest, w->getSky(x, kY, z));
+  }
+  checkf(brightest == 0, "a sealed room straddling a seam is dark all the way across (%d)",
+         brightest);
+}
+
+// --- sleeping ----------------------------------------------------------------
+//
+// A bed used to be a button that deleted the night. It is now a clock you can read
+// for free, an hour you choose, and a gate that says no until you have been up long
+// enough to have earned it.
+void testSleep() {
+  std::printf("sleep and the Time Wheel\n");
+
+  // --- the tiredness gate ---
+  {
+    render::Sky sky;
+    sky.time = 0.32f;
+    check(!sky.tired(), "a freshly rested player cannot go straight back to bed");
+    checkf(std::fabs(sky.hoursUntilTired() - render::Sky::kRestedHours) < 0.01f,
+           "and is told the whole eight hours are still to run (%.2f)", sky.hoursUntilTired());
+
+    // Run the clock forward the eight hours the gate asks for.
+    const float secondsPerHour = sky.dayLength / render::Sky::kHoursPerDay;
+    for (int i = 0; i < 8; ++i) {
+      for (int f = 0; f < 60; ++f) sky.update(secondsPerHour / 60.0f);
+    }
+    checkf(sky.tired(), "eight game hours awake makes one (%.2f h)", sky.hoursAwake());
+
+    // Sleeping resets it, and the hours slept do not count toward the next one.
+    sky.time = 0.8f;
+    sky.startSleep(0.27f);
+    check(sky.isSleeping(), "confirming starts the sweep");
+    for (int i = 0; i < 2000 && sky.isSleeping(); ++i) sky.update(1.0f / 60.0f);
+    checkf(std::fabs(sky.time - 0.27f) < 0.002f, "which lands on the hour asked for (%.3f)",
+           sky.time);
+    checkf(sky.hoursAwake() == 0.0f, "and you wake rested (%.2f h)", sky.hoursAwake());
+    check(!sky.tired(), "so a bed will not take you twice in a row");
+  }
+
+  // --- sleeping to an arbitrary hour, not just dawn ---
+  {
+    render::Sky sky;
+    sky.time = 0.5f;  // noon
+    sky.setHoursAwake(render::Sky::kRestedHours);
+    sky.startSleep(0.75f);  // an afternoon nap to dusk
+    for (int i = 0; i < 2000 && sky.isSleeping(); ++i) sky.update(1.0f / 60.0f);
+    checkf(std::fabs(sky.time - 0.75f) < 0.002f, "a nap ends where it was aimed (%.3f)",
+           sky.time);
+
+    // Asking for the hour it already is means a whole day round, not an instant
+    // no-op — which is what the wheel shows when the handle sits on `now`.
+    sky.time = 0.5f;
+    sky.startSleep(0.5f);
+    check(sky.isSleeping(), "asking for the current hour sleeps a full day round");
+  }
+
+  // --- the dial's geometry ---
+  {
+    float ux = 0, uy = 0;
+    ui::TimeWheel::timeToUnit(0.0f, ux, uy);
+    checkf(std::fabs(ux) < 0.001f && uy < -0.99f, "midnight is straight up (%.2f, %.2f)", ux,
+           uy);
+    ui::TimeWheel::timeToUnit(0.25f, ux, uy);
+    checkf(ux > 0.99f && std::fabs(uy) < 0.001f, "06:00 is a quarter turn clockwise (%.2f, %.2f)",
+           ux, uy);
+    ui::TimeWheel::timeToUnit(0.5f, ux, uy);
+    checkf(std::fabs(ux) < 0.001f && uy > 0.99f, "and noon is straight down (%.2f, %.2f)", ux,
+           uy);
+
+    // Every hour has to survive the round trip, or dragging the handle lands
+    // somewhere other than where the pointer is.
+    float worst = 0.0f;
+    for (int i = 0; i < 24; ++i) {
+      const float t = static_cast<float>(i) / 24.0f;
+      ui::TimeWheel::timeToUnit(t, ux, uy);
+      const float back = ui::TimeWheel::angleToTime(ux, uy);
+      float delta = std::fabs(back - t);
+      if (delta > 0.5f) delta = 1.0f - delta;  // across midnight
+      worst = std::max(worst, delta);
+    }
+    checkf(worst < 0.0005f, "a position on the rim reads back as the hour it was (%.5f)", worst);
+  }
+
+  // --- what the wheel offers when you open it ---
+  {
+    ui::TimeWheel wheel;
+    wheel.open(0.85f);  // late evening
+    checkf(std::fabs(wheel.target() - render::Sky::kDawn) < 0.01f,
+           "opened at night, the handle starts at dawn (%.3f)", wheel.target());
+    check(render::Sky::clockStringAt(wheel.target()) == "06:30",
+          "snapped to a round hour rather than the raw constant");
+    check(!wheel.isVote(), "and it is yours to move");
+
+    // Opened in the morning, dawn is a whole day away and a poor suggestion.
+    wheel.open(0.4f);
+    checkf(std::fabs(wheel.target() - render::Sky::kDawn) > 0.05f,
+           "opened after dawn it does not offer a 23-hour sleep (%.3f)", wheel.target());
+
+    wheel.openVote(0.85f, 0.31f, "Ada");
+    check(wheel.isVote(), "a bed opened on somebody else's proposal is a vote");
+    checkf(std::fabs(wheel.target() - 0.31f) < 0.001f, "showing their hour, not yours (%.3f)",
+           wheel.target());
+  }
+
+  // --- how a span reads ---
+  {
+    check(render::Sky::clockStringAt(0.0f) == "00:00", "midnight prints as 00:00");
+    check(render::Sky::clockStringAt(0.5f) == "12:00", "and noon as 12:00");
+    check(render::Sky::spanString(0.5f) == "12h 0m", "half a day is twelve hours");
+    check(render::Sky::spanString(1.0f / 24.0f) == "1h 0m", "an hour is an hour");
+    check(render::Sky::spanString(1.0f / 48.0f) == "30m", "and half of one drops the hours");
+  }
+}
+
 void testBlockSupport() {
   std::printf("block support\n");
   const world::BlockId stone = world::wk().greystone;
@@ -3393,15 +3816,41 @@ void testNetSession() {
     check(cows == 0, "and vanishes from the guest when the host's copy dies");
   }
 
-  // --- sleep is a vote, not a button ------------------------------------------
+  // --- sleep is a vote on somebody's hour --------------------------------------
   {
+    // The proposer has to have earned it. Nobody in this session has been awake
+    // for anything, so the first attempt is refused outright.
+    hostSky.setHoursAwake(0.0f);
+    host.onLocalSleep(true, 0.5f);
+    pump(10);
+    checkf(host.proposedSleep() < 0.0f, "a host who is not tired cannot open the question (%.2f)",
+           host.proposedSleep());
+
+    hostSky.setHoursAwake(render::Sky::kRestedHours);
     const float before = hostSky.time;
-    host.onLocalSleep(true);
+    host.onLocalSleep(true, 0.5f);
     pump(10);
     check(hostSky.time == before, "one of two players in bed does not skip the night");
-    client.sendSleep(true);
+    checkf(std::fabs(host.proposedSleep() - 0.5f) < 0.001f,
+           "the proposal is on the table at the hour they asked for (%.3f)",
+           host.proposedSleep());
+    checkf(std::fabs(client.proposedSleep() - 0.5f) < 0.001f,
+           "and the guest is told about it (%.3f)", client.proposedSleep());
+
+    // The guest is NOT tired, and that is deliberately not a problem: only the
+    // person who opens the question has to be.
+    guestSky.setHoursAwake(0.0f);
+    client.sendSleep(true, 0.9f);
     pump(30);
-    check(hostSky.isSleeping(), "and the second vote carries it");
+    check(hostSky.isSleeping(), "and an untired second vote still carries it");
+    checkf(std::fabs(hostSky.sleepTarget() - 0.5f) < 0.001f,
+           "at the proposer's hour, not the voter's (%.3f)", hostSky.sleepTarget());
+
+    // Run the sweep out and everyone is rested again.
+    for (int i = 0; i < 400 && hostSky.isSleeping(); ++i) hostSky.update(1.0f / 60.0f);
+    checkf(hostSky.hoursAwake() == 0.0f, "waking resets the clock (%.2f)",
+           hostSky.hoursAwake());
+    check(host.proposedSleep() < 0.0f, "and the question is closed again");
   }
 
   // --- guest progress survives the host's save ---------------------------------
@@ -3928,6 +4377,8 @@ int runSelfTest() {
   testPaintings();
   testRecipeConvenience();
   testWater();
+  testLighting();
+  testSleep();
   testBlockSupport();
   testCaveWater();
   testNet();

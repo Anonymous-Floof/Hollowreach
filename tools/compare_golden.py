@@ -73,13 +73,17 @@ KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)} | {"smelt(00
 # which are entries that exist on both sides and disagree: these exist only here,
 # so they surface as EXTRA rather than as a mismatch.
 #
-# Both are the painting. Anything added to the block registry or the recipe table
-# lands here, and the rule for adding one is that it must be registered LAST in its
-# table -- ids and recipe indices are handed out in order, and inserting in the
-# middle renumbers everything after it, which reads as a hundred failures in a
-# group where nothing actually changed.
+# The painting and the Evil Altar. Anything added to the block registry or the
+# recipe table lands here, and the rule for adding one is that it must be
+# registered LAST in its table -- ids and recipe indices are handed out in order,
+# and inserting in the middle renumbers everything after it, which reads as a
+# hundred failures in a group where nothing actually changed.
+#
+# The altar is two tiles and no recipe, which is the shape of a block that exists
+# for worldgen to place rather than for a player to craft.
 KNOWN_EXTRA = {
-    "atlas": {"tile(block/canvas)"},
+    "atlas": {"tile(block/canvas)", "tile(block/evil_altar_side)",
+              "tile(block/evil_altar_top)"},
     "recipes": {"recipe(140)"},
 }
 

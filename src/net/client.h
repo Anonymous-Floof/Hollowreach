@@ -54,7 +54,14 @@ class Client {
   void sendToss(const Vec3& pos, const Vec3& dir, const std::string& key, int count, int dura);
   void sendBoatSpawn(const Vec3& pos);
   void sendBoatMount(int entityId, bool on);
-  void sendSleep(bool on);
+  // `target` is the hour on the 0..1 clock this player would wake at. The host
+  // only reads it from whoever asks first; after that it is a yes to their hour.
+  void sendSleep(bool on, float target);
+
+  // The proposal the host says is on the table, or -1 when nobody has asked. A bed
+  // opened while this is set shows the proposal rather than a fresh chooser.
+  float proposedSleep() const { return sleepActive_ ? sleepTarget_ : -1.0f; }
+  const std::string& proposer() const { return sleepProposer_; }
   // A wayshard moved the player straight up, further in one step than the host's
   // movement check allows. Without this the host reads it as a speed hack and
   // teleports them back underground, which looks exactly like the item failing.
@@ -96,6 +103,12 @@ class Client {
   };
   std::vector<Member> roster_;
   std::string hostPlayerId_;
+
+  // Mirrors the host's sleep tally. Purely for the interface — the decision is
+  // never taken here.
+  bool sleepActive_ = false;
+  float sleepTarget_ = 0.27f;
+  std::string sleepProposer_;
 
   double poseTimer_ = 0;
   double stateTimer_ = 0;

@@ -29,6 +29,7 @@
 #include "ui/notify.h"
 #include "ui/settingsui.h"
 #include "ui/text.h"
+#include "ui/timewheel.h"
 #include "ui/ui2d.h"
 #include "ui/widgets.h"
 #include "world/blocks.h"
@@ -60,6 +61,9 @@ enum class Screen {
   RecipeBook,
   Map,
   Gallery,
+  // The bed's 24-hour dial. A screen rather than a HUD widget because it takes the
+  // cursor and pauses the world the same way a chest does.
+  TimeWheel,
 };
 
 // Everything a screen asks App to do. Assigned once at startup.
@@ -149,6 +153,7 @@ class Interface {
   void drawFullscreenImage(const Window& window, GLuint texture, float imageAspect);
   Atlas& atlas() { return atlas_; }
   Gallery& gallery() { return gallery_; }
+  TimeWheel& timeWheel() { return timeWheel_; }
   RecipeBook& recipeBook() { return recipeBook_; }
   Ui2D& ui() { return ui_; }
   Text& text() { return text_; }
@@ -189,6 +194,7 @@ class Interface {
   Atlas atlas_;
   RecipeBook recipeBook_;
   Gallery gallery_;
+  TimeWheel timeWheel_;
   bool pendingPicker_ = false;
   Backdrop backdrop_;
   TweenStore tweens_;

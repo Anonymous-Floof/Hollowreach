@@ -247,6 +247,16 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
       gallery_.update(ui_, text_, event, tweens_);
       gallery_.draw(ui_, text_);
       break;
+    case Screen::TimeWheel:
+      // Needs the sky and nothing else — it is a clock face over a paused world.
+      if (frame.sky) {
+        timeWheel_.update(ui_, text_, event, *frame.sky);
+        // update() can confirm, which closes this screen from under us; drawing a
+        // dial over a world that has already started fast-forwarding would be a
+        // frame of the wrong thing.
+        if (screen_ == Screen::TimeWheel) timeWheel_.draw(ui_, text_, *frame.sky);
+      }
+      break;
     case Screen::Boot:
     case Screen::None:
       break;

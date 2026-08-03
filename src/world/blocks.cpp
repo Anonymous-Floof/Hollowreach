@@ -396,6 +396,23 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "canvas", "Painting").render(RenderKind::Painting).tex("canvas").hard(0.3f)
       .solidClear().drops("canvas").needsGround().washesAway();
 
+  // Evil Altar: the monster spawner. Also last, and for the same reason as the
+  // painting above — appending is the only way to add a block without moving every
+  // id after it and reporting the whole world as changed.
+  //
+  // No recipe and `dropsNothing`, so there is no route to one in survival at all
+  // yet: it is here for the dungeons that will place it, and `--give evil_altar`
+  // for anyone who wants to look at it now. Mining it destroys it, which is what
+  // makes finding one and choosing not to break it a decision.
+  //
+  // Emits NO light, and that is load-bearing rather than an omission. Monsters
+  // spawn in light level zero, so an altar that glowed would be an altar that had
+  // switched itself off. Its darkness is the point; the runes have to look lit
+  // without the block being lit, which is a job for the texture.
+  Builder(B, "evil_altar", "Evil Altar").cube().solidOpaque()
+      .tex3("evil_altar_top", "evil_altar_side", "evil_altar_top").hard(5.0f)
+      .pick(tier::kStone).dropsNothing();
+
   // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
   //
