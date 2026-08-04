@@ -35,6 +35,15 @@ void Ghosts::Track::push(const Vec3& p, float y, float pit, double now) {
   // Out of order or duplicated: the older sample tells us nothing we do not
   // already have, and accepting it would drag the ghost backwards.
   if (now <= time) return;
+
+  // Learn this stream's pacing from the stream itself. 0.15 settles in well under
+  // a second at any rate worth playing at, and is slow enough that one late
+  // packet moves the estimate rather than defining it. Jitter tracks the mean
+  // deviation of the gap, which is the part a fixed constant could never know.
+  const double thisGap = now - time;
+  jitter += (std::fabs(thisGap - gap) - jitter) * 0.15;
+  gap += (thisGap - gap) * 0.15;
+
   prevPos = pos;
   prevYaw = yaw;
   prevPitch = pitch;
@@ -43,6 +52,16 @@ void Ghosts::Track::push(const Vec3& p, float y, float pit, double now) {
   yaw = y;
   pitch = pit;
   time = now;
+}
+
+double Ghosts::Track::delay() const {
+  if (!primed) return kStartInterpDelay;
+  // Enough to reach the next sample, plus twice the observed wobble. Two rather
+  // than one because the margin has to cover the late half of the distribution,
+  // not its average -- at one, every gap longer than usual freezes the ghost for
+  // the difference, which is visible as a stutter precisely when the link is
+  // having trouble.
+  return std::clamp(gap + 2.0 * jitter, kMinInterpDelay, kMaxInterpDelay);
 }
 
 void Ghosts::Track::sample(double at, Vec3& outPos, float& outYaw, float& outPitch) const {
@@ -156,7 +175,6 @@ bool Ghosts::playerPos(const std::string& playerId, Vec3& out) const {
 void Ghosts::update(double now) {
   nameplates_.clear();
   if (!entities_) return;
-  const double at = now - kInterpDelay;
 
   const auto findGhost = [this](int netId) -> game::Entity* {
     for (game::Entity& e : entities_->all()) {
@@ -168,7 +186,9 @@ void Ghosts::update(double now) {
   for (auto& [pid, g] : players_) {
     Vec3 pos;
     float yaw = 0, pitch = 0;
-    g.track.sample(at, pos, yaw, pitch);
+    // Each track carries its own delay: a host interpolating two guests is
+    // reading two independent streams that may be paced quite differently.
+    g.track.sample(now - g.track.delay(), pos, yaw, pitch);
 
     game::Entity* body = findGhost(g.netId);
     if (!body) {
@@ -202,7 +222,7 @@ void Ghosts::update(double now) {
   for (auto& [id, g] : entityGhosts_) {
     Vec3 pos;
     float yaw = 0, pitch = 0;
-    g.track.sample(at, pos, yaw, pitch);
+    g.track.sample(now - g.track.delay(), pos, yaw, pitch);
 
     game::Entity* body = findGhost(id);
     if (!body) {
@@ -231,3 +251,4 @@ void Ghosts::update(double now) {
 }
 
 }  // namespace hr::net
+

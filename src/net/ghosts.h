@@ -4,12 +4,28 @@
 // touches — `Entity::ghost` is checked by the manager's tick and by every AI hook
 // — so its position comes entirely from what arrives over the wire.
 //
-// The one idea worth stating: **render 150 ms in the past**. Snapshots arrive
-// about ten times a second, and drawing the newest one directly means a remote
-// player teleports 100 ms forward every time one lands. Holding two samples and
-// interpolating between them at `now - 150 ms` costs a sixth of a second of
-// latency and buys motion that is smooth at any packet rate, including one where
-// packets arrive late or out of order. The web build chose the same number.
+// The one idea worth stating: **render slightly in the past**. Drawing the newest
+// sample directly means a remote player teleports forward every time one lands,
+// so a ghost holds two samples and interpolates between them at a time a little
+// behind now. That costs latency and buys motion that is smooth at any packet
+// rate, including one where packets arrive late or out of order.
+//
+// How far behind is MEASURED, not a constant. It used to be a flat 150 ms,
+// inherited from the web build along with its 10 Hz snapshots; on a LAN where the
+// round trip is about a millisecond that was the single largest source of
+// apparent lag in the game, and no part of it looked at the connection.
+//
+// What the buffer has to cover is the gap until the NEXT sample arrives — if the
+// render time runs past the newest sample there is nothing to interpolate toward
+// and the ghost freezes. So the estimate is the smoothed inter-arrival gap plus a
+// margin for how much that gap varies. Note what is deliberately NOT in it:
+// latency. Samples are stamped with their local ARRIVAL time, so a slow link
+// shifts the whole timeline uniformly and is already paid for; adding the round
+// trip on top would charge for it twice.
+//
+// Estimated per track rather than globally, because the streams genuinely differ:
+// a guest interpolates the host's snapshot rate, while a host interpolates each
+// guest's pose rate separately, and with two guests those interleave.
 
 #pragma once
 
@@ -23,8 +39,14 @@
 
 namespace hr::net {
 
-// How far behind the newest sample a ghost is drawn.
-inline constexpr double kInterpDelay = 0.150;
+// Bounds on how far behind the newest sample a ghost is drawn. The floor is what
+// a 30 Hz stream with no jitter would need and still leaves room for a dropped
+// packet; the ceiling stops a link that has briefly fallen apart from putting
+// everybody a second in the past and leaving them there.
+inline constexpr double kMinInterpDelay = 0.045;
+inline constexpr double kMaxInterpDelay = 0.300;
+// What an unprimed track assumes before it has seen two samples.
+inline constexpr double kStartInterpDelay = 0.100;
 
 // Player ghosts are numbered from here up; entity ghosts keep the host's own
 // entity id, which counts from 1. Without the offset the two share one namespace,
@@ -36,6 +58,27 @@ inline constexpr int kPlayerNetBase = 1'000'000;
 
 class Ghosts {
  public:
+  // Two samples, the times they arrived, and what this stream's pacing looks
+  // like. Public because the delay estimate is the interesting behaviour in this
+  // file and the only way to test it without two machines and a stopwatch.
+  struct Track {
+    Vec3 prevPos, pos;
+    float prevYaw = 0, yaw = 0;
+    float prevPitch = 0, pitch = 0;
+    double prevTime = 0, time = 0;
+    bool primed = false;
+    // Smoothed inter-arrival gap and how much it varies, both in seconds, updated
+    // on every push. Exponential averages rather than a window: one number each,
+    // no history to keep, and they settle within a second of play.
+    double gap = kStartInterpDelay;
+    double jitter = 0.0;
+
+    void push(const Vec3& p, float y, float pit, double now);
+    void sample(double at, Vec3& pos, float& yaw, float& pitch) const;
+    // How far behind now this track should be drawn.
+    double delay() const;
+  };
+
   void attach(game::EntityManager* entities) { entities_ = entities; }
   void clear();
 
@@ -68,19 +111,6 @@ class Ghosts {
   bool playerPos(const std::string& playerId, Vec3& out) const;
 
  private:
-  // Two samples and the times they arrived. Anything older is of no use, and
-  // anything newer has not happened yet.
-  struct Track {
-    Vec3 prevPos, pos;
-    float prevYaw = 0, yaw = 0;
-    float prevPitch = 0, pitch = 0;
-    double prevTime = 0, time = 0;
-    bool primed = false;
-
-    void push(const Vec3& p, float y, float pit, double now);
-    void sample(double at, Vec3& pos, float& yaw, float& pitch) const;
-  };
-
   struct PlayerGhost {
     std::string name;
     Track track;

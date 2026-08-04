@@ -3869,6 +3869,81 @@ void testNet() {
 // milestone's own criterion — "two local instances: edits, combat, containers" —
 // run headlessly, where it is repeatable and where a failure names itself instead
 // of being a body that did not appear in a screenshot.
+// --- how far in the past a remote body is drawn --------------------------------
+//
+// The buffer a ghost holds used to be a flat 150 ms, inherited from the web build
+// together with its 10 Hz snapshots. On a LAN, where the round trip is about a
+// millisecond, that one constant was the largest source of visible lag in the
+// game and nothing about it looked at the connection.
+//
+// It is now measured from the stream itself. These checks are about the two ways
+// that can be wrong, and they pull in opposite directions: too small and the
+// render time runs past the newest sample, so the ghost reaches the end of what
+// it has and freezes until the next packet — a stutter, exactly when the link is
+// already struggling. Too large and it is the old problem back again.
+void testInterpDelay() {
+  std::printf("how far behind a ghost is drawn\n");
+
+  // Feeds a track at a steady rate and reports where it settles.
+  const auto settle = [](double period, double wobble) {
+    net::Ghosts::Track t;
+    double now = 100.0;
+    std::uint32_t state = 7u;
+    for (int i = 0; i < 400; ++i) {
+      state = state * 1664525u + 1013904223u;
+      const double j = wobble * ((state >> 16) % 1000) / 1000.0;
+      now += period + j;
+      t.push(Vec3{static_cast<float>(i), 0, 0}, 0, 0, now);
+    }
+    return std::pair<net::Ghosts::Track, double>{t, now};
+  };
+
+  {
+    auto [fast, now] = settle(0.050, 0.0);
+    checkf(fast.delay() < 0.075, "a clean 20 Hz stream settles near its own gap (%.0f ms)",
+           fast.delay() * 1000.0);
+    checkf(fast.delay() >= net::kMinInterpDelay, "but never below the floor (%.0f ms)",
+           fast.delay() * 1000.0);
+
+    // The property that matters: the render time must land BETWEEN the two samples
+    // held, not past the newest. Past it there is nothing to interpolate toward
+    // and the body stops dead until the next packet lands.
+    const double at = now - fast.delay();
+    check(at <= fast.time, "and the drawn instant is not ahead of the newest sample");
+    check(at >= fast.prevTime, "nor behind the older one, which would freeze it");
+  }
+
+  {
+    auto [slow, unusedA] = settle(0.200, 0.0);
+    auto [fast, unusedB] = settle(0.050, 0.0);
+    checkf(slow.delay() > fast.delay() * 2.0,
+           "a 5 Hz stream buffers far more than a 20 Hz one (%.0f vs %.0f ms)",
+           slow.delay() * 1000.0, fast.delay() * 1000.0);
+  }
+
+  {
+    // Same average rate, one of them erratic. The jittery one has to hold more, or
+    // every longer-than-usual gap shows as a stutter.
+    auto [steady, unusedC] = settle(0.050, 0.0);
+    auto [jittery, unusedD] = settle(0.050, 0.060);
+    checkf(jittery.delay() > steady.delay(),
+           "and a jittery stream buffers more than a steady one at the same rate "
+           "(%.0f vs %.0f ms)",
+           jittery.delay() * 1000.0, steady.delay() * 1000.0);
+    checkf(jittery.delay() <= net::kMaxInterpDelay, "without running past the ceiling (%.0f ms)",
+           jittery.delay() * 1000.0);
+  }
+
+  // What this is all for, stated as the number that changed: on the rate the host
+  // now sends at, a remote player is drawn a great deal closer to the present than
+  // the old fixed 150 ms managed.
+  {
+    auto [lan, unusedE] = settle(0.050, 0.002);
+    checkf(lan.delay() < 0.100, "so a LAN ghost lands well inside the old 150 ms (%.0f ms)",
+           lan.delay() * 1000.0);
+  }
+}
+
 void testNetSession() {
   std::printf("multiplayer session\n");
 
@@ -4747,6 +4822,7 @@ int runSelfTest() {
   testCaveWater();
   testNet();
   testRemoteEditSink();
+  testInterpDelay();
   testNetSession();
   testNetBigWorld();
   testNetGuestToGuest();

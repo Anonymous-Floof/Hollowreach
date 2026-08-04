@@ -16,7 +16,10 @@
 namespace hr::net {
 namespace {
 
-constexpr double kPosePeriod = 1.0 / 15.0;   // js/net/client.js sends at 15 Hz
+// A guest's own pose. 20 Hz, matched to the host's snapshot rate: sending more
+// often than the host relays only adds a sample the host throws away, and less
+// often makes the guest the coarsest link in the chain the ghosts buffer for.
+constexpr double kPosePeriod = 1.0 / 20.0;
 constexpr double kStatePeriod = 10.0;        // inventory and player, for the host's save
 constexpr double kConnectTimeout = 8.0;
 

@@ -23,8 +23,13 @@ namespace {
 constexpr float kEditReach = 14.0f;  // generous: covers the leaf-decay halo
 constexpr float kHitReach = 8.0f;    // 6 blocks of raycast plus interpolation slack
 constexpr float kBeReach = 8.0f;
-constexpr double kSnapPeriod = 0.100;   // entity snapshots, 10 Hz
-constexpr double kEditFlush = 0.090;    // outgoing edit batches
+// Entity snapshots. 20 Hz, up from the 10 the web build used, because the ghost
+// interpolation has to buffer a whole inter-arrival gap before it can draw
+// anything — so the send rate, not the latency, is what sets the floor on how far
+// in the past a remote player is drawn. Halving the gap halves that floor, and a
+// snapshot is small: a few hundred bytes for a busy world on an unreliable
+// channel, which is a few kilobytes a second.
+constexpr double kSnapPeriod = 0.050;
 constexpr double kTimePeriod = 2.0;     // authoritative clock
 
 float dist3(const Vec3& a, const Vec3& b) {
@@ -81,7 +86,7 @@ bool Host::start(std::uint16_t port, const std::string& playerId, const std::str
   pendingEdits_.clear();
   beLocks_.clear();
   sleepVotes_.clear();
-  editTimer_ = snapTimer_ = timeTimer_ = 0;
+  snapTimer_ = timeTimer_ = 0;
   return true;
 }
 
@@ -192,11 +197,16 @@ void Host::update(double dt, double now) {
   // Poses arrive continuously; the ghosts are what the host draws.
   ghosts_.update(now);
 
-  editTimer_ += dt;
-  if (editTimer_ >= kEditFlush) {
-    editTimer_ = 0;
-    flushEdits();
-  }
+  // Every frame, not on a timer. The 90 ms one this replaces was batching for its
+  // own sake: an edit already coalesces with everything else that happened in the
+  // same frame into a single EditsMsg, so the timer bought no extra packing that
+  // mattered and charged up to 90 ms for it — on a link whose round trip is about
+  // one. That was the delay between one player breaking a block and the other
+  // seeing it go, and it was ninety times the network.
+  //
+  // A burst still batches: a flood of water writes hundreds of cells in one tick
+  // and they leave together, capped at the protocol's 512 per message.
+  flushEdits();
   snapTimer_ += dt;
   if (snapTimer_ >= kSnapPeriod) {
     snapTimer_ -= kSnapPeriod;

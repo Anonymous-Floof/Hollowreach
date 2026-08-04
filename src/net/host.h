@@ -158,7 +158,6 @@ class Host {
   // Edits are batched: a player mining a tree produces a burst, and one packet
   // per cell is a packet per millisecond.
   std::vector<EditMsg> pendingEdits_;
-  double editTimer_ = 0;
   double snapTimer_ = 0;
   double timeTimer_ = 0;
 
