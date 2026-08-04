@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.6.0] - 2026-08-04
+
 > **Multiplayer needs both machines on this version.** A world's difficulty and
 > cheat rules are now the host's to set, and an older build has no idea they
 > exist — it would quietly go on applying its own monster and flight settings in
@@ -591,7 +593,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.5.1...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.6.0
 [2.5.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.1
 [2.5.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.4.0
