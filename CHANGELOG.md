@@ -15,6 +15,34 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Fixed
+- **Worlds on your network actually show up now.** A world announced itself with
+  a single broadcast, and a broadcast only leaves your machine by *one* network
+  card — so on any PC with Hyper-V, WSL, VirtualBox or a VPN installed, the
+  announcement could sail off into a virtual network with nobody on it. Nothing
+  reported an error. That is why hosting from one machine worked while hosting
+  from the other did not, and why typing the address in by hand often worked when
+  the list stayed empty. A world is now announced on every network your machine
+  is actually on, and the Join screen also *asks* rather than only listening, so
+  a world usually appears the moment you open it.
+  If a world still does not appear, the other cause is Windows Firewall, which
+  silently drops incoming announcements for a program it has never been asked
+  about — allow Hollowreach through for Private networks on the hosting machine.
+  Run with `--verbose` and the log now names every network it is announcing on.
+
+### Changed
+- **Playing on the same network stops feeling like playing across an ocean.**
+  Other players and mobs were drawn a fixed sixth of a second in the past, on top
+  of a position that was sent ten times a second and relayed ten times a second —
+  about a quarter of a second of delay on a connection whose real round trip is
+  roughly one millisecond. None of those numbers looked at the connection. The
+  game now measures how fast updates are actually arriving and holds back only as
+  much as it needs, positions go out twice as often, and a block someone else
+  breaks reaches you on the next frame instead of up to a tenth of a second later.
+  On a LAN that is roughly a two-and-a-half times cut in visible lag; on a poor
+  connection it still buffers as much as it did, because now it can tell the
+  difference.
+
 ## [2.5.0] - 2026-08-04
 
 ### Changed
