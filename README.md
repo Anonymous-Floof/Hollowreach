@@ -90,6 +90,18 @@ One command, from a clean checkout, with no environment set up by hand:
 The build fetches GLFW and ENet itself; everything else is vendored in
 `third_party/`. The result is `build/RelWithDebInfo/bin/Hollowreach`.
 
+If you are going to commit, turn on the repository's hook once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It refuses a commit that would put your machine into the repository — a build
+artefact, or a file containing your home directory or account name. Both times
+that has happened here it came from `git add -A` straight after running a tool
+that had quietly written something, and one of them was a compiled `.pyc` with
+an absolute path inside it that nobody would have thought to open.
+
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
 `--selftest` and the rest. `--selftest` runs 522 assertions with no window at

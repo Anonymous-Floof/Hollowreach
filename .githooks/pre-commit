@@ -1,0 +1,21 @@
+#!/bin/sh
+# Refuses a commit that would put this machine into the repository.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# See tools/check_staged.py for what it looks for and why. Both incidents it
+# exists to prevent came from `git add -A` straight after running a tool that
+# had quietly written something.
+for py in py python3 python; do
+  if command -v "$py" >/dev/null 2>&1; then
+    if [ "$py" = "py" ]; then
+      exec "$py" -3 tools/check_staged.py
+    fi
+    exec "$py" tools/check_staged.py
+  fi
+done
+# No Python is not a reason to block a commit -- this is a safety net, not a
+# dependency. Say so rather than failing open in silence.
+echo "pre-commit: no python found, skipping the staged-file check" >&2
+exit 0
