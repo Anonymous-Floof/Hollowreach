@@ -23,3 +23,8 @@ dist/
 --*/
 data/
 
+
+# Python bytecode. A .pyc embeds the absolute path of the source it was
+# compiled from, so one committed from this tree carries the build machine.
+__pycache__/
+*.pyc

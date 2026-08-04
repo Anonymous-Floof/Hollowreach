@@ -3063,6 +3063,107 @@ void testLighting() {
   }
 }
 
+// --- what a bulk edit costs --------------------------------------------------
+//
+// The incremental light passes run synchronously on the main thread inside
+// setBlock. One torch is bounded by the light radius and nobody need worry, but
+// a player roofing over a valley or a cliff of sand collapsing is one BFS per
+// block, back to back, inside a single frame — and that is the case nothing else
+// here exercises.
+//
+// Measured in cells written rather than milliseconds, deliberately. Nothing
+// streams during these loops — setBlock does its light work synchronously and
+// hands nothing to a worker — so the count is identical on every machine and
+// every run, which a wall clock is not. The bounds are two to three times what
+// is observed: the point is to catch a change of ALGORITHM, an edit that starts
+// costing a whole chunk again, not to fail on a machine having a bad day.
+void testBulkEdits() {
+  std::printf("what a bulk edit costs\n");
+
+  // Leaves and glass are solidClear: solid, but not opaque. So a felled tree's
+  // decay cascade changes no opacity and emits nothing, and the light passes
+  // decline it outright. Worth an assertion rather than a comment, because
+  // somebody making leaves opaque for a shadow effect would otherwise turn every
+  // felled tree into a few hundred floods and have no idea why.
+  {
+    check(!world::blocks().opaque(world::wk().leaves), "leaves do not block light");
+    auto w = makeArena();
+    w->waitForIdle(kOriginX, kOriginZ);
+    const std::uint64_t before = w->lightWrites();
+    for (int x = 2; x <= 10; ++x) {
+      for (int z = 2; z <= 10; ++z) {
+        for (int y = kY; y <= kY + 3; ++y) w->setBlock(x, y, z, world::wk().leaves, 0);
+      }
+    }
+    for (int x = 2; x <= 10; ++x) {
+      for (int z = 2; z <= 10; ++z) {
+        for (int y = kY; y <= kY + 3; ++y) w->setBlock(x, y, z, world::kAir, 0);
+      }
+    }
+    checkf(w->lightWrites() == before, "so 648 leaves placed and cleared cost no light work (%llu)",
+           static_cast<unsigned long long>(w->lightWrites() - before));
+  }
+
+  // Roofing over open ground, then taking the roof off again. Every block placed
+  // shadows the column under it; every block removed lets the sun back down and
+  // then sideways. This is the heaviest thing a player can do by hand.
+  {
+    auto w = makeArena();
+    w->waitForIdle(kOriginX, kOriginZ);
+
+    const std::uint64_t start = w->lightWrites();
+    for (int x = 0; x <= 22; ++x) {
+      for (int z = 0; z <= 22; ++z) w->setBlock(x, kY + 5, z, world::wk().greystone, 0);
+    }
+    const std::uint64_t sealing = w->lightWrites() - start;
+
+    const std::uint64_t mid = w->lightWrites();
+    for (int x = 0; x <= 22; ++x) {
+      for (int z = 0; z <= 22; ++z) w->setBlock(x, kY + 5, z, world::kAir, 0);
+    }
+    const std::uint64_t opening = w->lightWrites() - mid;
+
+    // 529 blocks, and about 113 cells written per block: the shadow it casts and
+    // the sunlight that refills it. For scale, the scheme this replaced relit the
+    // whole 3x3 for every one of them — nine chunks, 49152 cells, two channels,
+    // roughly 885,000 cell writes PER BLOCK rather than for all 529 together.
+    checkf(sealing < 150000, "roofing 529 cells of sky costs %llu light writes",
+           static_cast<unsigned long long>(sealing));
+    checkf(opening < 50000, "and taking the roof off again costs %llu",
+           static_cast<unsigned long long>(opening));
+
+    // And the world is still exactly where a full rebuild would put it, which is
+    // the thing the counts must not have been bought at the expense of.
+    w->waitForIdle(kOriginX, kOriginZ);
+    std::string where;
+    const int drift = worstLightDrift(*w, where);
+    checkf(drift == 0, "with the light still correct afterwards (%s)",
+           drift == 0 ? "no drift" : where.c_str());
+  }
+
+  // A column of sand losing its floor: every block is opaque, so each step of the
+  // collapse is a real opacity change in both directions.
+  {
+    auto w = makeArena();
+    for (int y = kY; y <= kY + 5; ++y) {
+      for (int x = 4; x <= 12; ++x) {
+        for (int z = 4; z <= 12; ++z) w->setBlock(x, y, z, world::wk().sand, 0);
+      }
+    }
+    w->waitForIdle(kOriginX, kOriginZ);
+    const std::uint64_t before = w->lightWrites();
+    for (int x = 4; x <= 12; ++x) {
+      for (int z = 4; z <= 12; ++z) w->setBlock(x, kY - 1, z, world::kAir, 0);
+    }
+    // Almost free, and for a reason worth knowing: the sand was already in the
+    // dark under six of its own layers, so removing the floor under it changes
+    // barely any illumination at all. The expensive direction is opening ground
+    // to the SKY, not closing it.
+    checkf(w->lightWrites() - before < 2000, "dropping the floor from under 81 columns costs %llu",
+           static_cast<unsigned long long>(w->lightWrites() - before));
+  }
+}
+
 // --- sleeping ----------------------------------------------------------------
 //
 // A bed used to be a button that deleted the night. It is now a clock you can read
@@ -4640,6 +4741,7 @@ int runSelfTest() {
   testWater();
   testChunkStorage();
   testLighting();
+  testBulkEdits();
   testSleep();
   testBlockSupport();
   testCaveWater();

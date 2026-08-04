@@ -134,6 +134,72 @@ def _git_dirty():
         return False
 
 
+# ---- pre-ship checks ---------------------------------------------------------
+
+def _preflight():
+    """The two checks docs/RELEASING.md asks for, run rather than remembered.
+
+    There is no CI on this project, so until now both were a line in a document
+    and a habit. The self-test takes seconds; the golden gate takes rather longer
+    but is the only thing standing between a release and terrain shifting under
+    every existing save. Neither belongs on the honour system at the one moment
+    they matter most.
+
+    Deliberately NOT run by `package`: that is also how a zip gets rebuilt for a
+    second platform, and failing that on a check the first platform already
+    passed would be noise. This runs from `publish`, which happens once."""
+    exe = None
+    for cfg in ("RelWithDebInfo", "Release", "Debug"):
+        for name in ("Hollowreach.exe", "Hollowreach"):
+            p = os.path.join(ROOT, "build", cfg, "bin", name)
+            if os.path.isfile(p):
+                if exe is None or os.path.getmtime(p) > os.path.getmtime(exe):
+                    exe = p
+    if exe is None:
+        fail("no built executable to check — run build.bat first")
+
+    print("pre-ship check 1/2: --selftest")
+    r = subprocess.run([exe, "--selftest"], cwd=ROOT, capture_output=True, text=True)
+    tail = "\n".join(r.stdout.strip().splitlines()[-3:])
+    if r.returncode != 0:
+        print(tail)
+        fail("the self-test failed — fix it before shipping, or pass --skip-checks "
+             "if you genuinely mean to ship this")
+    print("  " + tail.strip())
+
+    print("pre-ship check 2/2: golden gate")
+    gate = os.path.join(ROOT, "tools", "compare_golden.py")
+    r = subprocess.run([sys.executable, gate], cwd=ROOT, capture_output=True, text=True)
+    print("\n".join("  " + l for l in r.stdout.strip().splitlines()[-6:]))
+    if r.returncode != 0:
+        fail("the golden gate found undeclared differences — either they are a "
+             "regression, or they belong in tools/golden/expected.txt with a reason")
+
+
+def _rebaseline_reminder(tag):
+    """What has to happen AFTER the release exists, and nowhere else.
+
+    The gate compares against the previous release. So the moment this one is cut,
+    the committed baseline is a version out of date and every subsequent run
+    reports the whole release as a difference. --accept re-anchors it and empties
+    expected.txt, which is what stops the declarations accumulating across
+    versions the way the old JS exception list did.
+
+    A reminder rather than an automatic step, because it rewrites five committed
+    files and wants to be one deliberate commit with a human's name on it."""
+    print("")
+    print("=" * 72)
+    print("  %s is cut. One step left, and it is not optional:" % tag)
+    print("")
+    print("      py -3 tools/compare_golden.py --accept")
+    print("      git add tools/golden && git commit -m \"Re-baseline the golden gate on %s\"" % tag)
+    print("")
+    print("  That re-anchors tools/golden/ on this release and empties")
+    print("  expected.txt. Skip it and the next run reports all of %s as a" % tag)
+    print("  difference, and the declarations start piling up across versions.")
+    print("=" * 72)
+
+
 # ---- package ----------------------------------------------------------------
 
 def _build_and_pack():
@@ -239,11 +305,16 @@ this is LAN play — hosting for someone outside your network needs port
 
 # ---- publish ----------------------------------------------------------------
 
-def cmd_publish(draft, no_build=False):
+def cmd_publish(draft, no_build=False, skip_checks=False):
     if shutil.which("gh") is None:
         fail("the GitHub CLI (`gh`) is not installed or not on PATH — install "
              "it from https://cli.github.com/ and run `gh auth login`, or "
              "create the release by hand (see docs/RELEASING.md)")
+    # Before the build, so a failure costs seconds rather than a full package.
+    if skip_checks:
+        print("skipping the pre-ship checks at your request")
+    else:
+        _preflight()
     zip_path, notes_path, version = cmd_package(no_build)
     tag = "v" + version
 
@@ -264,6 +335,7 @@ def cmd_publish(draft, no_build=False):
         fail("gh release create failed (see output above)")
     print("release %s %s" % (tag, "drafted — review and publish it on github.com"
                              if draft else "published"))
+    _rebaseline_reminder(tag)
 
 
 def main():
@@ -279,6 +351,8 @@ def main():
     p.add_argument("--draft", action="store_true", help="create as a draft release")
     p.add_argument("--no-build", action="store_true",
                    help="use the zip already in dist/ instead of rebuilding")
+    p.add_argument("--skip-checks", action="store_true",
+                   help="do not run --selftest and the golden gate first")
     args = ap.parse_args()
 
     if args.cmd == "bump":
@@ -286,7 +360,7 @@ def main():
     elif args.cmd == "package":
         cmd_package(args.no_build)
     else:
-        cmd_publish(args.draft, args.no_build)
+        cmd_publish(args.draft, args.no_build, args.skip_checks)
 
 
 if __name__ == "__main__":

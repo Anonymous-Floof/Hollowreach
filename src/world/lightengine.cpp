@@ -119,6 +119,7 @@ class World::LightCursor {
     const int i = cell(wx, wy, wz);
     (channel == kSkyChannel ? d.skylight : d.blocklight)
         .set(i, static_cast<std::uint8_t>(value));
+    ++world_.lightWrites_;
     // Noted once per visit to a chunk rather than once per cell. A flood is
     // spatially coherent, so this collapses tens of thousands of hash inserts
     // into a handful.

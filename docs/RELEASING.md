@@ -163,7 +163,13 @@ dev-only.
 
 ## Before you ship
 
-Neither of these is automated, and both have caught real problems:
+Both of these have caught real problems, and **`release.py publish` now runs them
+for you** before it builds anything — a failure costs seconds rather than a full
+package. `--skip-checks` overrides that, and exists for the case where you know
+exactly what you are doing and mean it.
+
+Run them yourself while working, too. Waiting for the release to tell you is a
+slow way to find out:
 
 ```
 build\RelWithDebInfo\bin\Hollowreach.exe --selftest
@@ -190,6 +196,11 @@ That rewrites the four baseline files from the current build and empties
 whole point: the declarations describe one version's worth of intent and are
 then thrown away, which is what stops the list growing forever the way the old
 JS exception list did.
+
+`release.py publish` prints this as the last thing it does, in a box, because it
+is the one step that cannot be done beforehand and is therefore the one most
+easily forgotten. It is not run automatically: it rewrites five committed files
+and deserves its own commit rather than being buried in a release run.
 
 And unzip the artifact into an empty folder and actually play it for a minute.
 That is what caught the release binary carrying the build machine's absolute

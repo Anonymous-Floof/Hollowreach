@@ -279,6 +279,13 @@ class World {
   // the invalidation.
   std::unordered_set<ChunkKey>& mapDirty() { return mapDirty_; }
 
+  // Cells the incremental light passes have written, ever. The BFS runs on the
+  // main thread inside setBlock, so this is the honest measure of what an edit
+  // costs — and a deterministic one, which a wall clock is not. A bulk edit is
+  // the case worth watching: one torch is bounded by the light radius, but a
+  // player roofing over a valley makes one BFS per block placed.
+  std::uint64_t lightWrites() const { return lightWrites_; }
+
   // Counts, for the debug overlay.
   std::size_t loadedChunkCount() const { return chunks_.size(); }
   // What the resident chunks actually occupy, cell buffers only. Worth having as
@@ -352,6 +359,7 @@ class World {
   std::vector<LightNode> lightAdd_[2];
   std::vector<LightNode> lightRemove_[2];
   std::unordered_set<ChunkKey> lightTouched_;
+  std::uint64_t lightWrites_ = 0;
 
   NoiseSet noise_;
   int genVersion_;
