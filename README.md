@@ -448,8 +448,20 @@ The invite code is the same `HRW1…HRW1` envelope the browser build used, so it
 still survives being lowercased, broken up by a chat client, or read out loud —
 it is Crockford base32, with the letters that look like digits left out.
 
-**If a world does not appear in the list**, there are only really two causes, and
-the first is not the game:
+**If a world does not appear in the list**, run this on both machines first:
+
+```bash
+Hollowreach.exe --net-doctor
+```
+
+It prints every network a game here would be announced on (and which ones are
+skipped, and why), whether the two UDP ports are free, whether the machine can
+hear its own announcement, the protocol version — **two different builds cannot
+see each other and say nothing about it** — and the full path of the running
+executable, which is what Windows firewall rules are keyed on. It exits non-zero
+if it finds something that would stop the machine being found.
+
+There are only really two causes, and the first is not the game:
 
 - **The firewall has not been asked.** Windows drops unsolicited inbound UDP for
   a program with no rule, while still allowing the outbound connection a typed-in

@@ -15,6 +15,10 @@ namespace hr::paths {
 void init(const std::string& dataDirOverride);
 
 const std::string& exeDir();
+// The running binary itself, not its folder. Windows firewall rules are keyed on
+// the full path of the program, so anything diagnosing why a machine cannot be
+// reached has to be able to say which path to go and allow.
+const std::string& exePath();
 const std::string& dataDir();
 
 const std::string& worldsDir();

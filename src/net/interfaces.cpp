@@ -30,25 +30,30 @@ std::string dotted(std::uint32_t networkOrder) {
 std::uint32_t toHost(std::uint32_t networkOrder) { return ntohl(networkOrder); }
 std::uint32_t toNetwork(std::uint32_t hostOrder) { return htonl(hostOrder); }
 
-bool usable(std::uint32_t hostAddr, int prefix) {
-  if (prefix < 0 || prefix > 30) return false;   // /31 and /32 have no broadcast
-  if ((hostAddr >> 24) == 127) return false;     // loopback
-  if (hostAddr == 0) return false;
-  return true;
+// Why a beacon will not go out here, or empty if it will.
+std::string whySkipped(std::uint32_t hostAddr, int prefix) {
+  if (hostAddr == 0) return "no address";
+  if ((hostAddr >> 24) == 127) return "loopback";
+  if (prefix > 30) return "point-to-point (/" + std::to_string(prefix) +
+                          "), no subnet to broadcast into";
+  if (prefix < 0) return "no netmask";
+  return {};
 }
 
 void add(std::vector<Interface>& out, const std::string& name, std::uint32_t netAddr,
          int prefix) {
   const std::uint32_t host = toHost(netAddr);
-  if (!usable(host, prefix)) return;
-  const std::uint32_t mask = prefix == 0 ? 0u : (0xFFFFFFFFu << (32 - prefix));
-  const std::uint32_t bcast = host | ~mask;
   Interface iface;
   iface.name = name;
   iface.address = netAddr;
-  iface.broadcast = toNetwork(bcast);
-  iface.addressText = dotted(iface.address);
-  iface.broadcastText = dotted(iface.broadcast);
+  iface.addressText = dotted(netAddr);
+  iface.prefix = prefix;
+  iface.skipped = whySkipped(host, prefix);
+  if (iface.skipped.empty()) {
+    const std::uint32_t mask = prefix == 0 ? 0u : (0xFFFFFFFFu << (32 - prefix));
+    iface.broadcast = toNetwork(host | ~mask);
+    iface.broadcastText = dotted(iface.broadcast);
+  }
   out.push_back(std::move(iface));
 }
 
@@ -56,7 +61,7 @@ void add(std::vector<Interface>& out, const std::string& name, std::uint32_t net
 
 #if defined(_WIN32)
 
-std::vector<Interface> localInterfaces() {
+std::vector<Interface> allInterfaces() {
   std::vector<Interface> out;
   // Asked twice on purpose: the buffer size depends on how many adapters exist
   // and the answer can change between the two calls, so a failure to fit is
@@ -104,7 +109,7 @@ std::vector<Interface> localInterfaces() {
 
 #else
 
-std::vector<Interface> localInterfaces() {
+std::vector<Interface> allInterfaces() {
   std::vector<Interface> out;
   ifaddrs* list = nullptr;
   if (getifaddrs(&list) != 0 || !list) return out;
@@ -125,15 +130,17 @@ std::vector<Interface> localInterfaces() {
                   &reinterpret_cast<const sockaddr_in*>(a->ifa_broadaddr)->sin_addr,
                   sizeof bcast);
       const std::uint32_t host = toHost(netAddr);
+      Interface iface;
+      iface.name = a->ifa_name ? a->ifa_name : "?";
+      iface.address = netAddr;
+      iface.addressText = dotted(netAddr);
       if (bcast != 0 && (host >> 24) != 127) {
-        Interface iface;
-        iface.name = a->ifa_name ? a->ifa_name : "?";
-        iface.address = netAddr;
         iface.broadcast = bcast;
-        iface.addressText = dotted(netAddr);
         iface.broadcastText = dotted(bcast);
-        out.push_back(std::move(iface));
+      } else {
+        iface.skipped = (host >> 24) == 127 ? "loopback" : "no broadcast address";
       }
+      out.push_back(std::move(iface));
       continue;
     }
 
@@ -155,5 +162,13 @@ std::vector<Interface> localInterfaces() {
 }
 
 #endif
+
+std::vector<Interface> localInterfaces() {
+  std::vector<Interface> out;
+  for (Interface& iface : allInterfaces()) {
+    if (iface.skipped.empty()) out.push_back(std::move(iface));
+  }
+  return out;
+}
 
 }  // namespace hr::net

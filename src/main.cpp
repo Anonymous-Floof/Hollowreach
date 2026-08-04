@@ -16,6 +16,7 @@
 #include "dev/golden.h"
 #include "dev/savetool.h"
 #include "dev/selftest.h"
+#include "net/doctor.h"
 #include "platform/paths.h"
 #include "platform/update.h"
 
@@ -62,6 +63,7 @@ void printUsage() {
       "  --perf              per-pass GPU and CPU timing, and a report at exit\n"
       "  --give <list>       start holding items: key[:count][,key[:count]...]\n"
       "  --spawn <list>      place entities near spawn: type[:count][,...]\n"
+      "  --net-doctor        check this machine's networking for multiplayer, and exit\n"
       "  --check-update [ver] ask GitHub for the latest release, print it, and exit\n"
       "  --apply-update [ver] download the latest release and install it over this one\n"
       "  --hang <png>        build a wall at spawn with this picture in a painting\n"
@@ -98,6 +100,7 @@ int main(int argc, char** argv) {
   bool atlasMipmaps = false;
   bool runSelfTest = false;
   bool checkUpdate = false;
+  bool netDoctor = false;
   bool applyUpdate = false;
   std::string pretendVersion;
   bool listWorldsOnly = false;
@@ -305,6 +308,8 @@ int main(int argc, char** argv) {
       options.haveMouseOverride = true;
       options.mouseX = parts[0];
       options.mouseY = parts[1];
+    } else if (std::strcmp(arg, "--net-doctor") == 0) {
+      netDoctor = true;
     } else if (std::strcmp(arg, "--check-update") == 0) {
       checkUpdate = true;
       // An optional version to pretend to be, so the "an update exists" path can
@@ -345,6 +350,13 @@ int main(int argc, char** argv) {
   }
   if (runSelfTest) {
     return hr::dev::runSelfTest();
+  }
+  // Needs paths::init for the executable path it reports, and nothing else —
+  // no window, no world, no GL. It has to run on the machine that is failing,
+  // which may well be one that cannot open a window at all.
+  if (netDoctor) {
+    hr::paths::init(options.dataDir);
+    return hr::net::runNetDoctor(options.hostPort);
   }
   // The updater's check, headless. It is the one part of the game that depends on
   // a live server, so it needs a way to be exercised that does not involve

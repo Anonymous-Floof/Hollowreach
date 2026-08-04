@@ -33,17 +33,26 @@ struct Interface {
   std::string name;
   // Both in network byte order, ready to assign to ENetAddress::host.
   std::uint32_t address = 0;
-  std::uint32_t broadcast = 0;
-  std::string addressText;    // dotted quad, for logging
+  std::uint32_t broadcast = 0;  // zero when there is no subnet to broadcast into
+  std::string addressText;      // dotted quad, for logging
   std::string broadcastText;
+  int prefix = 0;
+  // Empty when this interface is used. Otherwise why it is not — which is worth
+  // carrying rather than dropping, because "my VPN is not in the list" is the
+  // first thing anybody asks when discovery is not working, and the answer is
+  // usually that it correctly is not.
+  std::string skipped;
 };
 
-// Every up, non-loopback IPv4 interface that has a subnet worth broadcasting to.
-// Point-to-point interfaces with a /31 or /32 are skipped: their "broadcast"
-// address is the interface itself or the peer, so a datagram to it reaches nobody
-// a beacon is meant for. Returns an empty list on a machine with no networking,
-// which callers should treat as "fall back to the limited broadcast" rather than
-// as an error.
+// Every IPv4 interface the machine has, including the ones a beacon will not be
+// sent on, each carrying the reason. For --net-doctor.
+std::vector<Interface> allInterfaces();
+
+// Just the usable ones: up, not loopback, and with a subnet worth broadcasting
+// to. Point-to-point interfaces with a /31 or /32 are skipped — their
+// "broadcast" address is the interface itself or the peer, so a datagram to it
+// reaches nobody a beacon is meant for. An empty list is not an error; it means
+// fall back to the limited broadcast.
 std::vector<Interface> localInterfaces();
 
 }  // namespace hr::net
