@@ -20,10 +20,12 @@ nothing that phones home.
 > the same renderer, the same world generator, the same gameplay constants,
 > rewritten. The original is archived at
 > [Anonymous-Floof/Hollow-Reach](https://github.com/Anonymous-Floof/Hollow-Reach)
-> and its history is the first seventeen commits here. The port is verified
-> *against* that code: `tools/compare_golden.py` runs both implementations and
-> diffs 610 values, so the terrain a seed produces here is the terrain it
-> produced in the browser.
+> and its history is the first seventeen commits here. The port was verified
+> *against* that code through 2.4.0, value by value. From 2.5.0
+> `tools/compare_golden.py` diffs 614 generated values against the previous
+> **release** instead: the fork has diverged on purpose, and anchoring to the
+> browser build had started costing coverage rather than buying confidence — it
+> could not check the generator version anyone actually plays.
 
 <table>
 <tr>
@@ -557,9 +559,9 @@ headless tool working, and means the threaded and single-threaded builds run the
   in `src/resource/painters.cpp`. Saves stay valid because blocks are stored by
   stable string key, not numeric id — but the entry must go **last** in the table,
   because ids are handed out in table order and inserting in the middle renumbers
-  everything after it. Add its tiles to `KNOWN_EXTRA` in
-  `tools/compare_golden.py` at the same time, which is where the golden-vector
-  gate is told the difference is intentional.
+  everything after it. Add its tiles to `tools/golden/expected.txt` at the same
+  time, which is where the golden-vector gate is told the difference is
+  intentional.
 - **New recipe:** add a row to `src/game/recipes.cpp`. It appears in the in-game
   Recipe Book (press **R**) automatically — the book is generated from the data.
 - **New entity** (mob, boat, projectile…): add a definition under
@@ -574,8 +576,10 @@ headless tool working, and means the threaded and single-threaded builds run the
   `src/save/migrate.cpp`. Both halves are required: a version-guarded read so
   the old file parses, and a migration so the loaded world is correct rather
   than merely parsed.
-- **Verifying a worldgen change:** `python tools/compare_golden.py`. It needs a
-  checkout of the archived web repo — see the note at the top of that file.
+- **Verifying a worldgen change:** `py -3 tools/compare_golden.py`. It diffs
+  against `tools/golden/`, the committed dump of the last release, and needs
+  nothing outside this repository. Intentional differences go in
+  `tools/golden/expected.txt`; `--accept` re-baselines at release time.
 - **Shipping a release:** the public version is `project(... VERSION x.y.z)` in
   `CMakeLists.txt`; changes are outlined in `CHANGELOG.md` and
   `tools/release.py` bumps, packages and publishes the GitHub release — see

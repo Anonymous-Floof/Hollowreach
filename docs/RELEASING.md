@@ -167,13 +167,29 @@ Neither of these is automated, and both have caught real problems:
 
 ```
 build\RelWithDebInfo\bin\Hollowreach.exe --selftest
-python tools/compare_golden.py
+py -3 tools/compare_golden.py
 ```
 
-The self-test needs no window and takes seconds. The golden comparison needs a
-checkout of the archived web build — see the note at the top of
-`tools/compare_golden.py` — and is what proves a worldgen, atlas, recipe or
-mesher change did not quietly alter the game.
+The self-test needs no window and takes seconds. The golden comparison diffs
+every generated table against `tools/golden/`, the committed dump of the last
+release, and is what proves a worldgen, atlas, recipe or mesher change did not
+quietly alter the game. It needs nothing outside this repository — the old
+dependency on a checkout of the archived web build went at 2.5.0.
+
+It reports every difference, and fails only on ones that were not declared in
+`tools/golden/expected.txt`. So a release usually ends with a short list of
+deliberate changes there and a green run. **Once the release is cut, adopt it as
+the new baseline:**
+
+```
+py -3 tools/compare_golden.py --accept
+```
+
+That rewrites the four baseline files from the current build and empties
+`expected.txt`. Doing it at release time rather than as changes land is the
+whole point: the declarations describe one version's worth of intent and are
+then thrown away, which is what stops the list growing forever the way the old
+JS exception list did.
 
 And unzip the artifact into an empty folder and actually play it for a minute.
 That is what caught the release binary carrying the build machine's absolute

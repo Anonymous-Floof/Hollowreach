@@ -1,0 +1,220 @@
+# hollowreach recipes v1
+# source: c++
+# recipes=141 smelting=8
+
+## recipes
+recipe(000) = shapeless|hand|log*1|out=planks*4
+recipe(001) = shaped|hand|1x2|0,0,#planks 1,0,#planks|out=stick*4
+recipe(002) = shaped|hand|2x2|0,0,#planks 0,1,#planks 1,0,#planks 1,1,#planks|out=workbench*1
+recipe(003) = shaped|hand|1x2|0,0,embercoal 1,0,stick|out=emberlight*4
+recipe(004) = shaped|hand|1x2|0,0,charcoal 1,0,stick|out=emberlight*4
+recipe(005) = shaped|workbench|3x3|0,0,cobbled 0,1,cobbled 0,2,cobbled 1,0,cobbled 1,2,cobbled 2,0,cobbled 2,1,cobbled 2,2,cobbled|out=forge*1
+recipe(006) = shaped|workbench|3x3|0,0,#planks 0,1,#planks 0,2,#planks 1,0,#planks 1,2,#planks 2,0,#planks 2,1,#planks 2,2,#planks|out=chest*1
+recipe(007) = shaped|workbench|2x2|0,0,greystone 0,1,greystone 1,0,greystone 1,1,greystone|out=bricks*4
+recipe(008) = shaped|workbench|2x2|0,0,cobbled 0,1,cobbled 1,0,cobbled 1,1,cobbled|out=polished*4
+recipe(009) = shaped|workbench|2x2|0,0,sand 0,1,sand 1,0,sand 1,1,sand|out=sandstone*4
+recipe(010) = shaped|workbench|3x3|0,0,stick 0,2,stick 1,0,stick 1,1,stick 1,2,stick 2,0,stick 2,2,stick|out=ladder*3
+recipe(011) = shaped|workbench|3x2|0,0,wool 0,1,wool 0,2,wool 1,0,#planks 1,1,#planks 1,2,#planks|out=bed*1
+recipe(012) = shaped|workbench|3x2|0,0,#planks 0,2,#planks 1,0,#planks 1,1,#planks 1,2,#planks|out=boat*1
+recipe(013) = shaped|workbench|3x2|0,0,ferralite_ingot 0,2,ferralite_ingot 1,1,ferralite_ingot|out=bucket*1
+recipe(014) = shaped|workbench|3x1|0,0,papyrus 0,1,papyrus 0,2,papyrus|out=paper*3
+recipe(015) = shapeless|workbench|azurite*1 leather*1 paper*3|out=atlas*1
+recipe(016) = shaped|workbench|3x3|0,0,embercoal 0,1,raw_copper 0,2,raw_ferralite 1,0,azurite 1,1,sparkstone 1,2,raw_sunbrass 2,0,verdanite 2,1,aetherite 2,2,gloamite|out=soul_anchor*1
+recipe(017) = shapeless|hand|gloamite*1 sparkstone*1|out=wayshard*2
+recipe(018) = shaped|workbench|2x3|0,0,planks 0,1,planks 1,0,planks 1,1,planks 2,0,planks 2,1,planks|out=door*3
+recipe(019) = shaped|workbench|3x2|0,0,planks 0,1,planks 0,2,planks 1,0,planks 1,1,planks 1,2,planks|out=trapdoor*2
+recipe(020) = shaped|workbench|2x3|0,0,pine_planks 0,1,pine_planks 1,0,pine_planks 1,1,pine_planks 2,0,pine_planks 2,1,pine_planks|out=pine_door*3
+recipe(021) = shaped|workbench|3x2|0,0,pine_planks 0,1,pine_planks 0,2,pine_planks 1,0,pine_planks 1,1,pine_planks 1,2,pine_planks|out=pine_trapdoor*2
+recipe(022) = shaped|workbench|2x3|0,0,dusk_planks 0,1,dusk_planks 1,0,dusk_planks 1,1,dusk_planks 2,0,dusk_planks 2,1,dusk_planks|out=dusk_door*3
+recipe(023) = shaped|workbench|3x2|0,0,dusk_planks 0,1,dusk_planks 0,2,dusk_planks 1,0,dusk_planks 1,1,dusk_planks 1,2,dusk_planks|out=dusk_trapdoor*2
+recipe(024) = shaped|workbench|2x3|0,0,birch_planks 0,1,birch_planks 1,0,birch_planks 1,1,birch_planks 2,0,birch_planks 2,1,birch_planks|out=birch_door*3
+recipe(025) = shaped|workbench|3x2|0,0,birch_planks 0,1,birch_planks 0,2,birch_planks 1,0,birch_planks 1,1,birch_planks 1,2,birch_planks|out=birch_trapdoor*2
+recipe(026) = shaped|workbench|2x3|0,0,palm_planks 0,1,palm_planks 1,0,palm_planks 1,1,palm_planks 2,0,palm_planks 2,1,palm_planks|out=palm_door*3
+recipe(027) = shaped|workbench|3x2|0,0,palm_planks 0,1,palm_planks 0,2,palm_planks 1,0,palm_planks 1,1,palm_planks 1,2,palm_planks|out=palm_trapdoor*2
+recipe(028) = shapeless|hand|planks_slab*1|out=planks_vslab*1
+recipe(029) = shapeless|hand|planks_vslab*1|out=planks_slab*1
+recipe(030) = shapeless|hand|greystone_slab*1|out=greystone_vslab*1
+recipe(031) = shapeless|hand|greystone_vslab*1|out=greystone_slab*1
+recipe(032) = shapeless|hand|cobbled_slab*1|out=cobbled_vslab*1
+recipe(033) = shapeless|hand|cobbled_vslab*1|out=cobbled_slab*1
+recipe(034) = shapeless|hand|polished_slab*1|out=polished_vslab*1
+recipe(035) = shapeless|hand|polished_vslab*1|out=polished_slab*1
+recipe(036) = shapeless|hand|bricks_slab*1|out=bricks_vslab*1
+recipe(037) = shapeless|hand|bricks_vslab*1|out=bricks_slab*1
+recipe(038) = shapeless|hand|sandstone_slab*1|out=sandstone_vslab*1
+recipe(039) = shapeless|hand|sandstone_vslab*1|out=sandstone_slab*1
+recipe(040) = shapeless|hand|pine_planks_slab*1|out=pine_planks_vslab*1
+recipe(041) = shapeless|hand|pine_planks_vslab*1|out=pine_planks_slab*1
+recipe(042) = shapeless|hand|dusk_planks_slab*1|out=dusk_planks_vslab*1
+recipe(043) = shapeless|hand|dusk_planks_vslab*1|out=dusk_planks_slab*1
+recipe(044) = shapeless|hand|birch_planks_slab*1|out=birch_planks_vslab*1
+recipe(045) = shapeless|hand|birch_planks_vslab*1|out=birch_planks_slab*1
+recipe(046) = shapeless|hand|palm_planks_slab*1|out=palm_planks_vslab*1
+recipe(047) = shapeless|hand|palm_planks_vslab*1|out=palm_planks_slab*1
+recipe(048) = shapeless|hand|umberstone_slab*1|out=umberstone_vslab*1
+recipe(049) = shapeless|hand|umberstone_vslab*1|out=umberstone_slab*1
+recipe(050) = shapeless|hand|polished_umber_slab*1|out=polished_umber_vslab*1
+recipe(051) = shapeless|hand|polished_umber_vslab*1|out=polished_umber_slab*1
+recipe(052) = shapeless|hand|bricks_umber_slab*1|out=bricks_umber_vslab*1
+recipe(053) = shapeless|hand|bricks_umber_vslab*1|out=bricks_umber_slab*1
+recipe(054) = shapeless|hand|slatestone_slab*1|out=slatestone_vslab*1
+recipe(055) = shapeless|hand|slatestone_vslab*1|out=slatestone_slab*1
+recipe(056) = shapeless|hand|polished_slate_slab*1|out=polished_slate_vslab*1
+recipe(057) = shapeless|hand|polished_slate_vslab*1|out=polished_slate_slab*1
+recipe(058) = shapeless|hand|bricks_slate_slab*1|out=bricks_slate_vslab*1
+recipe(059) = shapeless|hand|bricks_slate_vslab*1|out=bricks_slate_slab*1
+recipe(060) = shapeless|hand|pine_log*1|out=pine_planks*4
+recipe(061) = shapeless|hand|dusk_log*1|out=dusk_planks*4
+recipe(062) = shapeless|hand|birch_log*1|out=birch_planks*4
+recipe(063) = shapeless|hand|palm_log*1|out=palm_planks*4
+recipe(064) = shaped|workbench|2x2|0,0,umberstone 0,1,umberstone 1,0,umberstone 1,1,umberstone|out=polished_umber*4
+recipe(065) = shaped|workbench|2x2|0,0,polished_umber 0,1,polished_umber 1,0,polished_umber 1,1,polished_umber|out=bricks_umber*4
+recipe(066) = shaped|workbench|2x2|0,0,slatestone 0,1,slatestone 1,0,slatestone 1,1,slatestone|out=polished_slate*4
+recipe(067) = shaped|workbench|2x2|0,0,polished_slate 0,1,polished_slate 1,0,polished_slate 1,1,polished_slate|out=bricks_slate*4
+recipe(068) = shaped|workbench|3x3|0,0,planks 1,0,planks 1,1,planks 2,0,planks 2,1,planks 2,2,planks|out=plank_stairs*6
+recipe(069) = shaped|workbench|3x3|0,0,greystone 1,0,greystone 1,1,greystone 2,0,greystone 2,1,greystone 2,2,greystone|out=greystone_stairs*6
+recipe(070) = shaped|workbench|3x3|0,0,cobbled 1,0,cobbled 1,1,cobbled 2,0,cobbled 2,1,cobbled 2,2,cobbled|out=cobbled_stairs*6
+recipe(071) = shaped|workbench|3x3|0,0,polished 1,0,polished 1,1,polished 2,0,polished 2,1,polished 2,2,polished|out=polished_stairs*6
+recipe(072) = shaped|workbench|3x3|0,0,bricks 1,0,bricks 1,1,bricks 2,0,bricks 2,1,bricks 2,2,bricks|out=bricks_stairs*6
+recipe(073) = shaped|workbench|3x3|0,0,sandstone 1,0,sandstone 1,1,sandstone 2,0,sandstone 2,1,sandstone 2,2,sandstone|out=sandstone_stairs*6
+recipe(074) = shaped|workbench|3x3|0,0,pine_planks 1,0,pine_planks 1,1,pine_planks 2,0,pine_planks 2,1,pine_planks 2,2,pine_planks|out=pine_planks_stairs*6
+recipe(075) = shaped|workbench|3x3|0,0,dusk_planks 1,0,dusk_planks 1,1,dusk_planks 2,0,dusk_planks 2,1,dusk_planks 2,2,dusk_planks|out=dusk_planks_stairs*6
+recipe(076) = shaped|workbench|3x3|0,0,birch_planks 1,0,birch_planks 1,1,birch_planks 2,0,birch_planks 2,1,birch_planks 2,2,birch_planks|out=birch_planks_stairs*6
+recipe(077) = shaped|workbench|3x3|0,0,palm_planks 1,0,palm_planks 1,1,palm_planks 2,0,palm_planks 2,1,palm_planks 2,2,palm_planks|out=palm_planks_stairs*6
+recipe(078) = shaped|workbench|3x3|0,0,umberstone 1,0,umberstone 1,1,umberstone 2,0,umberstone 2,1,umberstone 2,2,umberstone|out=umberstone_stairs*6
+recipe(079) = shaped|workbench|3x3|0,0,polished_umber 1,0,polished_umber 1,1,polished_umber 2,0,polished_umber 2,1,polished_umber 2,2,polished_umber|out=polished_umber_stairs*6
+recipe(080) = shaped|workbench|3x3|0,0,bricks_umber 1,0,bricks_umber 1,1,bricks_umber 2,0,bricks_umber 2,1,bricks_umber 2,2,bricks_umber|out=bricks_umber_stairs*6
+recipe(081) = shaped|workbench|3x3|0,0,slatestone 1,0,slatestone 1,1,slatestone 2,0,slatestone 2,1,slatestone 2,2,slatestone|out=slatestone_stairs*6
+recipe(082) = shaped|workbench|3x3|0,0,polished_slate 1,0,polished_slate 1,1,polished_slate 2,0,polished_slate 2,1,polished_slate 2,2,polished_slate|out=polished_slate_stairs*6
+recipe(083) = shaped|workbench|3x3|0,0,bricks_slate 1,0,bricks_slate 1,1,bricks_slate 2,0,bricks_slate 2,1,bricks_slate 2,2,bricks_slate|out=bricks_slate_stairs*6
+recipe(084) = shaped|workbench|3x1|0,0,planks 0,1,planks 0,2,planks|out=planks_slab*6
+recipe(085) = shaped|workbench|3x1|0,0,greystone 0,1,greystone 0,2,greystone|out=greystone_slab*6
+recipe(086) = shaped|workbench|3x1|0,0,cobbled 0,1,cobbled 0,2,cobbled|out=cobbled_slab*6
+recipe(087) = shaped|workbench|3x1|0,0,polished 0,1,polished 0,2,polished|out=polished_slab*6
+recipe(088) = shaped|workbench|3x1|0,0,bricks 0,1,bricks 0,2,bricks|out=bricks_slab*6
+recipe(089) = shaped|workbench|3x1|0,0,sandstone 0,1,sandstone 0,2,sandstone|out=sandstone_slab*6
+recipe(090) = shaped|workbench|3x1|0,0,pine_planks 0,1,pine_planks 0,2,pine_planks|out=pine_planks_slab*6
+recipe(091) = shaped|workbench|3x1|0,0,dusk_planks 0,1,dusk_planks 0,2,dusk_planks|out=dusk_planks_slab*6
+recipe(092) = shaped|workbench|3x1|0,0,birch_planks 0,1,birch_planks 0,2,birch_planks|out=birch_planks_slab*6
+recipe(093) = shaped|workbench|3x1|0,0,palm_planks 0,1,palm_planks 0,2,palm_planks|out=palm_planks_slab*6
+recipe(094) = shaped|workbench|3x1|0,0,umberstone 0,1,umberstone 0,2,umberstone|out=umberstone_slab*6
+recipe(095) = shaped|workbench|3x1|0,0,polished_umber 0,1,polished_umber 0,2,polished_umber|out=polished_umber_slab*6
+recipe(096) = shaped|workbench|3x1|0,0,bricks_umber 0,1,bricks_umber 0,2,bricks_umber|out=bricks_umber_slab*6
+recipe(097) = shaped|workbench|3x1|0,0,slatestone 0,1,slatestone 0,2,slatestone|out=slatestone_slab*6
+recipe(098) = shaped|workbench|3x1|0,0,polished_slate 0,1,polished_slate 0,2,polished_slate|out=polished_slate_slab*6
+recipe(099) = shaped|workbench|3x1|0,0,bricks_slate 0,1,bricks_slate 0,2,bricks_slate|out=bricks_slate_slab*6
+recipe(100) = shaped|workbench|3x3|0,0,#planks 0,1,#planks 0,2,#planks 1,1,stick 2,1,stick|out=pick_wood*1
+recipe(101) = shaped|workbench|2x3|0,0,#planks 0,1,#planks 1,0,#planks 1,1,stick 2,1,stick|out=axe_wood*1
+recipe(102) = shaped|workbench|1x3|0,0,#planks 1,0,stick 2,0,stick|out=shovel_wood*1
+recipe(103) = shaped|workbench|1x3|0,0,#planks 1,0,#planks 2,0,stick|out=sword_wood*1
+recipe(104) = shaped|workbench|3x3|0,0,cobbled 0,1,cobbled 0,2,cobbled 1,1,stick 2,1,stick|out=pick_stone*1
+recipe(105) = shaped|workbench|2x3|0,0,cobbled 0,1,cobbled 1,0,cobbled 1,1,stick 2,1,stick|out=axe_stone*1
+recipe(106) = shaped|workbench|1x3|0,0,cobbled 1,0,stick 2,0,stick|out=shovel_stone*1
+recipe(107) = shaped|workbench|1x3|0,0,cobbled 1,0,cobbled 2,0,stick|out=sword_stone*1
+recipe(108) = shaped|workbench|3x3|0,0,copper_ingot 0,1,copper_ingot 0,2,copper_ingot 1,1,stick 2,1,stick|out=pick_copper*1
+recipe(109) = shaped|workbench|2x3|0,0,copper_ingot 0,1,copper_ingot 1,0,copper_ingot 1,1,stick 2,1,stick|out=axe_copper*1
+recipe(110) = shaped|workbench|1x3|0,0,copper_ingot 1,0,stick 2,0,stick|out=shovel_copper*1
+recipe(111) = shaped|workbench|1x3|0,0,copper_ingot 1,0,copper_ingot 2,0,stick|out=sword_copper*1
+recipe(112) = shaped|workbench|3x3|0,0,ferralite_ingot 0,1,ferralite_ingot 0,2,ferralite_ingot 1,1,stick 2,1,stick|out=pick_ferralite*1
+recipe(113) = shaped|workbench|2x3|0,0,ferralite_ingot 0,1,ferralite_ingot 1,0,ferralite_ingot 1,1,stick 2,1,stick|out=axe_ferralite*1
+recipe(114) = shaped|workbench|1x3|0,0,ferralite_ingot 1,0,stick 2,0,stick|out=shovel_ferralite*1
+recipe(115) = shaped|workbench|1x3|0,0,ferralite_ingot 1,0,ferralite_ingot 2,0,stick|out=sword_ferralite*1
+recipe(116) = shaped|workbench|3x3|0,0,sunbrass_ingot 0,1,sunbrass_ingot 0,2,sunbrass_ingot 1,1,stick 2,1,stick|out=pick_sunbrass*1
+recipe(117) = shaped|workbench|2x3|0,0,sunbrass_ingot 0,1,sunbrass_ingot 1,0,sunbrass_ingot 1,1,stick 2,1,stick|out=axe_sunbrass*1
+recipe(118) = shaped|workbench|1x3|0,0,sunbrass_ingot 1,0,stick 2,0,stick|out=shovel_sunbrass*1
+recipe(119) = shaped|workbench|1x3|0,0,sunbrass_ingot 1,0,sunbrass_ingot 2,0,stick|out=sword_sunbrass*1
+recipe(120) = shaped|workbench|3x3|0,0,aetherite 0,1,aetherite 0,2,aetherite 1,1,stick 2,1,stick|out=pick_aetherite*1
+recipe(121) = shaped|workbench|2x3|0,0,aetherite 0,1,aetherite 1,0,aetherite 1,1,stick 2,1,stick|out=axe_aetherite*1
+recipe(122) = shaped|workbench|1x3|0,0,aetherite 1,0,stick 2,0,stick|out=shovel_aetherite*1
+recipe(123) = shaped|workbench|1x3|0,0,aetherite 1,0,aetherite 2,0,stick|out=sword_aetherite*1
+recipe(124) = shaped|workbench|3x2|0,0,copper_ingot 0,1,copper_ingot 0,2,copper_ingot 1,0,copper_ingot 1,2,copper_ingot|out=helmet_copper*1
+recipe(125) = shaped|workbench|3x3|0,0,copper_ingot 0,2,copper_ingot 1,0,copper_ingot 1,1,copper_ingot 1,2,copper_ingot 2,0,copper_ingot 2,1,copper_ingot 2,2,copper_ingot|out=chest_copper*1
+recipe(126) = shaped|workbench|3x3|0,0,copper_ingot 0,1,copper_ingot 0,2,copper_ingot 1,0,copper_ingot 1,2,copper_ingot 2,0,copper_ingot 2,2,copper_ingot|out=legs_copper*1
+recipe(127) = shaped|workbench|3x2|0,0,copper_ingot 0,2,copper_ingot 1,0,copper_ingot 1,2,copper_ingot|out=boots_copper*1
+recipe(128) = shaped|workbench|3x2|0,0,ferralite_ingot 0,1,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,2,ferralite_ingot|out=helmet_ferralite*1
+recipe(129) = shaped|workbench|3x3|0,0,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,1,ferralite_ingot 1,2,ferralite_ingot 2,0,ferralite_ingot 2,1,ferralite_ingot 2,2,ferralite_ingot|out=chest_ferralite*1
+recipe(130) = shaped|workbench|3x3|0,0,ferralite_ingot 0,1,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,2,ferralite_ingot 2,0,ferralite_ingot 2,2,ferralite_ingot|out=legs_ferralite*1
+recipe(131) = shaped|workbench|3x2|0,0,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,2,ferralite_ingot|out=boots_ferralite*1
+recipe(132) = shaped|workbench|3x2|0,0,sunbrass_ingot 0,1,sunbrass_ingot 0,2,sunbrass_ingot 1,0,sunbrass_ingot 1,2,sunbrass_ingot|out=helmet_sunbrass*1
+recipe(133) = shaped|workbench|3x3|0,0,sunbrass_ingot 0,2,sunbrass_ingot 1,0,sunbrass_ingot 1,1,sunbrass_ingot 1,2,sunbrass_ingot 2,0,sunbrass_ingot 2,1,sunbrass_ingot 2,2,sunbrass_ingot|out=chest_sunbrass*1
+recipe(134) = shaped|workbench|3x3|0,0,sunbrass_ingot 0,1,sunbrass_ingot 0,2,sunbrass_ingot 1,0,sunbrass_ingot 1,2,sunbrass_ingot 2,0,sunbrass_ingot 2,2,sunbrass_ingot|out=legs_sunbrass*1
+recipe(135) = shaped|workbench|3x2|0,0,sunbrass_ingot 0,2,sunbrass_ingot 1,0,sunbrass_ingot 1,2,sunbrass_ingot|out=boots_sunbrass*1
+recipe(136) = shaped|workbench|3x2|0,0,aetherite 0,1,aetherite 0,2,aetherite 1,0,aetherite 1,2,aetherite|out=helmet_aetherite*1
+recipe(137) = shaped|workbench|3x3|0,0,aetherite 0,2,aetherite 1,0,aetherite 1,1,aetherite 1,2,aetherite 2,0,aetherite 2,1,aetherite 2,2,aetherite|out=chest_aetherite*1
+recipe(138) = shaped|workbench|3x3|0,0,aetherite 0,1,aetherite 0,2,aetherite 1,0,aetherite 1,2,aetherite 2,0,aetherite 2,2,aetherite|out=legs_aetherite*1
+recipe(139) = shaped|workbench|3x2|0,0,aetherite 0,2,aetherite 1,0,aetherite 1,2,aetherite|out=boots_aetherite*1
+recipe(140) = shaped|workbench|3x3|0,0,#planks 0,1,#planks 0,2,#planks 1,0,#planks 1,1,wool 1,2,#planks 2,0,#planks 2,1,azurite 2,2,#planks|out=canvas*1
+
+## smelting
+smelt(00) = #logs -> charcoal in 8s
+smelt(01) = raw_copper -> copper_ingot in 6s
+smelt(02) = raw_ferralite -> ferralite_ingot in 8s
+smelt(03) = raw_sunbrass -> sunbrass_ingot in 8s
+smelt(04) = sand -> glass in 5s
+smelt(05) = cobbled -> greystone in 6s
+smelt(06) = pork_raw -> pork_cooked in 6s
+smelt(07) = beef_raw -> beef_cooked in 6s
+
+## fuel
+fuel(log) = 12
+fuel(planks) = 9
+fuel(emberlight) = 12.75
+fuel(workbench) = 36
+fuel(chest) = 72
+fuel(plank_stairs) = 9
+fuel(ladder) = 7
+fuel(trapdoor) = 27
+fuel(door) = 18
+fuel(pine_log) = 12
+fuel(pine_planks) = 9
+fuel(pine_door) = 18
+fuel(pine_trapdoor) = 27
+fuel(dusk_log) = 12
+fuel(dusk_planks) = 9
+fuel(dusk_door) = 18
+fuel(dusk_trapdoor) = 27
+fuel(birch_log) = 12
+fuel(birch_planks) = 9
+fuel(birch_door) = 18
+fuel(birch_trapdoor) = 27
+fuel(palm_log) = 12
+fuel(palm_planks) = 9
+fuel(palm_door) = 18
+fuel(palm_trapdoor) = 27
+fuel(planks_slab) = 4.5
+fuel(pine_planks_stairs) = 9
+fuel(pine_planks_slab) = 4.5
+fuel(dusk_planks_stairs) = 9
+fuel(dusk_planks_slab) = 4.5
+fuel(birch_planks_stairs) = 9
+fuel(birch_planks_slab) = 4.5
+fuel(palm_planks_stairs) = 9
+fuel(palm_planks_slab) = 4.5
+fuel(stick) = 3
+fuel(embercoal) = 48
+fuel(charcoal) = 48
+fuel(boat) = 45
+fuel(pick_wood) = 33
+fuel(axe_wood) = 33
+fuel(shovel_wood) = 15
+fuel(sword_wood) = 21
+
+## craft
+craft(log->planks (2x2 hand)) = planks*4
+craft(sticks (2x2 hand)) = stick*4
+craft(sticks from pine (tag)) = stick*4
+craft(sticks mixed woods (tag)) = stick*4
+craft(workbench (2x2 hand)) = workbench*1
+craft(torch (2x2 hand)) = emberlight*4
+craft(forge needs a bench (2x2)) = none
+craft(chest (3x3 bench)) = chest*1
+craft(wooden pick (3x3 bench)) = pick_wood*1
+craft(iron chestguard (3x3 bench)) = chest_ferralite*1
+craft(slab row, offset in the grid) = cobbled_slab*6
+craft(stairs (3-2-1)) = greystone_stairs*6
+craft(bucket (V of iron)) = bucket*1
+craft(soul anchor (full 3x3)) = soul_anchor*1
+craft(wayshard (shapeless hand)) = wayshard*2
+craft(slab <-> vertical slab) = cobbled_vslab*1
+craft(nothing (empty grid)) = none
+craft(nothing (nonsense)) = none

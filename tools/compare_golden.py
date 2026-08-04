@@ -1,23 +1,53 @@
 #!/usr/bin/env python3
-"""Verify this port against the original JavaScript it was ported from.
+"""Check this build's generated content against the last release's.
 
-    python tools/compare_golden.py            # everything
-    python tools/compare_golden.py --only gen # one group
+    py -3 tools/compare_golden.py              # everything
+    py -3 tools/compare_golden.py --only gen   # one group
+    py -3 tools/compare_golden.py --accept     # adopt this build as the baseline
 
-Runs the reference implementation and this build side by side and diffs the
-results. This is the gate for any change under src/world, src/resource or
-src/core/prng.
+Dumps every table the game generates -- terrain, textures, recipes, chunk
+geometry -- and diffs it against the committed baseline in tools/golden/. It is
+the gate for any change under src/world, src/resource or src/core/prng.
 
-The reference is NOT in this repository. Hollowreach was forked out of the web
-version's repo and the js/ tree stayed with the archive, so a checkout of
-https://github.com/Anonymous-Floof/Hollow-Reach has to exist somewhere and
-HOLLOWREACH_JS has to point at its js/ directory. tools/jsref.mjs does the
-looking and says so plainly when it comes up empty.
+WHAT THIS COMPARES AGAINST, AND WHY IT CHANGED
+----------------------------------------------
+Until 2.5.0 the reference was the archived WebGL2 build this project was forked
+out of: an external checkout, found through HOLLOWREACH_JS, diffed value for
+value. That went, for two reasons.
+
+The exception list only grew. Every deliberate divergence -- and divergence is
+the point of a fork -- cost a permanent entry to keep alive a comparison that
+had stopped being a goal.
+
+And it could not see the thing most worth guarding. The generator dump ran
+`for ver = 1..2` because versions 3 and 4 do not exist in the JavaScript to
+compare against, while worlds generate at 4. So the check standing between a
+release and the worst regression available -- terrain shape shifting under every
+existing save -- structurally could not cover the version anyone plays. The
+anchor was not merely redundant, it was in the way.
+
+The baseline is now this project's own previous release. tools/*.mjs are kept as
+the record of what the port was verified against for 1.x through 2.4.0; they no
+longer run here, and the dump has since grown labels they cannot produce.
+
+HOW A DIFFERENCE IS MEANT TO BE HANDLED
+---------------------------------------
+Not every difference is a bug -- most releases change something on purpose, and
+a gate that fires every release gets ignored, which is worse than no gate. So
+differences are reported in full either way, and the exit code asks only whether
+each one was declared:
+
+  * expected it?  add the label to tools/golden/expected.txt with a reason.
+  * did not?      that is the gate firing. It is the regression.
+
+At release time, `--accept` rewrites the baselines from the current build and
+empties expected.txt, so the list never accumulates the way the old one did.
+docs/RELEASING.md says where in the sequence that goes.
 
 Four groups, ordered by how much each narrows a failure:
 
   gen    PRNG, noise permutation tables, field samples, heights, biomes, whole
-         generated chunks. Exact — any difference is a bug.
+         generated chunks, at every generator version the build still knows.
          A prng failure means nothing else can match; suspect imul/ushr.
          A noise failure means the Fisher-Yates shuffle; every later value is
          then unrelated rather than merely close.
@@ -25,67 +55,46 @@ Four groups, ordered by how much each narrows a failure:
          A worldgen failure with matching fields means integer semantics
          (floorDiv is the usual culprit).
 
-  atlas  Per-tile hashes of every procedural texture. Exact. The atlas *layouts*
-         differ by design, so tiles are compared individually rather than as one
-         image.
+  atlas  Per-tile hashes of every procedural texture.
 
   recipes  The crafting table, the smelting table, the derived fuel value of
-         every item, and a fixed set of grids run through the matcher. Exact.
-         Most of the table is generated from the block registry, so one wrong
-         loop silently drops a whole family of recipes.
+         every item, and a fixed set of grids run through the matcher. Most of
+         the table is generated from the block registry, so one wrong loop
+         silently drops a whole family of recipes.
 
   mesh   Chunk geometry, ambient occlusion, smooth lighting, water surfaces.
-         Positions are compared on a 1/16-block grid; see mesh_golden.mjs for why.
-         One chunk of the fixture is expected to differ: three vertices sit one
-         float32 ULP apart because std::sin and Math.sin disagree on a couple of
-         the plant-jitter angles. That is reported as a known difference, not a
-         failure. Use --strict to fail on it anyway.
+         Positions are compared on a 1/16-block grid; see mesh_golden.mjs.
+
+This covers generated tables and terrain. It does NOT cover rendering: 2.4.0's
+lighting fix legitimately changed pixels in every frame and a content dump would
+neither catch nor care.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
-import shutil
 import subprocess
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
+BASELINE = HERE / "golden"
+EXPECTED = BASELINE / "expected.txt"
 
-# Chunks whose only difference is the documented one-ULP transcendental drift.
-KNOWN_MESH_DIFFS = {"mesh(3918175327, v1, 7, -3)"}
+GROUPS = ("gen", "atlas", "recipes", "mesh")
 
-# Deliberate divergences in the recipe group, all of the same kind: the browser
-# named one specific wood where it meant any wood, and this build uses a tag.
-#
-#   recipe(100..103)  the four wooden tools. "planks" is OAK planks, so a world
-#                     that spawned you in a pine or birch forest could not make
-#                     the first pickaxe at all.
-#   smelt(00)         charcoal. "log" is the OAK log, so a forge fed a pine log
-#                     did nothing at all while the recipe book said logs burn.
-#
-# Everything else in the group must still match exactly.
-KNOWN_RECIPE_DIFFS = {f"recipe({n})" for n in (100, 101, 102, 103)} | {"smelt(00)"}
-
-# Things this build has that the browser never did. Separate from the sets above,
-# which are entries that exist on both sides and disagree: these exist only here,
-# so they surface as EXTRA rather than as a mismatch.
-#
-# The painting and the Evil Altar. Anything added to the block registry or the
-# recipe table lands here, and the rule for adding one is that it must be
-# registered LAST in its table -- ids and recipe indices are handed out in order,
-# and inserting in the middle renumbers everything after it, which reads as a
-# hundred failures in a group where nothing actually changed.
-#
-# The altar is two tiles and no recipe, which is the shape of a block that exists
-# for worldgen to place rather than for a player to craft.
-KNOWN_EXTRA = {
-    "atlas": {"tile(block/canvas)", "tile(block/evil_altar_side)",
-              "tile(block/evil_altar_top)"},
-    "recipes": {"recipe(140)"},
-}
+EXPECTED_HEADER = (
+    "# Labels this working tree changes on purpose, one per line, with a reason\n"
+    "# after a '#'. fnmatch patterns, so `chunk(*, v4, *)` covers a family.\n"
+    "# compare_golden.py reports every difference either way; this file only\n"
+    "# decides which ones fail the gate.\n"
+    "#\n"
+    "# Emptied by --accept at release time, so it can never accumulate the way the\n"
+    "# JS exception list it replaced did.\n"
+)
 
 
 def find_exe(explicit: str | None) -> Path:
@@ -114,6 +123,22 @@ def run(cmd: list[str], what: str) -> str:
     return proc.stdout
 
 
+def dump(exe: Path, group: str, scratch: Path) -> str:
+    """Runs the build's own dumper for one group."""
+    if group == "gen":
+        # Sections are listed explicitly: with none given the dumper emits every
+        # section it knows, including mesh, which belongs to its own group.
+        return run([str(exe), "--dump-golden", "-", "--sections",
+                    "prng,noise,fields,worldgen,chunks"], "the generator dump")
+    if group == "mesh":
+        return run([str(exe), "--dump-golden", "-", "--sections", "mesh"], "the mesh dump")
+    if group == "recipes":
+        return run([str(exe), "--dump-recipes", "-"], "the recipe dump")
+    png = scratch / "atlas.png"
+    run([str(exe), "--dump-atlas", str(png)], "the atlas dump")
+    return png.with_suffix(".png.txt").read_text(encoding="utf-8")
+
+
 def keyed(text: str) -> dict[str, str]:
     """Parses `label = value` and `label(args) rest` lines into a dict."""
     out: dict[str, str] = {}
@@ -131,105 +156,106 @@ def keyed(text: str) -> dict[str, str]:
     return out
 
 
-def compare(name: str, expected: dict[str, str], got: dict[str, str],
-            known: set[str], strict: bool,
-            known_extra: set[str] | None = None) -> tuple[int, int, int]:
-    """Returns (checked, failures, known-differences)."""
-    failures: list[str] = []
-    known_hits = 0
-    for label, want in expected.items():
+def read_expected() -> list[str]:
+    """Labels this working tree is knowingly changing, as fnmatch patterns.
+
+    Patterns rather than plain labels because one decision usually moves a whole
+    family at once -- widening the dump by a generator version adds a line per
+    seed per chunk -- and a hundred literals would be neither readable nor
+    reviewable. `chunk(*, v4, *)` says the thing the author actually meant.
+    """
+    if not EXPECTED.is_file():
+        return []
+    out: list[str] = []
+    for line in EXPECTED.read_text(encoding="utf-8").splitlines():
+        label = line.partition("#")[0].strip()
+        if label:
+            out.append(label)
+    return out
+
+
+def compare(name: str, base: dict[str, str], got: dict[str, str],
+            expected: list[str]) -> tuple[int, list[str], int]:
+    """Returns (values checked, undeclared differences, declared ones)."""
+    undeclared: list[str] = []
+    declared = 0
+
+    def record(label: str, detail: str) -> None:
+        nonlocal declared
+        if any(fnmatch(label, pattern) for pattern in expected):
+            declared += 1
+        else:
+            undeclared.append(detail)
+
+    for label, want in base.items():
         if label not in got:
-            failures.append(f"MISSING in native: {label}")
-            continue
-        if got[label] == want:
-            continue
-        if label in known and not strict:
-            known_hits += 1
-            continue
-        failures.append(f"{label}\n      js  = {want}\n      c++ = {got[label]}")
+            record(label, f"GONE from this build: {label}")
+        elif got[label] != want:
+            record(label, f"{label}\n      baseline = {want}\n      this     = {got[label]}")
 
-    allowed_extra = known_extra or set()
-    extra = sorted(set(got) - set(expected))
-    for label in extra:
-        if label in allowed_extra and not strict:
-            known_hits += 1
-            continue
-        failures.append(f"EXTRA in native: {label}")
+    for label in sorted(set(got) - set(base)):
+        record(label, f"NEW in this build: {label}")
 
-    status = "OK" if not failures else "FAIL"
-    note = f", {known_hits} known difference(s)" if known_hits else ""
-    print(f"  [{status}] {name}: {len(expected)} values{note}")
-    for f in failures[:6]:
+    status = "OK" if not undeclared else "FAIL"
+    note = f", {declared} declared change(s)" if declared else ""
+    print(f"  [{status}] {name}: {len(base)} values{note}")
+    for f in undeclared[:6]:
         print(f"    {f}")
-    if len(failures) > 6:
-        print(f"    ... and {len(failures) - 6} more")
-    return len(expected), len(failures), known_hits
+    if len(undeclared) > 6:
+        print(f"    ... and {len(undeclared) - 6} more")
+    return len(base), undeclared, declared
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exe", help="path to the native build")
-    ap.add_argument("--only", choices=["gen", "atlas", "recipes", "mesh"],
-                    help="run one group")
-    ap.add_argument("--strict", action="store_true",
-                    help="fail on known transcendental differences too")
+    ap.add_argument("--exe", help="path to the built executable")
+    ap.add_argument("--only", choices=GROUPS, help="run one group")
+    ap.add_argument("--accept", action="store_true",
+                    help="rewrite the baselines from this build and clear expected.txt")
     args = ap.parse_args()
 
-    if not shutil.which("node"):
-        sys.exit("error: node is not on PATH; it runs the reference implementation in js/")
     exe = find_exe(args.exe)
-    print(f"reference: js/   candidate: {exe.name} "
-          f"({exe.parent.parent.name})\n")
+    scratch = REPO / "build" / "golden"
+    scratch.mkdir(parents=True, exist_ok=True)
+    BASELINE.mkdir(parents=True, exist_ok=True)
+    groups = [args.only] if args.only else list(GROUPS)
 
-    out_dir = REPO / "build" / "golden"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if args.accept:
+        for group in groups:
+            (BASELINE / f"{group}.txt").write_text(dump(exe, group, scratch), encoding="utf-8")
+            print(f"  baseline updated: tools/golden/{group}.txt")
+        # Only a full run may clear the declarations: emptying them after checking
+        # one group would silently bless the three that were not looked at.
+        if not args.only:
+            EXPECTED.write_text(EXPECTED_HEADER, encoding="utf-8")
+            print("  expected.txt cleared")
+        return 0
 
-    groups = [args.only] if args.only else ["gen", "atlas", "recipes", "mesh"]
-    total_checked = total_failed = total_known = 0
+    print(f"baseline: tools/golden/   candidate: {exe.name} ({exe.parent.parent.name})\n")
+    expected = read_expected()
+    total_checked = total_declared = total_undeclared = 0
 
     for group in groups:
-        if group == "gen":
-            js = run(["node", str(HERE / "gen_golden.mjs")], "the JS generator dump")
-            # Sections are listed explicitly: with none given the native dumper
-            # emits every section it knows, including mesh, which belongs to its own
-            # group and would show up here as unmatched extra lines.
-            cpp = run([str(exe), "--dump-golden", "-", "--sections",
-                       "prng,noise,fields,worldgen,chunks"],
-                      "the native generator dump")
-        elif group == "atlas":
-            js = run(["node", str(HERE / "atlas_golden.mjs")], "the JS atlas dump")
-            png = out_dir / "cpp-atlas.png"
-            run([str(exe), "--dump-atlas", str(png)], "the native atlas dump")
-            cpp = (png.with_suffix(".png.txt")).read_text(encoding="utf-8")
-        elif group == "recipes":
-            js = run(["node", str(HERE / "recipes_golden.mjs")], "the JS recipe dump")
-            cpp = run([str(exe), "--dump-recipes", "-"], "the native recipe dump")
-        else:
-            js = run(["node", str(HERE / "mesh_golden.mjs")], "the JS mesh dump")
-            cpp = run([str(exe), "--dump-golden", "-", "--sections", "mesh"],
-                      "the native mesh dump")
-
-        (out_dir / f"js-{group}.txt").write_text(js, encoding="utf-8")
-        (out_dir / f"cpp-{group}.txt").write_text(cpp, encoding="utf-8")
-
-        known = {"mesh": KNOWN_MESH_DIFFS, "recipes": KNOWN_RECIPE_DIFFS}.get(group, set())
-        checked, failed, known_hits = compare(group, keyed(js), keyed(cpp), known,
-                                              args.strict, KNOWN_EXTRA.get(group, set()))
+        path = BASELINE / f"{group}.txt"
+        if not path.is_file():
+            sys.exit(f"error: no baseline at {path}; run with --accept to create one")
+        got = dump(exe, group, scratch)
+        (scratch / f"this-{group}.txt").write_text(got, encoding="utf-8")
+        checked, undeclared, declared = compare(
+            group, keyed(path.read_text(encoding="utf-8")), keyed(got), expected)
         total_checked += checked
-        total_failed += failed
-        total_known += known_hits
+        total_undeclared += len(undeclared)
+        total_declared += declared
 
     print()
-    if total_failed:
-        print(f"{total_failed} difference(s) across {total_checked} values.")
-        print(f"full dumps: {out_dir}")
+    if total_undeclared:
+        print(f"{total_undeclared} undeclared difference(s) across {total_checked} values.")
+        print(f"full dumps: {scratch}")
+        print("If they are intended, add the labels to tools/golden/expected.txt with a reason.")
         return 1
-    # Not all known differences are transcendental any more: the recipe ones are a
-    # deliberate gameplay fix. Saying "transcendental" for both would be a small lie
-    # in the one line most people read.
-    suffix = f" ({total_known} known, documented difference(s))" if total_known else ""
     # ASCII on purpose: this runs in cmd.exe, whose code page mangles anything else.
-    print(f"MATCH - {total_checked} values reproduce the JavaScript exactly{suffix}.")
+    suffix = f" ({total_declared} declared change(s))" if total_declared else ""
+    print(f"MATCH - {total_checked} values match the baseline{suffix}.")
     return 0
 
 

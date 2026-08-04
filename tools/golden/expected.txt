@@ -1,0 +1,33 @@
+# Labels this working tree changes on purpose, one per line, with a reason
+# after a '#'. fnmatch patterns, so `chunk(*, v4, *)` covers a family.
+# compare_golden.py reports every difference either way; this file only
+# decides which ones fail the gate.
+#
+# Emptied by --accept at release time, so it can never accumulate the way the
+# JS exception list it replaced did.
+
+# --- 2.5.0: the gate was re-anchored, and the dump grew to fit ---------------
+#
+# Every entry here is an ADDITION. The baseline in this directory was generated
+# by the shipped 2.4.0 binary, and all 217 gen labels, all 158 atlas tiles, all
+# 209 recipes and all 30 meshes it emits are reproduced by this build without a
+# single value moving. Nothing below is a changed number; they are labels 2.4.0
+# had no way to emit.
+#
+# Worlds generate at kGenVersion, which is 4. The dump stopped at 2 because
+# versions 3 and 4 do not exist in the JavaScript that used to be the reference,
+# so the check standing between a release and terrain shifting under every
+# existing save could not cover the version anyone actually plays.
+heightAt(*, v3)          # gen versions past the two the JS had
+heightAt(*, v4)
+surfacePreview(*, v3)
+surfacePreview(*, v4)
+chunk(*, v3, *)
+chunk(*, v4, *)
+
+# The `chunk` hashes cover the bottom 128 layers, which was the whole of the
+# JavaScript's world where this one is 192. That slice is kept so the first
+# self-anchored baseline could be checked against the last JS-anchored release;
+# chunkFull covers all 192, and is what actually guards the underground added
+# at gen v3. See the note on kJsCells in src/dev/golden.cpp.
+chunkFull(*)             # the 64 layers the old hashes could never see

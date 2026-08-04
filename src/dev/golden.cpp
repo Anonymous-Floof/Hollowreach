@@ -41,13 +41,18 @@ std::string d(double value) {
   return buffer;
 }
 
-// The light hashes cover only the bottom 128 layers of a chunk, because that is
-// the whole of the JavaScript's world and this build's is 192. Restricting the
-// slice rather than dropping the check keeps it meaningful: the arrays are laid
-// out with y slowest (localIdx = (y*CZ + z)*CX + x), so the shared region is a
-// contiguous prefix and compares byte for byte. What sits above it is asserted
-// separately in --selftest — air, full skylight, no blocklight — because a hash
-// that silently covered a different amount of world would be worse than no hash.
+// The bottom 128 layers of a chunk: the whole of the JavaScript's world, where
+// this build's is 192. The arrays are laid out with y slowest (localIdx =
+// (y*CZ + z)*CX + x), so the shared region is a contiguous prefix and compares
+// byte for byte.
+//
+// The gate no longer compares against that JavaScript — see tools/compare_golden.py
+// — so this is not a restriction any more, it is a bridge. Every label built on it
+// keeps the exact value it had in 2.4.0 and earlier, which is what let the first
+// self-anchored baseline be checked against the last JS-anchored release rather
+// than merely asserted. The chunkFull lines beside them cover the whole 192, which
+// is what actually guards the underground added at gen v3. Once a baseline exists
+// that never needed the bridge, these can go.
 constexpr std::size_t kJsCells = 128 * world::CZ * world::CX;
 constexpr std::size_t kJsLightBytes = kJsCells;
 
@@ -225,7 +230,11 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
     out.section("worldgen.heightAt");
     for (std::uint32_t seed : kSeeds) {
       world::NoiseSet noise(seed);
-      for (int ver = 1; ver <= 2; ++ver) {
+      // Every version the generator still knows how to produce, not just the two
+      // the JavaScript had. Worlds generate at kGenVersion, so stopping at 2 left
+      // the single most damaging regression available — terrain shape moving
+      // under an existing save — structurally outside the gate.
+      for (int ver = 1; ver <= world::kGenVersion; ++ver) {
         // A coarse grid wide enough to cross biome and mountain-mask boundaries.
         std::string heights;
         for (int i = 0; i < 32; ++i) {
@@ -256,7 +265,7 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
     out.section("worldgen.surfacePreview");
     for (std::uint32_t seed : {3479357960u, 3918175327u}) {
       world::NoiseSet noise(seed);
-      for (int ver = 1; ver <= 2; ++ver) {
+      for (int ver = 1; ver <= world::kGenVersion; ++ver) {
         std::string cells;
         for (int i = 0; i < 24; ++i) {
           const world::SurfacePreview p =
@@ -279,7 +288,7 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
 
     for (std::uint32_t seed : {3479357960u, 3918175327u, 12345u}) {
       world::NoiseSet noise(seed);
-      for (int ver = 1; ver <= 2; ++ver) {
+      for (int ver = 1; ver <= world::kGenVersion; ++ver) {
         for (const auto& cc : chunkList) {
           world::Chunk chunk;
           chunk.cx = cc[0];
@@ -287,19 +296,23 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
           world::generate(chunk, noise, ver);
 
           const auto& voxels = chunk.data->voxels;
-          // Only the bottom 128 layers, for the reason kJsLightBytes gives: this
-          // build's world is 192 tall and the reference's is 128, and hashing a
-          // different amount of world would be a comparison that always passes.
-          // nonAir is counted over the WHOLE column, so anything generated in the
-          // new space above would still show up here as a mismatch.
+          // Hashed twice over two different amounts of world. The `chunk` line
+          // covers the bottom 128 layers and so keeps the value it has always
+          // had — that is the bridge kJsCells describes. The `chunkFull` line
+          // covers all 192, which is the one that actually guards the underground.
+          // nonAir has always counted the whole column, so it was never blind to
+          // the space above.
           const std::size_t shared = std::min<std::size_t>(voxels.size(), kJsCells);
-          std::vector<std::uint8_t> keyBytes;
+          std::vector<std::uint8_t> keyBytes, fullKeyBytes;
           keyBytes.reserve(shared * 6);
+          fullKeyBytes.reserve(voxels.size() * 6);
           int nonAir = 0;
           for (std::size_t i = 0; i < voxels.size(); ++i) {
             if (voxels[i] != world::kAir) ++nonAir;
-            if (i >= shared) continue;
             const std::string& key = registry.def(voxels[i]).key;
+            for (char ch : key) fullKeyBytes.push_back(static_cast<std::uint8_t>(ch));
+            fullKeyBytes.push_back(0);
+            if (i >= shared) continue;
             for (char ch : key) keyBytes.push_back(static_cast<std::uint8_t>(ch));
             keyBytes.push_back(0);
           }
@@ -308,6 +321,11 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
                               shared * sizeof(world::BlockId)))
                         .c_str(),
                     u32(fnv1a(keyBytes.data(), keyBytes.size())).c_str(), nonAir);
+          out.linef("chunkFull(%u, v%d, %d, %d) ids=%s keys=%s", seed, ver, cc[0], cc[1],
+                    u32(fnv1a(reinterpret_cast<const std::uint8_t*>(voxels.data()),
+                              voxels.size() * sizeof(world::BlockId)))
+                        .c_str(),
+                    u32(fnv1a(fullKeyBytes.data(), fullKeyBytes.size())).c_str());
         }
       }
     }
