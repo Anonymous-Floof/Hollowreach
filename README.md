@@ -92,7 +92,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 516 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 522 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -175,8 +175,12 @@ The consequence is worth stating plainly, because it is easy to get wrong: you
 cannot compare a release against a number written down for an earlier one. To ask
 whether a change cost anything, run both binaries back to back **interleaved** in
 the same sitting. That was done for 2.4.0 against 2.3.0 — 2.77 vs 2.75 at
-Ultra/12, 2.02 vs 2.00 at Ultra/4 — which is how we know the renderer is
-unchanged.
+Ultra/12, 2.02 vs 2.00 at Ultra/4 — and again for 2.5.0 against 2.4.0, whose GPU
+passes paired at 5.30 vs 5.31 and 5.18 vs 5.19 on a different afternoon. Note
+that those absolutes are nothing like the table's: same binaries, different
+camera and a machine in a different state, which is the whole point. The renderer
+is unchanged in both cases; what 2.5.0 moved is CPU-side and shows up in
+`streaming on the main thread`, not here.
 
 Two traps found the hard way while measuring that, both of which produce
 confident-looking numbers that mean nothing:
