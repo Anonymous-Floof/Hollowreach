@@ -317,10 +317,37 @@ class World {
   int scanAndSubmit(int pcx, int pcz, int genBudget, int stageBudget, int maxInFlight);
 
   bool neighboursGenerated(int cx, int cz) const;
-  void dirtyLight(int cx, int cz);
   void dirtyMesh(int cx, int cz);
   void unloadFar(int pcx, int pcz, int radius);
   const std::vector<std::pair<int, int>>& ringOffsets(int radius);
+
+  // --- incremental lighting (lightengine.cpp) ---------------------------------
+  //
+  // Resolves world cells to the chunk that owns them, caching the last one: a
+  // flood step almost always stays inside the chunk it started in, so the hash
+  // lookup is paid once per seam crossing rather than once per cell. Defined in
+  // lightengine.cpp, and built fresh for each operation so it can never outlive
+  // the chunks it points at.
+  class LightCursor;
+
+  // Carries a block change through both channels. Does nothing at all when
+  // neither opacity nor emission moved, and nothing when the chunk has not had
+  // its first full pass — that pass reads the voxels, so it will see this edit.
+  void relightAfterEdit(int wx, int wy, int wz, BlockId before, BlockId after);
+  // Queues whatever the two sides of each seam owe each other, for a chunk whose
+  // first full pass has just landed. Seeds only; the queues are drained together.
+  void seedSeams(LoadedChunk& lc);
+  // Drains both channels' queues, remove pass first — it feeds the add pass.
+  void runLightQueues();
+  // Marks the meshes of every chunk the queues wrote into, and its neighbours,
+  // because a face samples the light of the cell it looks into.
+  void flushLightTouched();
+
+  // [kSkyChannel] and [kBlockChannel]. Members rather than locals so a long run
+  // of edits reuses one allocation.
+  std::vector<LightNode> lightAdd_[2];
+  std::vector<LightNode> lightRemove_[2];
+  std::unordered_set<ChunkKey> lightTouched_;
 
   NoiseSet noise_;
   int genVersion_;

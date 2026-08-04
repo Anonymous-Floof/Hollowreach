@@ -2781,6 +2781,86 @@ int settleBlocks(world::World& w, int maxTicks) {
 // re-meshed its neighbours but never re-lit them, so light that had to cross a seam
 // crossed it only if the two chunks happened to be lit in the right order, and a
 // torch a block from a border lit its own chunk and stopped dead at the line.
+// Rebuilds the light of every lit chunk from zero, repeatedly, until the whole set
+// stops changing — and reports the worst disagreement with what the world is
+// actually holding.
+//
+// This is the check the incremental engine lives or dies by. computeLight is a
+// whole-chunk rebuild seeded from its neighbours, so iterating it over the loaded
+// set until it settles lands on the one true answer: the least assignment where
+// every passable cell is at least its brightest neighbour minus one. The
+// incremental add/remove passes claim to keep the world sitting exactly there
+// after any sequence of edits, and nothing else in the suite would notice if they
+// drifted — the golden mesh dump calls computeLight itself, so it compares the
+// rebuild against the rebuild.
+//
+// The two directions of failure are both real bugs and they read differently:
+// incremental BELOW the rebuild is light that never arrived (the torch whose glow
+// stops at a chunk border), incremental ABOVE it is light that never left (the
+// removed torch that keeps shining).
+//
+// Only lit chunks are rebuilt, and everything else is treated as absent, because
+// that is precisely what the running world does: submitLight hands a worker the
+// neighbour's arrays whether or not they hold anything, and an unlit chunk's are
+// all zero, which contributes exactly what a missing chunk does.
+int worstLightDrift(world::World& w, std::string& where) {
+  std::unordered_map<world::ChunkKey, std::shared_ptr<world::ChunkData>> ref;
+  for (const auto& [key, lc] : w.chunks()) {
+    if (!lc->chunk.generated || !lc->chunk.lit) continue;
+    ref[key] = std::make_shared<world::ChunkData>(*lc->chunk.data);
+  }
+  // Zeroed, so the rebuild cannot inherit any part of the answer it is checking.
+  for (auto& [key, d] : ref) {
+    d->skylight.fill(0);
+    d->blocklight.fill(0);
+  }
+
+  std::vector<world::Emitter> scratch;
+  for (int round = 0; round < 64; ++round) {
+    bool changed = false;
+    for (auto& [key, d] : ref) {
+      world::LightNeighbourhood nb;
+      nb.cx = world::keyCx(key);
+      nb.cz = world::keyCz(key);
+      for (int dz = -1; dz <= 1; ++dz) {
+        for (int dx = -1; dx <= 1; ++dx) {
+          auto it = ref.find(world::chunkKey(nb.cx + dx, nb.cz + dz));
+          nb.grid[(dz + 1) * 3 + (dx + 1)] = it == ref.end() ? nullptr : it->second.get();
+        }
+      }
+      nb.grid[4] = d.get();
+      const auto beforeSky = d->skylight;
+      const auto beforeBlock = d->blocklight;
+      world::computeLight(*d, nb, scratch);
+      if (d->skylight != beforeSky || d->blocklight != beforeBlock) changed = true;
+    }
+    if (!changed) break;
+  }
+
+  int worst = 0;
+  for (const auto& [key, d] : ref) {
+    const world::LoadedChunk* lc = w.chunkAt(world::keyCx(key), world::keyCz(key));
+    const world::ChunkData& live = *lc->chunk.data;
+    for (int i = 0; i < world::kCellsPerChunk; ++i) {
+      const int ds = static_cast<int>(live.skylight[i]) - static_cast<int>(d->skylight[i]);
+      const int db = static_cast<int>(live.blocklight[i]) - static_cast<int>(d->blocklight[i]);
+      for (const auto& [delta, name] :
+           {std::pair<int, const char*>{ds, "sky"}, std::pair<int, const char*>{db, "block"}}) {
+        if (std::abs(delta) <= worst) continue;
+        worst = std::abs(delta);
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "%s at (%d,%d,%d): world %d, rebuild %d", name,
+                      world::keyCx(key) * world::CX + world::idxX(i), world::idxY(i),
+                      world::keyCz(key) * world::CZ + world::idxZ(i),
+                      static_cast<int>(name[0] == 's' ? live.skylight[i] : live.blocklight[i]),
+                      static_cast<int>(name[0] == 's' ? d->skylight[i] : d->blocklight[i]));
+        where = buf;
+      }
+    }
+  }
+  return worst;
+}
+
 void testLighting() {
   std::printf("lighting across chunk borders\n");
 
@@ -2828,6 +2908,65 @@ void testLighting() {
   }
   checkf(brightest == 0, "a sealed room straddling a seam is dark all the way across (%d)",
          brightest);
+
+  // Two torches, one removed. The remove pass has to tell light that came from the
+  // torch being taken away apart from light that was always the other one's — get
+  // that wrong and either the survivor's glow is scrubbed out with its neighbour's
+  // or the dead one's is left behind.
+  {
+    w->setBlock(14, kY, 2, torch, 0);
+    w->setBlock(18, kY, 2, torch, 0);
+    w->waitForIdle(kOriginX, kOriginZ);
+    const int both = w->getBlockLight(16, kY, 2);
+    w->setBlock(14, kY, 2, world::kAir, 0);
+    w->waitForIdle(kOriginX, kOriginZ);
+    checkf(w->getBlockLight(18, kY, 2) == 14, "the torch that stayed is untouched (%d)",
+           w->getBlockLight(18, kY, 2));
+    checkf(w->getBlockLight(16, kY, 2) == 12, "and the cell between them keeps only its half (%d)",
+           w->getBlockLight(16, kY, 2));
+    checkf(both == 12, "which is what it held all along, since the two were equal (%d)", both);
+    w->setBlock(18, kY, 2, world::kAir, 0);
+  }
+
+  // Skylight down a column, which is the one source that is not a block: sealing a
+  // roof has to put the whole shaft below it into shadow, and opening it again has
+  // to let the sun all the way back down.
+  {
+    for (int y = kY; y <= kY + 5; ++y) w->setBlock(3, y, 3, world::kAir, 0);
+    w->waitForIdle(kOriginX, kOriginZ);
+    const int open = w->getSky(3, kY, 3);
+    w->setBlock(3, kY + 5, 3, world::wk().greystone, 0);
+    w->waitForIdle(kOriginX, kOriginZ);
+    const int capped = w->getSky(3, kY, 3);
+    w->setBlock(3, kY + 5, 3, world::kAir, 0);
+    w->waitForIdle(kOriginX, kOriginZ);
+    checkf(capped < open, "capping a shaft puts the floor under it in shadow (%d -> %d)", open,
+           capped);
+    checkf(w->getSky(3, kY, 3) == open, "and taking the cap off lets the sun back down (%d)",
+           w->getSky(3, kY, 3));
+  }
+
+  // The whole point, stated as one number: after all of that, every cell of every
+  // lit chunk agrees with a from-scratch rebuild of the entire loaded set.
+  {
+    std::string where;
+    const int drift = worstLightDrift(*w, where);
+    checkf(drift == 0, "an edited world sits exactly where a full rebuild would put it (%s)",
+           drift == 0 ? "no drift" : where.c_str());
+  }
+
+  // And the same for a world nobody has touched, which is the other half of the
+  // engine: real terrain with caves and overhangs, lit chunk by chunk on eight
+  // workers in whatever order they finish, then stitched across the seams. This is
+  // the check the 2.4.0 relight race would have failed.
+  {
+    world::World fresh(3918175327u, 3);
+    fresh.waitForIdle(kOriginX, kOriginZ);
+    std::string where;
+    const int drift = worstLightDrift(fresh, where);
+    checkf(drift == 0, "and so does a freshly streamed one, seams and all (%s)",
+           drift == 0 ? "no drift" : where.c_str());
+  }
 }
 
 // --- sleeping ----------------------------------------------------------------

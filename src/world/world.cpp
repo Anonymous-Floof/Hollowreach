@@ -156,7 +156,7 @@ void World::submitGen(LoadedChunk& lc) {
 }
 
 void World::submitLight(LoadedChunk& lc) {
-  lc.chunk.lightDirty = false;
+  lc.chunk.needsLight = false;
   lc.chunk.lightInFlight = true;
   ++lightInFlight_;
 
@@ -226,54 +226,6 @@ void World::submitMesh(LoadedChunk& lc) {
 
 // ---- installing -------------------------------------------------------------
 
-namespace {
-
-// Would relighting the neighbour on one face of this chunk actually change
-// anything? `axis` is 0 for an x face and 1 for a z face; `at` is 0 or 15, the
-// local coordinate of this chunk's plane, and `mirror` the coordinate of the
-// neighbour's touching plane.
-//
-// Two reasons to say yes, one per direction light can move:
-//
-//   * this face is now brighter than the neighbour's touching cell by more than
-//     the one level a step across the border costs, so the neighbour has light
-//     coming to it that it does not have;
-//   * this face got *darker*, so whatever the neighbour is holding there may have
-//     come from a source that is now gone — the removed torch that keeps glowing
-//     through the seam.
-//
-// Deliberately not a plain "did my border change at all". On open ground both
-// sides sit at full skylight and stay there, so a chunk lighting for the first
-// time next to an already-lit one has a face that *changed* (0 -> 15) and yet
-// gives its neighbour nothing. Answering the sharper question is what keeps the
-// initial world load from re-lighting almost every chunk a second time to
-// discover it had nothing to do.
-//
-// The opaque test is not an optimisation, it is what makes this terminate.
-// seedBorders refuses to seed an opaque cell, so a wall on the neighbour's side of
-// the line can never accept the light being offered — and without this guard the
-// offer stands forever: each chunk sees a face brighter than the rock facing it,
-// says "you would change", and dirties the other back for eternity. Ask only about
-// cells that can actually take the light.
-bool neighbourWouldChange(const ChunkData& before, const ChunkData& after,
-                          const ChunkData& neighbour, int axis, int at, int mirror) {
-  const BlockRegistry& reg = blocks();
-  for (int y = 0; y < WH; ++y) {
-    for (int t = 0; t < 16; ++t) {
-      const int n = axis == 0 ? localIdx(mirror, y, t) : localIdx(t, y, mirror);
-      if (reg.opaque(neighbour.voxels[n])) continue;
-      const int i = axis == 0 ? localIdx(at, y, t) : localIdx(t, y, at);
-      if (after.skylight[i] > neighbour.skylight[n] + 1) return true;
-      if (after.blocklight[i] > neighbour.blocklight[n] + 1) return true;
-      if (after.skylight[i] < before.skylight[i]) return true;
-      if (after.blocklight[i] < before.blocklight[i]) return true;
-    }
-  }
-  return false;
-}
-
-}  // namespace
-
 bool World::installResults(double deadlineMs) {
   std::vector<GenResult> gen;
   std::vector<LightResult> light;
@@ -317,14 +269,17 @@ bool World::installResults(double deadlineMs) {
     explored_.insert(r.key);
     mapDirty_.insert(r.key);
 
-    lc->chunk.lightDirty = true;
     lc->chunk.meshDirty = true;
-    // A new chunk changes its neighbours' border faces and border light.
+    // A new chunk changes its neighbours' border faces, so their geometry has to
+    // be rebuilt. Their LIGHT deliberately does not: a chunk that has already had
+    // its one pass is never rebuilt again, and it cannot be holding light that
+    // came from here, because until this moment there was nothing here to give it
+    // any — an absent neighbour contributes zero. So the debt only runs one way,
+    // and seedSeams settles it when this chunk's own light lands.
     for (int dz = -1; dz <= 1; ++dz) {
       for (int dx = -1; dx <= 1; ++dx) {
         if (!dx && !dz) continue;
         if (LoadedChunk* n = chunkAt(lc->chunk.cx + dx, lc->chunk.cz + dz)) {
-          n->chunk.lightDirty = true;
           n->chunk.meshDirty = true;
         }
       }
@@ -338,80 +293,50 @@ bool World::installResults(double deadlineMs) {
     LoadedChunk* lc = chunkAt(keyCx(r.key), keyCz(r.key));
     if (!lc) continue;
     lc->chunk.lightInFlight = false;
-    // Dirty again means something invalidated the chunk while the job ran, so what
-    // came back describes a world that no longer exists. Drop it; the scan will
-    // resubmit.
-    if (lc->chunk.lightDirty || !lc->chunk.generated) continue;
+    // The one-shot protocol: needsLight is cleared at submit and nothing sets it
+    // again, so this can only fire if a second full pass is ever reintroduced.
+    // Kept as the guard for that, because a rebuild landing on top of incremental
+    // light is precisely the bug this design exists to make impossible.
+    if (lc->chunk.needsLight || !lc->chunk.generated) continue;
 
     // Only the light arrays, never the whole working copy: a metadata edit (a door
-    // opening) does not dirty light, so it can land mid-job and must survive.
+    // opening) does not touch light, so it can land mid-job and must survive.
     ChunkData& d = mutableData(*lc);
-
-    // Which of the four faces this chunk shows its neighbours changed. Measured
-    // before the copy, because `d` is about to stop being the old values.
-    //
-    // computeLight rebuilds a chunk from zero and seeds its border from whatever
-    // its neighbours are storing *at submit time*, which makes the whole system a
-    // fixed-point iteration over the loaded chunks — and an iteration nothing was
-    // driving. A chunk's light install re-meshed its neighbours (so their faces
-    // resampled) but never re-lit them, so light only ever crossed a seam when the
-    // two chunks happened to be lit in the right order. A torch a block from a
-    // border lit its own chunk and stopped at the line; take that torch away again
-    // and the far side kept its glow, because the neighbour was still reading the
-    // snapshot from before. Both halves of that are the same missing edge.
-    // Only a neighbour that has ALREADY been lit needs asking: one that has not
-    // will read these new values when its own first pass runs. And it settles
-    // rather than ringing, because light loses a level per cell and a chunk is
-    // sixteen wide — a value cannot cross a border, travel the chunk and come back
-    // to raise anything it started from.
-    auto relightIfNeeded = [&](int dx, int dz, int axis, int at, int mirror) {
-      LoadedChunk* n = chunkAt(lc->chunk.cx + dx, lc->chunk.cz + dz);
-      if (!n || n->chunk.lightDirty) return;  // already going to be redone
-      // A neighbour with a job OUT read a snapshot of this chunk taken before the
-      // values being installed here existed, so whatever it returns is answering a
-      // question that has since changed. It cannot be compared against — the data
-      // it is holding is pre-light — so it is dirtied unconditionally, which makes
-      // installResults discard the stale result rather than store it.
-      //
-      // Skipping these was a real bug and a subtle one: `lit` is false for a first
-      // pass in flight, so the old guard treated "has not been lit yet" and "is
-      // being lit right now off older data" as the same case. Inline jobs finish at
-      // submit and can never be in flight, so the fault appeared only with workers
-      // — surfacing as the world hash differing between 0 and 8 threads about once
-      // in twenty-five runs.
-      if (n->chunk.lightInFlight) {
-        n->chunk.lightDirty = true;
-        return;
-      }
-      // Never lit and nothing out: it will read these values when its turn comes.
-      if (!n->chunk.lit) return;
-      if (neighbourWouldChange(d, *r.working, *n->chunk.data, axis, at, mirror)) {
-        n->chunk.lightDirty = true;
-      }
-    };
-    relightIfNeeded(-1, 0, 0, 0, CX - 1);
-    relightIfNeeded(1, 0, 0, CX - 1, 0);
-    relightIfNeeded(0, -1, 1, 0, CZ - 1);
-    relightIfNeeded(0, 1, 1, CZ - 1, 0);
-
     d.skylight = r.working->skylight;
     d.blocklight = r.working->blocklight;
     lc->chunk.emitters = std::move(r.emitters);
     lc->chunk.meshDirty = true;
     lc->chunk.lit = true;
 
+    // Now that this chunk holds real light, settle up with the neighbours that
+    // already do. This replaces the whole notification-and-relight scheme: rather
+    // than working out which neighbours would change and rebuilding them, both
+    // sides of each border hand over whatever they can raise in the other and the
+    // BFS carries it. It cannot ring — the add pass only ever raises, so it stops
+    // as soon as nobody is owed anything.
+    //
+    // The stale-snapshot race this used to have is gone rather than guarded. A
+    // job that read this chunk before these values existed produces light that is
+    // merely too LOW, and seedSeams on the far side raises it when that job
+    // lands; there is no longer an order in which a result can be wrong.
+    seedSeams(*lc);
+
     // Light is baked into vertices, and a face samples the neighbour cell it looks
-    // into — so a relit chunk invalidates its neighbours' meshes as well. Skipping
-    // this is what produced black border faces and torches that "needed a nudge".
+    // into — so a newly lit chunk invalidates its neighbours' meshes as well.
+    // Skipping this is what produced black border faces.
     for (int dz = -1; dz <= 1; ++dz) {
       for (int dx = -1; dx <= 1; ++dx) {
         if (!dx && !dz) continue;
         if (LoadedChunk* n = chunkAt(lc->chunk.cx + dx, lc->chunk.cz + dz)) {
-          if (!n->chunk.lightDirty) n->chunk.meshDirty = true;
+          n->chunk.meshDirty = true;
         }
       }
     }
   }
+  // Drained once for the whole batch rather than per chunk: the seams queued
+  // above overlap heavily during a world load, and one pass over the union of
+  // them does far less work than one pass each.
+  runLightQueues();
 
   // The only part of this that touches GL.
   for (MeshResultSlot& r : mesh) {
@@ -485,7 +410,7 @@ int World::scanAndSubmit(int pcx, int pcz, int genBudget, int stageBudget, int m
     // baking a dark border that would need redoing.
     if (!neighboursGenerated(lc->chunk.cx, lc->chunk.cz)) continue;
 
-    if (lc->chunk.lightDirty) {
+    if (lc->chunk.needsLight) {
       if (lc->chunk.lightInFlight || lit >= stageBudget || lightInFlight_ >= maxInFlight) {
         continue;
       }
@@ -595,7 +520,12 @@ void World::primeSpawn(float px, float pz) {
   for (int dz = -1; dz <= 1; ++dz) {
     for (int dx = -1; dx <= 1; ++dx) {
       LoadedChunk* lc = chunkAt(pcx + dx, pcz + dz);
-      if (lc && lc->chunk.generated) submitLight(*lc);
+      // Guarded rather than unconditional: a chunk gets one full pass, and a
+      // second one landing on top of light the incremental passes have already
+      // carried in would undo it.
+      if (lc && lc->chunk.generated && lc->chunk.needsLight && !lc->chunk.lightInFlight) {
+        submitLight(*lc);
+      }
     }
   }
   jobs::system().drain();
@@ -667,10 +597,6 @@ int World::getBlockLight(int wx, int wy, int wz) const {
   return d->blocklight[localIdx(wx & 15, wy, wz & 15)];
 }
 
-void World::dirtyLight(int cx, int cz) {
-  if (LoadedChunk* lc = chunkAt(cx, cz)) lc->chunk.lightDirty = true;
-}
-
 void World::dirtyMesh(int cx, int cz) {
   if (LoadedChunk* lc = chunkAt(cx, cz)) lc->chunk.meshDirty = true;
 }
@@ -693,8 +619,6 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
       static_cast<std::uint32_t>(id) | (static_cast<std::uint32_t>(meta & 0xFF) << 16);
   mapDirty_.insert(chunkKey(cx, cz));
 
-  const BlockRegistry& reg = blocks();
-
   // A painting's picture belongs to the block, so it goes when the block does —
   // here rather than beside the two places that clean up block entities on a
   // break, because a canvas can also be washed off a wall by a flood or lose the
@@ -703,23 +627,11 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   // thousands of times a tick, never touches the map at all.
   if (previous == wk().canvas && id != wk().canvas) removePainting(wx, wy, wz);
 
-  const bool emitterChanged = reg.emit(previous) != reg.emit(id);
-  const bool opacityChanged = reg.opaque(previous) != reg.opaque(id);
-
-  if (emitterChanged || opacityChanged) {
-    // Block light and skylight both reach across chunk borders, so an emitter or
-    // opacity change has to relight the whole neighbourhood, not just this chunk.
-    for (int dz = -1; dz <= 1; ++dz) {
-      for (int dx = -1; dx <= 1; ++dx) dirtyLight(cx + dx, cz + dz);
-    }
-  } else {
-    dirtyLight(cx, cz);
-    // A cell on a border also changes the neighbour's border light.
-    if (lx == 0) dirtyLight(cx - 1, cz);
-    if (lx == 15) dirtyLight(cx + 1, cz);
-    if (lz == 0) dirtyLight(cx, cz - 1);
-    if (lz == 15) dirtyLight(cx, cz + 1);
-  }
+  // Carries the change outward cell by cell, over chunk borders where it has to
+  // go, and marks whatever meshes it actually touched. This used to relight the
+  // whole 3x3 — nine chunks, 49152 cells each, twice over — for one torch, and
+  // then wait several frames for the answer to cross the seams.
+  relightAfterEdit(wx, wy, wz, previous, id);
 
   dirtyMesh(cx, cz);
   if (lx == 0) dirtyMesh(cx - 1, cz);
@@ -1124,7 +1036,7 @@ std::size_t World::pendingCount() const {
     const int dz = lc->chunk.cz - lastPcz_;
     if (dx * dx + dz * dz > r * r) continue;
     const Chunk& c = lc->chunk;
-    if (c.lightDirty || c.meshDirty || c.genInFlight || c.lightInFlight || c.meshInFlight) ++n;
+    if (c.needsLight || c.meshDirty || c.genInFlight || c.lightInFlight || c.meshInFlight) ++n;
   }
   return n;
 }

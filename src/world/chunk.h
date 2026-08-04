@@ -97,13 +97,22 @@ struct Chunk {
 
   bool generated = false;
   bool meshDirty = true;
-  bool lightDirty = true;
-  // Has a light pass ever landed here? Distinct from `!lightDirty`, which is
-  // cleared at *submit* — so between submit and install a never-lit chunk claims
-  // to be clean while both its light arrays are still all zero. That reads as
-  // pitch darkness, which the renderer forgives (the chunk has no mesh yet
-  // either) and the monster spawner absolutely must not: it would take a sunlit
-  // meadow that had just streamed in for a cave.
+  // Wants its ONE full light pass. Set when the chunk is created, cleared when
+  // that pass is submitted, and never set again: after the pass lands, every
+  // further change to this chunk's light is incremental and travels by BFS (see
+  // lightengine.cpp). A whole-chunk relight is not merely wasteful now, it is
+  // wrong — a rebuild-from-zero is seeded from whatever the neighbours hold at
+  // submit time, so it can land BELOW light the BFS has already carried in and
+  // undo it. There is deliberately no way to ask for a second one.
+  bool needsLight = true;
+  // Has that pass actually landed? Distinct from `!needsLight`, which is cleared
+  // at *submit* — so between submit and install a never-lit chunk claims to be
+  // clean while both its light arrays are still all zero. That reads as pitch
+  // darkness, which the renderer forgives (the chunk has no mesh yet either) and
+  // the monster spawner absolutely must not: it would take a sunlit meadow that
+  // had just streamed in for a cave. It is also the flag the incremental passes
+  // test before writing anywhere, since a chunk that has not been lit will read
+  // its neighbours itself when its turn comes.
   bool lit = false;
 
   // A job of each kind is either out or not. The dirty flag above is what makes
