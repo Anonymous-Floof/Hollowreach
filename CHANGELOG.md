@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.5.0] - 2026-08-04
+
 ### Changed
 - **Torches light up instantly, and go out instantly.** Placing or breaking a
   block used to rebuild the lighting of the nine chunks around it from scratch,
@@ -32,6 +34,11 @@ version heading when it's time to ship.
 - **Chunk streaming got faster as well as lighter.** The work the main thread
   does while a world loads in is down by a third against 2.4.0, and below where
   it was in 2.3.0 — before any of the seam fixes existed at all.
+  While measuring that, the note in 2.4.0 below saying its lighting fix cost
+  "about a second longer" to load a world turned out to be wrong: it came from
+  timing runs that were limited by the monitor's refresh rate rather than by the
+  game, so it was not measuring the change at all. 2.4.0 cost about 59
+  milliseconds, spread across a whole world load, and nobody could have seen it.
 
 ## [2.4.0] - 2026-08-03
 
@@ -504,7 +511,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.4.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.2.0
