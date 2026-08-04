@@ -116,6 +116,16 @@ struct WorldSave {
   // rested, and unable to sleep for the first eight hours, which is the harmless
   // reading of "we do not know".
   float hoursAwake = 0.0f;
+  // The world's own rules: difficulty and cheats, as key/value text pairs. Its own
+  // section for the same reason the two above are — a new tag costs nothing and an
+  // older build skips it, loading a world whose rules are simply the defaults.
+  //
+  // Text rather than a struct of typed fields on purpose. The settings schema is a
+  // table that grows, and a struct here would mean this file had to learn every row
+  // added to it; a pair list means a new world-scoped setting is one schema row and
+  // nothing else. Unknown keys are dropped on load, so a world written by a newer
+  // build opens in an older one with the settings it still understands.
+  std::vector<std::pair<std::string, std::string>> worldSettings;
 };
 
 // Encodes to bytes. Deterministic: every map is written in sorted key order, so

@@ -28,10 +28,23 @@ std::string formatNumber(double v) {
   return buffer;
 }
 
+// The tabs to show right now. A world's rules need a world to belong to, so
+// Difficulty and Cheats simply are not there on the main menu -- there is no world
+// whose rules could be displayed, and showing the last one's would be a lie a
+// player would reasonably act on.
+std::vector<std::string> visibleCategories() {
+  std::vector<std::string> out;
+  for (const std::string& c : settingsCategories()) {
+    if (categoryScope(c) == SettingScope::World && !settings().inWorld()) continue;
+    out.push_back(c);
+  }
+  return out;
+}
+
 }  // namespace
 
 void SettingsScreen::onShow() {
-  const std::vector<std::string> cats = settingsCategories();
+  const std::vector<std::string> cats = visibleCategories();
   if (cats.empty()) return;
   if (std::find(cats.begin(), cats.end(), activeTab_) == cats.end()) activeTab_ = cats.front();
   hoveredTag_ = 0;
@@ -54,7 +67,7 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
 
   // .settings-tabs { flex-wrap: wrap; gap: 6px; justify-content: center;
   //                  border-bottom: 2px solid edge; padding-bottom: 12px }
-  const std::vector<std::string> cats = settingsCategories();
+  const std::vector<std::string> cats = visibleCategories();
   Style tabs = Doc::row(6, Justify::Center, Align::Center);
   tabs.wrap = true;
   tabs.padding = Edges(0, 0, 12, 0);
@@ -202,7 +215,7 @@ void SettingsScreen::handle(const UiEvent& event) {
   if (!event.leftClick) return;
 
   if (hoveredTag_ == kTagTab) {
-    const std::vector<std::string> cats = settingsCategories();
+    const std::vector<std::string> cats = visibleCategories();
     if (hoveredIndex_ < static_cast<int>(cats.size())) {
       activeTab_ = cats[static_cast<std::size_t>(hoveredIndex_)];
       doc_.scroll(kTagPanel).offset = 0;
@@ -214,6 +227,10 @@ void SettingsScreen::handle(const UiEvent& event) {
     return;
   }
   if (hoveredTag_ == kTagTrack) {
+    if (hoveredIndex_ < static_cast<int>(schema.size()) &&
+        !settings().editable(schema[static_cast<std::size_t>(hoveredIndex_)].key)) {
+      return;
+    }
     draggingSlider_ = hoveredIndex_;
     const int node = doc_.findTag(kTagTrack, hoveredIndex_);
     if (node >= 0) {
@@ -224,6 +241,9 @@ void SettingsScreen::handle(const UiEvent& event) {
   }
   if (hoveredTag_ == kTagControl && hoveredIndex_ < static_cast<int>(schema.size())) {
     const SettingDef& def = schema[static_cast<std::size_t>(hoveredIndex_)];
+    // A guest is in somebody else's world and does not set its rules. Refused here
+    // rather than hidden, so they can still SEE what they are playing under.
+    if (!settings().editable(def.key)) return;
     if (def.type == SettingType::Toggle) {
       settings().setFlag(def.key, !settings().flag(def.key));
       if (onChange) onChange(def.key);

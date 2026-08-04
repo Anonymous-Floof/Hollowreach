@@ -12,6 +12,7 @@
 #include "game/items.h"
 #include "game/player.h"
 #include "render/sky.h"
+#include "ui/settings.h"
 #include "save/format.h"
 #include "world/blocks.h"
 #include "world/world.h"
@@ -739,6 +740,13 @@ void Host::onLocalSleep(bool on, float target) {
     if (sleepVotes_.empty()) sleepProposer_.clear();
   }
   tallySleep();
+}
+
+void Host::broadcastWorldSettings() {
+  if (!running()) return;
+  WorldSettingsMsg m;
+  m.values = ui::settings().worldValues();
+  broadcast(MsgType::WorldSettings, m);
 }
 
 void Host::broadcastSleepState() {

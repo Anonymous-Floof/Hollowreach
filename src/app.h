@@ -217,6 +217,8 @@ class App {
   // Q held in the world: the same drop run the inventory screen does over a
   // hovered slot, kept here because the hotbar has no UI object to own it.
   ui::DropRun dropRun_;
+  // Last settings revision applied; see updatePlaying.
+  std::uint32_t settingsRevision_ = 0;
   // Throws one stack into the world, routing through the host for a guest.
   void tossStack(const std::string& key, int count, int dura);
   // The hooks Interact calls back into. Built once, since they capture `this`.

@@ -104,7 +104,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 537 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 586 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -136,12 +136,23 @@ all and is the fastest way to know a change did not break something.
 | Pause | Esc |
 | Debug overlay | F3 |
 
-**Settings** (pause or main menu) are grouped into Graphics / Controls /
-Gameplay / Audio tabs — render distance and quality preset,
-shadow/reflection/cloud/AO toggles, render resolution, fullscreen, borderless
-window, V-Sync, a frame rate cap, mouse sensitivity and raw-input, interface
-scale, fall-damage/hunger/monster/flight toggles, and volume sliders.
-Every one applies live, with no restart. The in-game **About** screen (main
+**Settings** (pause or main menu) come in two kinds, and the tabs say which.
+
+**Yours, and they follow you between worlds** — *Graphics* (render distance and
+quality preset, shadow/reflection/cloud/AO toggles, render resolution,
+fullscreen, borderless window, V-Sync, a frame rate cap), *Controls* (mouse
+sensitivity, raw input, invert, interface scale), *Gameplay* (High Step, minimap,
+death waypoints) and *Audio*. These live in `data/settings.json`.
+
+**The world's, and they stay with it** — *Difficulty* (fall damage, hunger,
+monster spawning) and *Cheats* (flight). These are saved inside the world, travel
+with it when you share it, and only appear while a world is open: on the main
+menu there is no world whose rules could be shown. **In multiplayer they are the
+host's** — a guest can read them but not change them, because a rule only half
+the room agreed on is not a rule, and the host's choices are pushed to everyone
+the moment they change.
+
+Every setting applies live, with no restart. The in-game **About** screen (main
 menu) has a quick feature rundown if you want the highlight reel instead of
 reading this whole file, and **Quit** is at the bottom of that same menu — it
 saves the open world on the way out.

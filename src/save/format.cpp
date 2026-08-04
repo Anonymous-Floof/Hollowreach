@@ -36,6 +36,9 @@ constexpr std::uint32_t kTagPaintings = makeTag('P', 'A', 'N', 'T');
 // is frozen without a version bump and a migration. An older build skips this tag
 // and loads a world whose owner is simply well rested.
 constexpr std::uint32_t kTagRest = makeTag('R', 'E', 'S', 'T');
+// The world's own difficulty and cheat settings. A new tag, so an older build
+// skips it and opens the world under the defaults.
+constexpr std::uint32_t kTagWorldSettings = makeTag('W', 'S', 'E', 'T');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -590,6 +593,12 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   encodeGuests(guests, save.guests);
   ByteWriter rest;
   rest.f32(save.hoursAwake);
+  ByteWriter worldSettings;
+  worldSettings.u16(static_cast<std::uint16_t>(save.worldSettings.size()));
+  for (const auto& [key, value] : save.worldSettings) {
+    worldSettings.str(key);
+    worldSettings.str(value);
+  }
 
   ByteWriter payload;
   appendSection(payload, kTagMeta, meta);
@@ -604,6 +613,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagGuests, guests);
   appendSection(payload, kTagPaintings, paintings);
   appendSection(payload, kTagRest, rest);
+  appendSection(payload, kTagWorldSettings, worldSettings);
 
   ByteWriter out;
   out.bytes(kMagic, sizeof kMagic);
@@ -666,6 +676,16 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
       case kTagWaypoints: decodeWaypoints(body, out.waypoints); break;
       case kTagGuests: decodeGuests(body, out.guests); break;
       case kTagRest: out.hoursAwake = body.f32(); break;
+      case kTagWorldSettings: {
+        const int n = body.u16();
+        for (int i = 0; i < n && body.ok(); ++i) {
+          std::string key = body.str();
+          std::string value = body.str();
+          if (!body.ok()) break;
+          out.worldSettings.emplace_back(std::move(key), std::move(value));
+        }
+        break;
+      }
       default:
         // A section this build does not know. Its length is right there, so it is
         // skipped rather than fatal — which is what lets a section be added without

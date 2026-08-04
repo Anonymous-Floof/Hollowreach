@@ -43,6 +43,7 @@
 #include "save/transfer.h"
 #include "ui/dom.h"
 #include "ui/text.h"
+#include "ui/settings.h"
 #include "ui/timewheel.h"
 #include "world/water.h"
 #include "world/world.h"
@@ -654,6 +655,88 @@ void testCrafting() {
 // worth asserting together rather than reading three constants back.
 
 // --- crouching ---------------------------------------------------------------
+
+// --- whose setting is it -------------------------------------------------------
+//
+// Graphics, controls and audio are the installation's and follow the player from
+// world to world. Difficulty and cheats are the WORLD's: they live in its save,
+// travel with it when it is shared, and in multiplayer belong to the host, because
+// a rule only half the room agreed on is not a rule.
+//
+// The failure this is really guarding against is silent and one-directional: a
+// world-scoped value leaking back into the global store would follow the player
+// into every other world they own, quietly changing worlds they never opened.
+void testSettingScope() {
+  std::printf("world settings\n");
+
+  ui::SettingsStore& s = ui::settings();
+  s.endWorld();  // whatever ran before this must not decide the answers
+
+  // --- which rows belong to which ---
+  check(s.isWorldScoped("monsters"), "spawning monsters is a property of the world");
+  check(s.isWorldScoped("flight"), "and so is whether you may fly in it");
+  check(!s.isWorldScoped("highStep"), "auto step is the player's own preference");
+  check(!s.isWorldScoped("fov"), "as is the field of view");
+  check(!s.isWorldScoped("masterVolume"), "and the volume");
+  check(ui::categoryScope("Difficulty") == ui::SettingScope::World, "Difficulty is the world's");
+  check(ui::categoryScope("Cheats") == ui::SettingScope::World, "Cheats are the world's");
+  check(ui::categoryScope("Graphics") == ui::SettingScope::Global, "Graphics are not");
+
+  // --- with no world open, a world row reads its default and cannot be set ---
+  check(!s.editable("monsters"), "with no world open there is no world rule to change");
+  check(s.editable("fov"), "though the global ones are always yours");
+  const bool defaultMonsters = s.flag("monsters");
+  check(defaultMonsters, "and monsters default to on");
+
+  // --- a world's own values ---
+  s.beginWorld({{"monsters", "false"}});
+  check(!s.flag("monsters"), "opening a world installs the rules it stored");
+  check(s.flag("fallDamage"), "and a rule it never stored keeps its default");
+  check(s.editable("monsters"), "which the host may change");
+
+  s.setFlag("flight", true);
+  check(s.flag("flight"), "changing one takes effect at once");
+
+  // The point of the whole exercise: none of that touched the installation.
+  s.endWorld();
+  checkf(s.flag("monsters") == defaultMonsters,
+         "and leaving the world takes its rules with it (monsters %s)",
+         s.flag("monsters") ? "on" : "off");
+  check(!s.flag("flight"), "including the cheat that was switched on inside it");
+
+  // --- two worlds do not leak into each other ---
+  s.beginWorld({{"flight", "true"}, {"hunger", "false"}});
+  check(s.flag("flight") && !s.flag("hunger"), "a second world brings its own rules");
+  s.endWorld();
+  s.beginWorld({});
+  check(!s.flag("flight") && s.flag("hunger"),
+        "and a world that stored none gets the defaults, not the last world's");
+
+  // --- what gets written down ---
+  {
+    s.setFlag("monsters", false);
+    const ui::SettingsStore::WorldValues out = s.worldValues();
+    bool sawMonsters = false, sawGlobal = false;
+    for (const auto& [key, value] : out) {
+      if (key == "monsters") {
+        sawMonsters = value == "false";
+      }
+      if (key == "fov" || key == "masterVolume" || key == "highStep") sawGlobal = true;
+    }
+    check(sawMonsters, "the world's values are what gets saved with it");
+    check(!sawGlobal, "and nothing of the player's own goes into their save");
+  }
+
+  // --- a guest is in somebody else's world ---
+  s.setWorldLocked(true);
+  check(!s.editable("monsters"), "a guest cannot change the host's rules");
+  check(s.editable("fov"), "but their own graphics are still their own");
+  check(!s.flag("monsters"), "and they can still see what they are playing under");
+  s.setWorldLocked(false);
+  check(s.editable("monsters"), "the host can");
+
+  s.endWorld();
+}
 
 // --- dropping with Q -----------------------------------------------------------
 //
@@ -2035,6 +2118,11 @@ save::WorldSave makeSave() {
   // than handing everyone a fresh night every time they load the world.
   s.hoursAwake = 5.75f;
 
+  // The world's own rules. Deliberately not every world-scoped key: a save written
+  // before one existed, or by an older build, has to load with the missing ones at
+  // their defaults rather than refusing or zeroing them.
+  s.worldSettings = {{"monsters", "false"}, {"flight", "true"}};
+
   game::BlockEntity chest = game::makeChest();
   chest.slots[2] = game::ItemStack{"planks", 31, -1};
   s.blockEntities[game::blockEntityKey(-5, 70, 12)] = chest;
@@ -2107,6 +2195,8 @@ void testSaves() {
 
   checkf(back.hoursAwake == original.hoursAwake, "how long you have been awake survives (%.2f)",
          back.hoursAwake);
+  checkf(back.worldSettings == original.worldSettings,
+         "and so do the world's own rules (%zu of them)", back.worldSettings.size());
 
   checkf(back.meta.name == original.meta.name && back.meta.seed == original.meta.seed &&
              back.meta.genVersion == original.meta.genVersion &&
@@ -5161,6 +5251,7 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testSettingScope();
   testDropping();
   testAutoStep();
   testCrouch();

@@ -387,6 +387,28 @@ bool decode(ByteReader& r, SleepStateMsg& m) {
   return r.ok() && okF(m.target, 0, 1) && m.proposer.size() <= kMaxName;
 }
 
+void encode(ByteWriter& w, const WorldSettingsMsg& m) {
+  // Capped like every other list on the wire: a guest must not be able to make
+  // the host allocate by claiming a huge count, and the schema has a handful.
+  const std::size_t n = std::min<std::size_t>(m.values.size(), 64);
+  w.u16(static_cast<std::uint16_t>(n));
+  for (std::size_t i = 0; i < n; ++i) {
+    w.str(m.values[i].first);
+    w.str(m.values[i].second);
+  }
+}
+bool decode(ByteReader& r, WorldSettingsMsg& m) {
+  const int n = r.u16();
+  if (n > 64) return false;
+  for (int i = 0; i < n && r.ok(); ++i) {
+    std::string key = r.str();
+    std::string value = r.str();
+    if (!r.ok()) break;
+    m.values.emplace_back(std::move(key), std::move(value));
+  }
+  return r.ok();
+}
+
 void encode(ByteWriter& w, const SfxMsg& m) {
   w.str(m.kind);
   writeVec3(w, m.pos);

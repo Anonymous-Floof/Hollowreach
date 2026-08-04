@@ -56,7 +56,12 @@ namespace hr::net {
 // broadcasts whose proposal is on the table — a genuine layout change on one
 // message and one new type, so a 2.3.0 peer would misread the vote it was sent and
 // silently drop the state it needs to answer.
-inline constexpr std::uint16_t kNetVersion = 4;
+// 5: the world's own rules. Difficulty and cheats now belong to the world rather
+// than the installation, so the host sends them and a guest obeys them. A new
+// message type, which an older peer would take for one it knows by that tag -- and
+// far worse than the mismatch, a 2.5.x guest would go on applying its OWN monster
+// and flight settings in somebody else's world without either of them being told.
+inline constexpr std::uint16_t kNetVersion = 5;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -117,6 +122,7 @@ enum class MsgType : std::uint8_t {
   // what hour they asked for. Appended rather than slotted in beside Sleep: the
   // tag is a byte on the wire and every value after an insertion would shift.
   SleepState,   // h->c
+  WorldSettings,  // h->c: the world's own difficulty and cheat rules
   Count,
 };
 
@@ -257,6 +263,16 @@ struct SleepStateMsg {
   std::uint8_t needed = 0;
 };
 
+// The world's own rules, pushed whenever the host changes one.
+//
+// A guest already receives these with the world when it joins, inside the save
+// payload; this is what keeps them in step when the host reaches for the settings
+// screen mid-game. Key/value text, exactly as the save carries it, so the schema
+// can grow without this message learning about it.
+struct WorldSettingsMsg {
+  std::vector<std::pair<std::string, std::string>> values;
+};
+
 struct SfxMsg {
   std::string kind;
   Vec3 pos;
@@ -372,6 +388,8 @@ void encode(ByteWriter& w, const SleepMsg& m);
 bool decode(ByteReader& r, SleepMsg& m);
 void encode(ByteWriter& w, const SleepStateMsg& m);
 bool decode(ByteReader& r, SleepStateMsg& m);
+void encode(ByteWriter& w, const WorldSettingsMsg& m);
+bool decode(ByteReader& r, WorldSettingsMsg& m);
 void encode(ByteWriter& w, const SfxMsg& m);
 bool decode(ByteReader& r, SfxMsg& m);
 void encode(ByteWriter& w, const BeRequestMsg& m);

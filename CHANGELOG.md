@@ -15,6 +15,36 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Some settings now belong to the world, not to you.** The settings screen has
+  two new tabs, **Difficulty** (fall damage, hunger, monster spawning) and
+  **Cheats** (flight), and everything on them is saved inside the world rather
+  than on your machine. Turn monsters off in a creative build and your survival
+  world is untouched; share the world and its rules go with it. They only appear
+  while a world is open, because on the main menu there is no world whose rules
+  could be shown.
+  **In multiplayer the host owns them.** A guest can see what they are playing
+  under but cannot change it, and when the host changes something everyone is
+  told at once. Everything else — graphics, controls, auto step, volume — is still
+  yours and still follows you from world to world.
+
+### Changed
+- **Q drops one item, not the whole stack.** Pressing Q over a slot used to bin
+  everything in it. It now drops a single item, **Shift+Q** drops the lot, and
+  **holding Q** keeps dropping — faster the longer you hold, so a full stack takes
+  about three seconds instead of sixty-four presses. Dragging Q across slots still
+  works and now takes one from each. In the world Q is unchanged at one item, with
+  Ctrl+Q for the stack and the same hold-to-repeat.
+
+### Fixed
+- **High Step no longer stops you walking up stairs.** Turning the setting on made
+  indoor staircases *harder* to climb than leaving it off: the game checked whether
+  you would fit at the full height of the step rather than at the height you were
+  actually stepping to, so it demanded half a block more headroom than the step
+  needed and any staircase with a ceiling over it refused. A flight that the
+  default step climbed all six blocks of stalled after one and a half with High
+  Step enabled.
+
 ## [2.5.1] - 2026-08-04
 
 > Plays with 2.5.0. The multiplayer protocol did not change, so a 2.5.1 machine

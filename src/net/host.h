@@ -48,6 +48,11 @@ class Host {
   // is skipped, which is the whole point of a vote rather than a button.
   // The host's own vote. `target` is only read from the first voter — whoever
   // opens the question owns the hour, and everyone after them is answering it.
+  // The world's own rules, pushed to every guest. Called by App when the host
+  // changes one; a guest that joins later gets them inside the world payload
+  // instead, so this is only ever the mid-session update.
+  void broadcastWorldSettings();
+
   void onLocalSleep(bool on, float target);
 
   // The proposal currently on the table, or -1 when nobody has asked. App reads

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,23 @@ namespace hr::ui {
 // a free-form path has no option list to be in, so storing it as a Select meant
 // it saved correctly and was silently dropped on every load.
 enum class SettingType { Slider, Toggle, Select, Text };
+
+// Who a setting belongs to.
+//
+// Global is the installation's: how the game looks on this screen, how the mouse
+// feels in this hand, how loud it is in this room. Carrying those from world to
+// world is obviously right, and they have nothing to do with anyone else.
+//
+// World is the world's own rules — whether monsters come, whether you can fly.
+// Those are properties of the place rather than of the player, so they live in the
+// save and travel with it when it is shared. In multiplayer they are the HOST's:
+// a guest reads them and cannot set them, because a rule that only half the room
+// agreed on is not a rule.
+//
+// The split is by CATEGORY rather than by row, so the settings screen can say
+// which tabs belong to the world and a player never has to wonder which of two
+// adjacent switches follows them home.
+enum class SettingScope { Global, World };
 
 struct SettingDef {
   const char* key;
@@ -39,6 +57,9 @@ struct SettingDef {
   // values the player picks somewhere they can actually see the choice — the menu
   // background is chosen from the Gallery, where the pictures are.
   bool hidden = false;
+  // Derived from the category rather than written per row: every row in a category
+  // shares it, and settings.cpp static-checks that.
+  SettingScope scope = SettingScope::Global;
 };
 
 // Graphics-quality presets (js/ui/settings.js:9-14). The renderer's own
@@ -57,10 +78,20 @@ const std::vector<QualityPreset>& qualityPresets();
 const std::vector<SettingDef>& settingsSchema();
 // Category names in schema order, which is the tab order.
 std::vector<std::string> settingsCategories();
+// The scope every row in a category shares. Global for a name that is not a
+// category, so a caller that gets this wrong shows a tab rather than losing one.
+SettingScope categoryScope(const std::string& category);
 
 class SettingsStore {
  public:
-  // Fills every key with its default, then overlays whatever the file holds. A
+  // Defaults are in place from construction, not from load(). Before this, a store
+  // that had never been loaded answered false and zero for every key rather than
+  // what the schema says — which is invisible in the game, where load() always
+  // runs first, and exactly the sort of thing that makes a headless test quietly
+  // agree with itself about nothing.
+  SettingsStore();
+
+  // Re-fills every key with its default, then overlays whatever the file holds. A
   // missing or malformed file is not an error — it just means defaults, exactly as
   // the JS swallowed a localStorage parse failure.
   void load(const std::string& path);
@@ -83,6 +114,44 @@ class SettingsStore {
 
   const SettingDef* find(const std::string& key) const;
 
+  // --- world scope ----------------------------------------------------------
+  //
+  // While a world is open, world-scoped keys read and write ITS values instead of
+  // the installation's. With no world open they read their schema defaults, which
+  // is what the main menu and the new-world screen should show: there is no world
+  // whose rules could be displayed, so showing the last one's would be a lie.
+  //
+  // Stored and returned as strings so this layer has one representation to care
+  // about and the save and the wire can both carry it verbatim.
+  using WorldValues = std::vector<std::pair<std::string, std::string>>;
+  // Keys absent from `stored` fall back to their schema default, which is what a
+  // brand new world and a save written before this existed both supply.
+  void beginWorld(const WorldValues& stored);
+  void endWorld();
+  bool inWorld() const { return inWorld_; }
+  // Sorted by key, so a save and a wire message are byte-stable.
+  WorldValues worldValues() const;
+
+  // A guest does not own the world's rules. Set while joined; the host's values
+  // arrive with the world and are refreshed whenever the host changes one.
+  void setWorldLocked(bool locked) { worldLocked_ = locked; }
+  bool worldLocked() const { return worldLocked_; }
+
+  // Bumped by every write and by opening or leaving a world. App re-applies the
+  // cached copies -- player options, renderer quality -- when it moves.
+  //
+  // A counter rather than a callback because the paths that change a setting are
+  // not all in one place and were never going to be: the settings screen, a
+  // command-line flag, opening a world, leaving one, and a guest being told the
+  // host's rules mid-session. That last one is why this exists at all -- nothing
+  // re-applied the world's rules when they arrived over the wire, so a guest went
+  // on flying in a world that had just forbidden it.
+  std::uint32_t revision() const { return revision_; }
+
+  bool isWorldScoped(const std::string& key) const;
+  // Whether the settings screen should let this row be touched at all.
+  bool editable(const std::string& key) const;
+
  private:
   struct Value {
     std::string key;
@@ -92,8 +161,19 @@ class SettingsStore {
   };
   Value* value(const std::string& key);
   const Value* value(const std::string& key) const;
+  void fillDefaults();
+  Value* valueIn(std::vector<Value>& where, const std::string& key);
+  const Value* valueIn(const std::vector<Value>& where, const std::string& key) const;
 
+  // The installation's. World-scoped keys sit here too, holding their schema
+  // defaults and never written to settings.json — which is what makes reading one
+  // with no world open give the default rather than the last world's answer.
   std::vector<Value> values_;
+  // The open world's, for world-scoped keys only.
+  std::vector<Value> world_;
+  std::uint32_t revision_ = 0;
+  bool inWorld_ = false;
+  bool worldLocked_ = false;
   std::string path_;
   std::string empty_;
 };

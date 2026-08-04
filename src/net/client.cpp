@@ -1,5 +1,7 @@
 #include "net/client.h"
 
+#include "ui/settings.h"
+
 #include <algorithm>
 
 #include "audio/sfx.h"
@@ -250,6 +252,16 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       // agreed wakes rested. A guest's own tiredness counter is advancing locally
       // and has no other way to learn that the night it just skipped was slept.
       if (m.sleeping) game_.sky->markRested();
+      break;
+    }
+    case MsgType::WorldSettings: {
+      WorldSettingsMsg m;
+      if (!decode(r, m)) break;
+      // The host's world, the host's rules. Re-installed wholesale rather than
+      // merged, so a setting the host turned back to its default arrives as the
+      // default instead of lingering at whatever it was.
+      ui::settings().beginWorld(m.values);
+      ui::settings().setWorldLocked(true);
       break;
     }
     case MsgType::SleepState: {

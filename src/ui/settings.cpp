@@ -64,25 +64,58 @@ const std::vector<SettingDef>& schema() {
       {"rawMouse", "Raw Mouse Input (no acceleration)", SettingType::Toggle, "Controls", 0, 0, 0,
        0, false},
       {"uiScale", "Interface Scale", SettingType::Slider, "Controls", 75, 200, 5, 100},
-      {"fallDamage", "Take Fall Damage", SettingType::Toggle, "Gameplay", 0, 0, 0, 0, true},
-      {"hunger", "Hunger", SettingType::Toggle, "Gameplay", 0, 0, 0, 0, true},
-      {"monsters", "Spawn Monsters", SettingType::Toggle, "Gameplay", 0, 0, 0, 0, true},
-      // Off by default, where the web build had it on. A double-tap of Space is easy
-      // to do by accident while jumping, and drifting off the ground is a strange
-      // first thing to have happen in a survival world.
-      {"flight", "Allow Flight (double-tap Space)", SettingType::Toggle, "Gameplay", 0, 0, 0, 0,
-       false},
+      // --- Gameplay: the player's own, and they follow them between worlds -----
+      // How the game is driven and what the interface offers, which is a matter of
+      // taste and of the machine rather than of the place.
       {"highStep", "High Step (walk up full blocks)", SettingType::Toggle, "Gameplay", 0, 0, 0, 0,
        false},
       {"minimap", "Minimap (needs the Atlas \xC2\xB7 M)", SettingType::Toggle, "Gameplay", 0, 0, 0,
        0, true},
       {"deathWaypoints", "Death Waypoints on the Atlas", SettingType::Toggle, "Gameplay", 0, 0, 0,
        0, true},
+
+      // --- Difficulty: the world's, and they stay with it ----------------------
+      // How hard the place is to survive. A world shared with a friend has to be
+      // the same world for both of them, so these live in the save and the host
+      // owns them.
+      {"fallDamage", "Take Fall Damage", SettingType::Toggle, "Difficulty", 0, 0, 0, 0, true},
+      {"hunger", "Hunger", SettingType::Toggle, "Difficulty", 0, 0, 0, 0, true},
+      {"monsters", "Spawn Monsters", SettingType::Toggle, "Difficulty", 0, 0, 0, 0, true},
+
+      // --- Cheats: the world's too, for the same reason ------------------------
+      // Kept apart from Difficulty because turning one of these on is a different
+      // kind of decision — it is not making the world easier, it is stepping
+      // outside its rules — and a world where somebody can fly should say so.
+      //
+      // Off by default, where the web build had flight on. A double-tap of Space is
+      // easy to do by accident while jumping, and drifting off the ground is a
+      // strange first thing to have happen in a survival world.
+      {"flight", "Allow Flight (double-tap Space)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
+       false},
       {"masterVolume", "Master Volume", SettingType::Slider, "Audio", 0, 100, 1, 80},
       {"sfxVolume", "Effects Volume", SettingType::Slider, "Audio", 0, 100, 1, 80},
       {"ambientVolume", "Ambience Volume", SettingType::Slider, "Audio", 0, 100, 1, 40},
       {"uiVolume", "Interface Volume", SettingType::Slider, "Audio", 0, 100, 1, 50},
   };
+  return table;
+}
+
+// Which categories belong to the world rather than the installation. One list,
+// consulted by the schema accessor below, so a new row lands in the right scope by
+// virtue of the tab it is filed under and cannot disagree with its neighbours.
+bool worldCategory(std::string_view category) {
+  return category == "Difficulty" || category == "Cheats";
+}
+
+// The schema with each row's scope filled in from its category.
+const std::vector<SettingDef>& scopedSchema() {
+  static const std::vector<SettingDef> table = [] {
+    std::vector<SettingDef> out = schema();
+    for (SettingDef& def : out) {
+      def.scope = worldCategory(def.category) ? SettingScope::World : SettingScope::Global;
+    }
+    return out;
+  }();
   return table;
 }
 
@@ -151,11 +184,15 @@ void scanFlatJson(const std::string& src,
 
 }  // namespace
 
-const std::vector<SettingDef>& settingsSchema() { return schema(); }
+const std::vector<SettingDef>& settingsSchema() { return scopedSchema(); }
+
+SettingScope categoryScope(const std::string& category) {
+  return worldCategory(category) ? SettingScope::World : SettingScope::Global;
+}
 
 std::vector<std::string> settingsCategories() {
   std::vector<std::string> cats;
-  for (const SettingDef& s : schema()) {
+  for (const SettingDef& s : scopedSchema()) {
     if (s.hidden) continue;  // a hidden row must not conjure a tab of its own
     if (std::find(cats.begin(), cats.end(), s.category) == cats.end()) cats.emplace_back(s.category);
   }
@@ -182,30 +219,135 @@ const std::vector<QualityPreset>& qualityPresets() {
 }
 
 const SettingDef* SettingsStore::find(const std::string& key) const {
-  for (const SettingDef& s : schema()) {
+  for (const SettingDef& s : scopedSchema()) {
     if (key == s.key) return &s;
   }
   return nullptr;
 }
 
+// The one place the scope is resolved. A world-scoped key answers from the open
+// world when there is one and from its schema default when there is not — which is
+// what makes the main menu show a new world's rules rather than the last one's.
 SettingsStore::Value* SettingsStore::value(const std::string& key) {
-  for (Value& v : values_) {
-    if (v.key == key) return &v;
+  if (inWorld_ && isWorldScoped(key)) {
+    if (Value* v = valueIn(world_, key)) return v;
   }
-  return nullptr;
+  return valueIn(values_, key);
 }
 
 const SettingsStore::Value* SettingsStore::value(const std::string& key) const {
-  for (const Value& v : values_) {
+  return const_cast<SettingsStore*>(this)->value(key);
+}
+
+SettingsStore::Value* SettingsStore::valueIn(std::vector<Value>& where,
+                                             const std::string& key) {
+  for (Value& v : where) {
     if (v.key == key) return &v;
   }
   return nullptr;
 }
 
-void SettingsStore::load(const std::string& path) {
-  path_ = path;
+const SettingsStore::Value* SettingsStore::valueIn(const std::vector<Value>& where,
+                                                   const std::string& key) const {
+  for (const Value& v : where) {
+    if (v.key == key) return &v;
+  }
+  return nullptr;
+}
+
+bool SettingsStore::isWorldScoped(const std::string& key) const {
+  const SettingDef* def = find(key);
+  return def && def->scope == SettingScope::World;
+}
+
+bool SettingsStore::editable(const std::string& key) const {
+  if (!isWorldScoped(key)) return true;
+  // A world's rules need a world to belong to, and belong to whoever is hosting.
+  return inWorld_ && !worldLocked_;
+}
+
+// --- the open world's own values ---------------------------------------------
+
+void SettingsStore::beginWorld(const WorldValues& stored) {
+  ++revision_;
+  world_.clear();
+  for (const SettingDef& s : scopedSchema()) {
+    if (s.scope != SettingScope::World) continue;
+    Value v;
+    v.key = s.key;
+    v.number = s.defNumber;
+    v.flag = s.defBool;
+    v.text = s.defString;
+    world_.push_back(std::move(v));
+  }
+  inWorld_ = true;
+  worldLocked_ = false;
+
+  // Anything the save did not carry keeps its default, which is what a brand new
+  // world and a save written before this existed both supply.
+  for (const auto& [key, raw] : stored) {
+    const SettingDef* def = find(key);
+    if (!def || def->scope != SettingScope::World) continue;
+    Value* v = valueIn(world_, key);
+    if (!v) continue;
+    switch (def->type) {
+      case SettingType::Slider:
+        v->number = std::min(std::max(std::strtod(raw.c_str(), nullptr), def->min), def->max);
+        break;
+      case SettingType::Toggle:
+        v->flag = raw == "true" || raw == "1";
+        break;
+      case SettingType::Select: {
+        for (const char* opt : def->options) {
+          if (raw == opt) v->text = raw;
+        }
+        break;
+      }
+      case SettingType::Text:
+        v->text = raw;
+        break;
+    }
+  }
+}
+
+void SettingsStore::endWorld() {
+  ++revision_;
+  world_.clear();
+  inWorld_ = false;
+  worldLocked_ = false;
+}
+
+SettingsStore::WorldValues SettingsStore::worldValues() const {
+  WorldValues out;
+  for (const SettingDef& s : scopedSchema()) {
+    if (s.scope != SettingScope::World) continue;
+    const Value* v = valueIn(inWorld_ ? world_ : values_, s.key);
+    if (!v) continue;
+    switch (s.type) {
+      case SettingType::Slider: {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%g", v->number);
+        out.emplace_back(s.key, buf);
+        break;
+      }
+      case SettingType::Toggle:
+        out.emplace_back(s.key, v->flag ? "true" : "false");
+        break;
+      case SettingType::Select:
+      case SettingType::Text:
+        out.emplace_back(s.key, v->text);
+        break;
+    }
+  }
+  // Schema order is already stable and is what both the save and the wire want.
+  return out;
+}
+
+SettingsStore::SettingsStore() { fillDefaults(); }
+
+void SettingsStore::fillDefaults() {
   values_.clear();
-  for (const SettingDef& s : schema()) {
+  for (const SettingDef& s : scopedSchema()) {
     Value v;
     v.key = s.key;
     v.number = s.defNumber;
@@ -213,6 +355,11 @@ void SettingsStore::load(const std::string& path) {
     v.text = s.defString;
     values_.push_back(std::move(v));
   }
+}
+
+void SettingsStore::load(const std::string& path) {
+  path_ = path;
+  fillDefaults();
 
   std::ifstream in(path, std::ios::binary);
   if (!in) return;
@@ -222,8 +369,13 @@ void SettingsStore::load(const std::string& path) {
 
   scanFlatJson(src, [this](const std::string& key, const std::string& raw) {
     const SettingDef* def = find(key);
-    Value* v = value(key);
-    if (!def || !v) return;  // an unknown key is a setting from a newer build
+    if (!def) return;  // an unknown key is a setting from a newer build
+    // A world's rules are not the installation's. An older settings.json still has
+    // these in it and they are deliberately ignored rather than migrated: the
+    // world they were last set in is the only place they meant anything.
+    if (def->scope == SettingScope::World) return;
+    Value* v = valueIn(values_, key);
+    if (!v) return;
     switch (def->type) {
       case SettingType::Slider: {
         const double parsed = std::strtod(raw.c_str(), nullptr);
@@ -307,6 +459,7 @@ const std::string& SettingsStore::text(const std::string& key) const {
 }
 
 void SettingsStore::setNumber(const std::string& key, double n) {
+  ++revision_;
   if (Value* v = value(key)) {
     v->number = n;
     save();
@@ -314,6 +467,7 @@ void SettingsStore::setNumber(const std::string& key, double n) {
 }
 
 void SettingsStore::setFlag(const std::string& key, bool f, bool persist) {
+  ++revision_;
   if (Value* v = value(key)) {
     v->flag = f;
     if (persist) save();
@@ -321,6 +475,7 @@ void SettingsStore::setFlag(const std::string& key, bool f, bool persist) {
 }
 
 void SettingsStore::setText(const std::string& key, const std::string& t) {
+  ++revision_;
   if (Value* v = value(key)) {
     v->text = t;
     save();

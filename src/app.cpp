@@ -649,7 +649,14 @@ void App::wireInterface() {
     tossStack(s.key, s.count, s.dura);
   };
   interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
-  interface_.callbacks.settingChanged = [this](const std::string&) { applySettings(); };
+  interface_.callbacks.settingChanged = [this](const std::string& key) {
+    applySettings();
+    // A world's own rule changed, and everyone in it plays by it. Guests cannot
+    // reach these rows at all, so this only ever fires on the host.
+    if (netHost_.running() && ui::settings().isWorldScoped(key)) {
+      netHost_.broadcastWorldSettings();
+    }
+  };
   interface_.callbacks.closeStation = [this] {
     if (stationOpen_ && interface_.inventory().mode() == ui::InventoryMode::Chest) {
       audio::sfx::chestClose(Vec3{stationX_ + 0.5f, stationY_ + 0.5f, stationZ_ + 0.5f});
@@ -1013,6 +1020,12 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
 
   interactHooks_ = makeInteractHooks();
   renderer_.setEntities(&entities_);
+  // The world's own rules come into scope here and go out of it in leaveWorld.
+  // Both paths, because a brand new world needs the defaults installed just as
+  // much as a loaded one needs what it stored -- otherwise the first world opened
+  // in a session would read whatever the menu happened to be showing.
+  ui::settings().beginWorld(loaded ? loaded->worldSettings
+                                   : ui::SettingsStore::WorldValues{});
   if (loaded) {
     inventory_ = loaded->inventory;
     entities_.load(loaded->entities);
@@ -1240,6 +1253,9 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
   worldMeta_.id.clear();
   worldOnDisk_ = false;
   netClient_.attachGame(gameRefs());
+  // startWorld installed the host's rules from the payload; they are not this
+  // player's to change.
+  ui::settings().setWorldLocked(true);
   world_->setEditSink([this](int x, int y, int z, world::BlockId id, int meta) {
     netClient_.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
                         static_cast<std::uint8_t>(meta));
@@ -1265,6 +1281,7 @@ save::WorldSave App::buildSave() {
   out.meta.gameVersion = HR_VERSION;
   out.meta.time = sky_.time;
   out.hoursAwake = sky_.hoursAwake();
+  out.worldSettings = ui::settings().worldValues();
   out.meta.hasSpawn = hasSpawn_;
   out.meta.spawn = spawn_;
   if (world_) {
@@ -1344,6 +1361,7 @@ bool App::loadWorldFromDisk(const std::string& id) {
 
 void App::leaveWorld() {
   leaveNetwork("");
+  ui::settings().endWorld();
   audio::director().stop();  // settle the ambience beds before the menu
   entities_.clear();
   world_.reset();
@@ -1537,6 +1555,17 @@ void App::frame() {
 void App::updatePlaying(double dt) {
   Input& in = window_.input();
   const float fdt = static_cast<float>(dt);
+
+  // applySettings caches settings into playerOptions_ and the renderer, so
+  // anything that changes one has to say so. Watching a counter rather than
+  // wiring a callback into each path catches the one that would otherwise be
+  // missed: a guest being told the host's rules mid-session, which arrives deep
+  // in the net client and would leave them flying in a world that had just
+  // forbidden it.
+  if (ui::settings().revision() != settingsRevision_) {
+    settingsRevision_ = ui::settings().revision();
+    applySettings();
+  }
 
   // Mouse look at render rate, not simulation rate, so aim latency stays low.
   if (window_.pointerCaptured()) {
