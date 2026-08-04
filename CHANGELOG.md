@@ -15,6 +15,24 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Changed
+- **Torches light up instantly, and go out instantly.** Placing or breaking a
+  block used to rebuild the lighting of the nine chunks around it from scratch,
+  then take several frames to settle — which is why light sometimes crawled
+  across a chunk border a step at a time, and why a torch you had already broken
+  could keep glowing through a seam until something else nudged it. Light now
+  spreads outward from the change itself and stops when it runs out, so it
+  arrives and leaves in the same frame you swung.
+- **A loaded world takes about a third of the memory it used to.** Chunks no
+  longer pay full price for the enormous amount of nothing most of them contain:
+  empty sky, unlit rock, and the ninety-odd layers of stone that are all the same
+  block. At render distance 12 that is 135 MB down to 40 MB, and at 16 it is
+  228 MB down to 67 MB — which is what makes the longest view distances
+  comfortable on an ordinary machine rather than merely possible.
+- **Chunk streaming got faster as well as lighter.** The work the main thread
+  does while a world loads in is down by a third against 2.4.0, and below where
+  it was in 2.3.0 — before any of the seam fixes existed at all.
+
 ## [2.4.0] - 2026-08-03
 
 ### Added

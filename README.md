@@ -92,7 +92,7 @@ The build fetches GLFW and ENet itself; everything else is vendored in
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 494 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 516 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -192,6 +192,12 @@ confident-looking numbers that mean nothing:
   pass and looks exactly like a catastrophic regression in the new build. Point
   both at the same data directory, or check the reported resolution before
   believing anything.
+- **Never time a vsync-bound run.** Wall clock over `--frames N` without
+  `--no-vsync` measures the display's refresh rate and nothing else: three builds
+  with visibly different amounts of CPU work all took 3.9–4.0 s for the same 400
+  frames. This one cost a wrong figure in `docs/ROADMAP.md` for a day. For chunk
+  work read the `streaming on the main thread` line under `--perf`, which is the
+  main thread's own share and is what actually changes.
 
 Neither lever costs much. Render distance is nearly free past 8,
 because fog bounds what is actually visible long before the loaded radius does,
@@ -584,10 +590,10 @@ headless tool working, and means the threaded and single-threaded builds run the
   `CMakeLists.txt`; changes are outlined in `CHANGELOG.md` and
   `tools/release.py` bumps, packages and publishes the GitHub release — see
   [docs/RELEASING.md](docs/RELEASING.md).
-- **What is planned next:** the engine work queued behind 2.4.0 — incremental
-  lighting, re-anchoring the golden comparison to the previous release rather
-  than the archived web build, palette chunk storage, and what 3.0 is reserved
-  for — is written down with its measurements in
+- **What is planned next:** worldgen throughput is the last of the 2.5.0 engine
+  work — incremental lighting, the re-anchored gate and banded chunk storage have
+  landed. That, what 3.0 is reserved for, and two corrections to the figures the
+  plan was originally argued from, are all written down with their measurements in
   [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Built with a resource pack loader in mind
