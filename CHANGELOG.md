@@ -15,6 +15,19 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> Plays with 2.5.0. The multiplayer protocol did not change, so a 2.5.1 machine
+> and a 2.5.0 one can still share a world — though only the 2.5.1 side gets the
+> discovery fix, so host from that one if a world will not appear.
+
+### Added
+- **`--net-doctor`.** Run `Hollowreach.exe --net-doctor` from a terminal and it
+  says why this machine might not be found by another: which networks a game here
+  would be announced on (and which are skipped, and why), whether the two ports
+  are free, whether the machine can hear its own announcement, and the exact
+  program path Windows firewall rules are keyed on. Run it on both machines and
+  compare — if the protocol numbers differ, the two builds simply cannot see each
+  other, which nothing else in the game will ever tell you.
+
 ### Fixed
 - **Worlds on your network actually show up now.** A world announced itself with
   a single broadcast, and a broadcast only leaves your machine by *one* network
