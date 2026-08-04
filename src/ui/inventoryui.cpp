@@ -392,14 +392,50 @@ bool InventoryUI::sweepTouch(SlotId id) {
   return true;
 }
 
-void InventoryUI::dropSlot(SlotId id) {
+int DropRun::tick(bool sameTarget, double dt) {
+  if (!running || !sameTarget) {
+    running = true;
+    timer = kDropFirstDelay;
+    interval = kDropInterval;
+    return 1;
+  }
+  timer -= dt;
+  int n = 0;
+  while (n < 8 && timer <= 0.0) {
+    ++n;
+    interval = std::max(kDropMinInterval, interval * kDropAccel);
+    timer += interval;
+  }
+  if (timer < 0.0) timer = 0.0;
+  return n;
+}
+
+game::ItemStack takeFromStack(game::ItemStack& stack, bool whole) {
+  if (stack.empty()) return {};
+  game::ItemStack out = stack;
+  if (whole || stack.count <= 1) {
+    stack.clear();
+    return out;
+  }
+  out.count = 1;
+  stack.count -= 1;
+  return out;
+}
+
+void InventoryUI::dropSlot(SlotId id, bool whole) {
   // A crafting result is not yours until you take it, and dropping the forge's
   // output slot would quietly bin a smelt in progress.
   if (isOutput(id.container) || id.container == Container::Result) return;
   game::ItemStack* slot = slotAt(id);
   if (!slot || slot->empty()) return;
-  if (onDropStack) onDropStack(*slot);
-  slot->clear();
+  const game::ItemStack leaving = takeFromStack(*slot, whole);
+  if (!leaving.empty() && onDropStack) onDropStack(leaving);
+}
+
+void InventoryUI::tickDropRun(SlotId id, bool whole, double dt) {
+  const int n = dropRun_.tick(dropAt_ == id, dt);
+  dropAt_ = id;
+  for (int i = 0; i < n; ++i) dropSlot(id, whole);
 }
 
 void InventoryUI::swapWithHotbar(SlotId id, int n) {
@@ -888,21 +924,30 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   const bool qDown = event.input && event.input->down(Key::Q);
   const bool qPressed = event.input && event.input->pressed(Key::Q);
   if (sweep_ == Sweep::Transfer && !(event.leftDown && event.shift)) sweep_ = Sweep::None;
-  if (sweep_ == Sweep::Drop && !qDown) sweep_ = Sweep::None;
+  if (sweep_ == Sweep::Drop && !qDown) {
+    sweep_ = Sweep::None;
+    dropRun_.stop();
+  }
   if (sweep_ == Sweep::None) acted_.clear();
 
   if (haveHover_ && cursor_.empty()) {
     if (qPressed) {
       sweep_ = Sweep::Drop;
       acted_.clear();
+      dropRun_.stop();  // a fresh press always drops at once
     } else if (event.leftClick && event.shift) {
       sweep_ = Sweep::Transfer;
       acted_.clear();
     }
   }
-  if (sweep_ != Sweep::None && haveHover_ && sweepTouch(hovered_)) {
-    if (sweep_ == Sweep::Transfer) quickMove(hovered_);
-    else dropSlot(hovered_);
+  if (haveHover_) {
+    if (sweep_ == Sweep::Transfer && sweepTouch(hovered_)) {
+      quickMove(hovered_);
+    } else if (sweep_ == Sweep::Drop) {
+      // Shift decides one-versus-all at the moment of each drop rather than when
+      // the key went down, so it can be taken or let go mid-run.
+      tickDropRun(hovered_, event.shift, event.dt);
+    }
   }
 
   // 1-9 over a slot swaps it with that hotbar slot, the way every other game in

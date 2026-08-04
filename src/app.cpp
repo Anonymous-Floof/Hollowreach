@@ -1560,7 +1560,7 @@ void App::updatePlaying(double dt) {
     }
   }
 
-  handleHotbarInput(in);
+  handleHotbarInput(in, dt);
   // Interaction runs at render rate, on the same eye and forward vector the
   // crosshair is drawn from, so what you break is always what you were aiming at.
   // The click that re-captures the pointer is swallowed: clicking the window to
@@ -1685,7 +1685,7 @@ void App::refreshEntityContext() {
   }
 }
 
-void App::handleHotbarInput(Input& in) {
+void App::handleHotbarInput(Input& in, double dt) {
   // 1..9 select a hotbar slot directly.
   static constexpr Key kDigits[game::kHotbarSlots] = {Key::Digit1, Key::Digit2, Key::Digit3,
                                                       Key::Digit4, Key::Digit5, Key::Digit6,
@@ -1700,12 +1700,21 @@ void App::handleHotbarInput(Input& in) {
   const double wheel = in.takeWheel();
   if (wheel != 0.0) inventory_.cycleSelected(wheel > 0 ? 1 : -1);
 
-  // Q drops one; with control held, the whole stack. There is nowhere for a drop
-  // to go until entities land, so this just discards for now — which is still the
-  // only way to free a slot without an inventory screen.
-  if (in.pressed(Key::Q)) {
-    game::ItemStack& s = inventory_.selectedSlot();
-    if (!s.empty() && world_ && player_) {
+  // Q drops one; with control held, the whole stack. Held down, it repeats and
+  // speeds up, the same run the inventory screen does over a hovered slot.
+  //
+  // Control rather than shift out here, where the inventory uses shift: shift is
+  // crouch in the world, and a gesture that both drops your stack and steps you
+  // off a ledge is not one to offer.
+  if (!in.down(Key::Q)) {
+    dropRun_.stop();
+  } else {
+    // The same cadence the inventory screen uses, from the same object, so the two
+    // cannot drift apart.
+    const int n = dropRun_.tick(/*sameTarget=*/!in.pressed(Key::Q), dt);
+    for (int i = 0; i < n; ++i) {
+      game::ItemStack& s = inventory_.selectedSlot();
+      if (s.empty() || !world_ || !player_) break;
       const std::string key = s.key;
       const int dura = s.dura;
       const int count = in.ctrl() ? s.count : 1;

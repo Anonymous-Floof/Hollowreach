@@ -655,6 +655,80 @@ void testCrafting() {
 
 // --- crouching ---------------------------------------------------------------
 
+// --- dropping with Q -----------------------------------------------------------
+//
+// Q over a stack used to bin the whole thing, which is a lot to lose to one key.
+// It now takes one item, shift takes the lot, and holding it repeats at a rate
+// that climbs — because emptying sixty-four one press at a time is no better.
+void testDropping() {
+  std::printf("dropping with Q\n");
+
+  // --- what leaves the stack ---
+  {
+    game::ItemStack s {"greystone", 12, -1};
+    const game::ItemStack one = ui::takeFromStack(s, false);
+    checkf(one.count == 1 && one.key == "greystone", "Q takes a single item (%d)", one.count);
+    checkf(s.count == 11, "and leaves the rest of the stack behind (%d)", s.count);
+
+    const game::ItemStack lot = ui::takeFromStack(s, true);
+    checkf(lot.count == 11, "shift takes everything that is left (%d)", lot.count);
+    check(s.empty(), "emptying the slot");
+  }
+  {
+    // The last one empties the slot rather than leaving a count of zero behind.
+    game::ItemStack s {"stick", 1, -1};
+    const game::ItemStack one = ui::takeFromStack(s, false);
+    check(one.count == 1 && s.empty(), "taking the last item clears the slot");
+    const game::ItemStack none = ui::takeFromStack(s, false);
+    check(none.empty(), "and an empty slot gives nothing");
+  }
+  {
+    // Wear rides along, or a worn tool would be duplicated as a fresh one.
+    game::ItemStack s {"pick_copper", 1, 42};
+    const game::ItemStack one = ui::takeFromStack(s, false);
+    checkf(one.dura == 42, "a dropped tool keeps its wear (%d)", one.dura);
+  }
+
+  // --- the cadence of holding it ---
+  {
+    ui::DropRun run;
+    checkf(run.tick(false, 0.0) == 1, "pressing Q drops exactly one at once");
+    // Nothing more until the first delay is up: a tap must never cost two.
+    int during = 0;
+    for (int i = 0; i < 15; ++i) during += run.tick(true, 1.0 / 60.0);  // 0.25 s
+    checkf(during == 0, "and a quarter second of holding adds nothing yet (%d)", during);
+
+    // Held on: the run starts and speeds up.
+    int firstSecond = 0;
+    for (int i = 0; i < 60; ++i) firstSecond += run.tick(true, 1.0 / 60.0);
+    int laterSecond = 0;
+    for (int i = 0; i < 180; ++i) run.tick(true, 1.0 / 60.0);  // let it reach full rate
+    for (int i = 0; i < 60; ++i) laterSecond += run.tick(true, 1.0 / 60.0);
+    checkf(firstSecond > 0, "holding it starts a run (%d in the first second)", firstSecond);
+    checkf(laterSecond > firstSecond, "which drops faster the longer it is held (%d then %d)",
+           firstSecond, laterSecond);
+    checkf(laterSecond <= 30, "but never faster than about thirty a second (%d)", laterSecond);
+  }
+  {
+    // Moving to another slot restarts the run and drops there at once, which is
+    // what makes dragging Q across a row work.
+    ui::DropRun run;
+    run.tick(false, 0.0);
+    for (int i = 0; i < 240; ++i) run.tick(true, 1.0 / 60.0);  // at full rate
+    checkf(run.tick(false, 1.0 / 60.0) == 1,
+           "moving onto a new slot drops one there immediately");
+    int next = 0;
+    for (int i = 0; i < 15; ++i) next += run.tick(true, 1.0 / 60.0);
+    checkf(next == 0, "and the new slot waits out the first delay again (%d)", next);
+  }
+  {
+    // A frame that took a very long time must not empty a chest.
+    ui::DropRun run;
+    run.tick(false, 0.0);
+    checkf(run.tick(true, 30.0) <= 8, "one enormous frame drops a bounded number");
+  }
+}
+
 // --- walking up things ---------------------------------------------------------
 //
 // The auto-step lifts the body by its step height and tries the move again, which
@@ -5087,6 +5161,7 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testDropping();
   testAutoStep();
   testCrouch();
   testSurvival();

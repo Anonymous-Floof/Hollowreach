@@ -36,6 +36,43 @@
 
 namespace hr::ui {
 
+// Hold-to-drop pacing, in seconds. Shared with the world's own Q so the two feel
+// the same: the hotbar has no UI object to own this, but a player pressing the
+// same key should not meet two different rhythms.
+//
+// The first repeat waits long enough that a tap is unambiguously one item and
+// nobody loses a second by accident; after that the run speeds up, because
+// emptying a stack of sixty-four should not take sixty-four presses OR twelve
+// seconds of holding. From 0.16 s down to 0.035 s takes about a second and a half
+// to reach full rate, which clears a full stack in roughly three.
+inline constexpr double kDropFirstDelay = 0.35;
+inline constexpr double kDropInterval = 0.16;
+inline constexpr double kDropMinInterval = 0.035;
+inline constexpr double kDropAccel = 0.82;
+
+// The cadence of a held Q, kept apart from both the screen and the world so the
+// two cannot drift and so it can be tested without a window.
+struct DropRun {
+  bool running = false;
+  double timer = 0;
+  double interval = 0;
+
+  // How many items should leave this frame. Entering a new target always yields
+  // exactly one immediately, which is what makes both a tap and a drag across
+  // slots feel instant; holding then repeats on the accelerating timer above.
+  //
+  // Bounded per call, so a frame that took a long time — a chunk upload, a
+  // breakpoint — cannot empty a chest in one go.
+  int tick(bool sameTarget, double dt);
+  void stop() { running = false; }
+};
+
+// Splits one item, or everything, out of `stack` and returns what leaves. The
+// remainder stays in `stack`, cleared if nothing is left. Wear rides along: a
+// stack of part-used tools does not stack in the first place, but a single item
+// leaving one must not arrive as a pristine copy if it ever could.
+game::ItemStack takeFromStack(game::ItemStack& stack, bool whole);
+
 // Which panel set is showing. Matches js/ui/inventoryui.js's `mode`.
 enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest };
 
@@ -184,7 +221,20 @@ class InventoryUI {
   Sweep sweep_ = Sweep::None;
   std::vector<SlotId> acted_;
   bool sweepTouch(SlotId id);  // true the first time this sweep sees `id`
-  void dropSlot(SlotId id);
+  // `whole` empties the slot; otherwise one item leaves it.
+  void dropSlot(SlotId id, bool whole);
+
+  // Q held over a slot: one item at once, then a run that speeds up.
+  //
+  // Deliberately not the once-per-slot rule the Transfer sweep uses. Both gestures
+  // want to fire as the pointer crosses a new slot, but only this one also wants to
+  // keep going while it sits still — a stack of sixty-four is not something anybody
+  // should have to press a key sixty-four times for. So the slot under the pointer
+  // is tracked here rather than in `acted_`, and moving to a new one restarts the
+  // run rather than being refused as already-acted.
+  void tickDropRun(SlotId id, bool whole, double dt);
+  SlotId dropAt_ {};
+  DropRun dropRun_;
 
   // Progress bars read from the block entity; cached only so draw() does not need the
   // pointer again after update() validated it.

@@ -121,13 +121,13 @@ all and is the fastest way to know a change did not break something.
 | Place / use station / open door / sleep / **eat** | Right mouse |
 | Pick block (bring one you own to hand) | Middle mouse |
 | Choose a painting's picture | Right mouse on a hung painting |
-| Drop item | Q (one) · Ctrl+Q (whole stack) |
+| Drop item | Q (one) · Ctrl+Q (whole stack) · hold Q to keep dropping, faster the longer you hold |
 | Climb ladder | Walk into it + W/Space (Shift = down) |
 | Select hotbar | 1–9 / scroll |
 | Inventory | E |
 | Move a slot to the hotbar | Hover it and press 1–9 (swaps) |
 | Move many at once | Hold Shift and drag across slots |
-| Drop many at once | Hold Q and drag across slots |
+| Drop from a slot | Q over it (one) · Shift+Q (whole stack) · hold, or drag across slots |
 | Recipe book | H (or the **Recipes** button on any crafting screen) |
 | Atlas map (needs an **Atlas**) | M |
 | Screenshot | F2 |

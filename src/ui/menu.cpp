@@ -97,7 +97,7 @@ constexpr Control kControls[] = {
     {"E", "Inventory"},
     {"H", "Recipe book"},
     {"M", "Atlas map"},
-    {"Q", "Drop item (Ctrl+Q: stack)"},
+    {"Q", "Drop one (hold to keep going Â· Ctrl+Q: stack)"},
     {"F1", "Hide the interface"},
     {"F2", "Screenshot"},
     {"F3", "Debug overlay"},
