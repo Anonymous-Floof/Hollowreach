@@ -284,6 +284,17 @@ int App::run(const AppOptions& options) {
               "at frame %lld (%d chunk worker(s))",
               streamFrames_, streamTotal_ / streamFrames_, streamWorst_, streamWorstFrame_,
               jobs::system().threadCount());
+    if (world_) {
+      // Against what the same chunks would have cost as flat arrays, which is the
+      // one comparison that needs no second binary to make: before banded
+      // storage every chunk cost kCellsPerChunk * 5 bytes whatever was in it.
+      const std::size_t chunks = world_->loadedChunkCount();
+      const double flat =
+          static_cast<double>(chunks) * world::kCellsPerChunk * 5.0 / (1024.0 * 1024.0);
+      const double now = static_cast<double>(world_->residentBytes()) / (1024.0 * 1024.0);
+      log::info("chunk storage: %zu chunks, %.1f MB resident, %.1f MB if flat (%.2fx)",
+                chunks, now, flat, now > 0.0 ? flat / now : 0.0);
+    }
   }
   renderer_.profiler().logReport();
   log::info("shutting down");

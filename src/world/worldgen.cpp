@@ -265,10 +265,10 @@ void setIfInChunk(Chunk& chunk, int wx, int wy, int wz, BlockId id, bool force) 
   const int i = localIdx(lx, wy, lz);
   ChunkData& d = *chunk.data;
   if (!force) {
-    const BlockId cur = d.voxels[i];
+    const BlockId cur = d.voxels.get(i);
     if (cur != kAir && !blocks().def(cur).isLeaf) return;
   }
-  d.voxels[i] = id;
+  d.voxels.set(i, id);
 }
 
 // The classic round-canopy tree shared by oak, pine, dusk and birch.
@@ -426,10 +426,10 @@ void stampFoliage(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
       const int h = columnInfo(n, wx, wz, ver).h;
       if (h + 1 >= WH) continue;
       // Occupied by a trunk, leaf or water.
-      if (d.voxels[localIdx(x, h + 1, z)] != kAir) continue;
-      const BlockId ground = d.voxels[localIdx(x, h, z)];
+      if (d.voxels.get(localIdx(x, h + 1, z)) != kAir) continue;
+      const BlockId ground = d.voxels.get(localIdx(x, h, z));
       const BlockId plant = pickFoliage(n, seed, wx, wz, ground);
-      if (plant != kAir) d.voxels[localIdx(x, h + 1, z)] = plant;
+      if (plant != kAir) d.voxels.set(localIdx(x, h + 1, z), plant);
     }
   }
 }
@@ -450,7 +450,7 @@ void stampPapyrus(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
       const ColumnInfo info = columnInfo(n, wx, wz, ver);
       if (info.biome == Biome::Snow) continue;
       if (info.h < sea || info.h > sea + 1) continue;  // right at the waterline
-      const BlockId ground = d.voxels[localIdx(x, info.h, z)];
+      const BlockId ground = d.voxels.get(localIdx(x, info.h, z));
       if (ground != w.sand && ground != w.turf && ground != w.loam) continue;
 
       bool shore = false;
@@ -467,11 +467,11 @@ void stampPapyrus(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
       for (int k = 1; k <= tall; ++k) {
         if (info.h + k >= WH) break;
         const int i = localIdx(x, info.h + k, z);
-        const BlockId cur = d.voxels[i];
+        const BlockId cur = d.voxels.get(i);
         // The base reed may replace a grass tuft the foliage pass planted;
         // anything else — trunk, leaf, water — ends the clump.
         if (cur != kAir && !(k == 1 && blocks().def(cur).replaceable)) break;
-        d.voxels[i] = w.papyrus;
+        d.voxels.set(i, w.papyrus);
       }
     }
   }
@@ -621,7 +621,7 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
         } else if (y <= sea) {
           id = w.water;
         }
-        d.voxels[localIdx(x, y, z)] = id;
+        d.voxels.set(localIdx(x, y, z), id);
       }
     }
   }

@@ -295,7 +295,10 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
           chunk.cz = cc[1];
           world::generate(chunk, noise, ver);
 
-          const auto& voxels = chunk.data->voxels;
+          // Expanded flat: the hash is over one contiguous run of cells, and the
+          // chunk stores them a band at a time.
+          std::vector<world::BlockId> voxels(world::kCellsPerChunk);
+          chunk.data->voxels.copyTo(voxels.data());
           // Hashed twice over two different amounts of world. The `chunk` line
           // covers the bottom 128 layers and so keeps the value it has always
           // had — that is the bridge kJsCells describes. The `chunkFull` line
@@ -452,8 +455,12 @@ bool dumpGolden(const std::string& path, const std::string& sections) {
           for (int gi = 0; gi < 9; ++gi) nb.grid[gi] = ring[gi].data.get();
 
           const world::MeshResult mesh = world::meshChunk(nb, tiles);
-          const auto& sky = centre.data->skylight;
-          const auto& blk = centre.data->blocklight;
+          // Flat, so the hash covers one contiguous prefix of cells — see the
+          // note on kJsCells. Chunks store these a band at a time.
+          std::vector<std::uint8_t> sky(world::kCellsPerChunk);
+          std::vector<std::uint8_t> blk(world::kCellsPerChunk);
+          centre.data->skylight.copyTo(sky.data());
+          centre.data->blocklight.copyTo(blk.data());
 
           if (vertexMode) {
             // One line per vertex, for locating the first disagreement with the

@@ -109,7 +109,7 @@ Atlas::Column Atlas::sampleLoaded(const world::LoadedChunk& lc, int lx, int lz) 
   const world::ChunkData& d = *lc.chunk.data;
   int water = 0;
   for (int y = world::WH - 1; y >= 0; --y) {
-    const world::BlockId id = d.voxels[world::localIdx(lx, y, lz)];
+    const world::BlockId id = d.voxels.get(world::localIdx(lx, y, lz));
     if (id == 0) continue;
     const world::BlockDef& b = reg.def(id);
     // Plants do not hide the ground they stand on.

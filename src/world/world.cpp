@@ -128,8 +128,8 @@ void World::applyEdits(LoadedChunk& lc) {
   if (it == edits_.end()) return;
   ChunkData& d = mutableData(lc);
   for (const auto& [index, packed] : it->second) {
-    d.voxels[index] = static_cast<BlockId>(packed & 0xFFFF);
-    d.meta[index] = static_cast<std::uint8_t>((packed >> 16) & 0xFF);
+    d.voxels.set(index, static_cast<BlockId>(packed & 0xFFFF));
+    d.meta.set(index, static_cast<std::uint8_t>((packed >> 16) & 0xFF));
   }
 }
 
@@ -562,7 +562,7 @@ BlockId World::getBlock(int wx, int wy, int wz) const {
   if (wy < 0 || wy >= WH) return kAir;
   const ChunkData* d = dataFor(floorDiv16(wx), floorDiv16(wz));
   if (!d) return kAir;
-  return d->voxels[localIdx(wx & 15, wy, wz & 15)];
+  return d->voxels.get(localIdx(wx & 15, wy, wz & 15));
 }
 
 int World::topSolidY(int wx, int wz) const {
@@ -579,7 +579,7 @@ int World::getMeta(int wx, int wy, int wz) const {
   if (wy < 0 || wy >= WH) return 0;
   const ChunkData* d = dataFor(floorDiv16(wx), floorDiv16(wz));
   if (!d) return 0;
-  return d->meta[localIdx(wx & 15, wy, wz & 15)];
+  return d->meta.get(localIdx(wx & 15, wy, wz & 15));
 }
 
 int World::getSky(int wx, int wy, int wz) const {
@@ -587,14 +587,14 @@ int World::getSky(int wx, int wy, int wz) const {
   if (wy >= WH) return 15;
   const ChunkData* d = dataFor(floorDiv16(wx), floorDiv16(wz));
   if (!d) return 15;
-  return d->skylight[localIdx(wx & 15, wy, wz & 15)];
+  return d->skylight.get(localIdx(wx & 15, wy, wz & 15));
 }
 
 int World::getBlockLight(int wx, int wy, int wz) const {
   if (wy < 0 || wy >= WH) return 0;
   const ChunkData* d = dataFor(floorDiv16(wx), floorDiv16(wz));
   if (!d) return 0;
-  return d->blocklight[localIdx(wx & 15, wy, wz & 15)];
+  return d->blocklight.get(localIdx(wx & 15, wy, wz & 15));
 }
 
 void World::dirtyMesh(int cx, int cz) {
@@ -611,9 +611,9 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   const int index = localIdx(lx, wy, lz);
   ChunkData& d = mutableData(*lc);
 
-  const BlockId previous = d.voxels[index];
-  d.voxels[index] = id;
-  d.meta[index] = static_cast<std::uint8_t>(meta & 0xFF);
+  const BlockId previous = d.voxels.get(index);
+  d.voxels.set(index, id);
+  d.meta.set(index, static_cast<std::uint8_t>(meta & 0xFF));
 
   edits_[chunkKey(cx, cz)][index] =
       static_cast<std::uint32_t>(id) | (static_cast<std::uint32_t>(meta & 0xFF) << 16);
@@ -669,11 +669,11 @@ void World::setWaterCell(int wx, int wy, int wz, BlockId id, int meta) {
   const std::uint8_t m = static_cast<std::uint8_t>(meta & 0xFF);
   // A no-op write would still dirty a mesh and reschedule the neighbourhood, which
   // is how a settled pool would keep ticking forever.
-  if (lc->chunk.data->voxels[index] == id && lc->chunk.data->meta[index] == m) return;
+  if (lc->chunk.data->voxels.get(index) == id && lc->chunk.data->meta.get(index) == m) return;
 
   ChunkData& d = mutableData(*lc);
-  d.voxels[index] = id;
-  d.meta[index] = m;
+  d.voxels.set(index, id);
+  d.meta.set(index, m);
 
   edits_[chunkKey(cx, cz)][index] =
       static_cast<std::uint32_t>(id) | (static_cast<std::uint32_t>(m) << 16);
@@ -698,9 +698,9 @@ void World::setMeta(int wx, int wy, int wz, int meta) {
   const int lx = wx & 15, lz = wz & 15;
   const int index = localIdx(lx, wy, lz);
   ChunkData& d = mutableData(*lc);
-  d.meta[index] = static_cast<std::uint8_t>(meta & 0xFF);
+  d.meta.set(index, static_cast<std::uint8_t>(meta & 0xFF));
 
-  edits_[chunkKey(cx, cz)][index] = static_cast<std::uint32_t>(d.voxels[index]) |
+  edits_[chunkKey(cx, cz)][index] = static_cast<std::uint32_t>(d.voxels.get(index)) |
                                     (static_cast<std::uint32_t>(meta & 0xFF) << 16);
 
   // Only the shape changed, so light is untouched; the mesh (and its neighbours,
@@ -713,7 +713,7 @@ void World::setMeta(int wx, int wy, int wz, int meta) {
   if (lz == 15) dirtyMesh(cx, cz + 1);
 
   water_.onEdit(wx, wy, wz);
-  if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, d.voxels[index], meta & 0xFF);
+  if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, d.voxels.get(index), meta & 0xFF);
 }
 
 void World::decayLeavesAround(int wx, int wy, int wz) {
@@ -1020,6 +1020,12 @@ const std::vector<Box>& World::collisionBoxesAt(int wx, int wy, int wz) const {
 
 bool World::isExplored(int cx, int cz) const {
   return explored_.find(chunkKey(cx, cz)) != explored_.end();
+}
+
+std::size_t World::residentBytes() const {
+  std::size_t n = 0;
+  for (const auto& [key, lc] : chunks_) n += lc->chunk.data->bytes();
+  return n;
 }
 
 std::size_t World::pendingCount() const {

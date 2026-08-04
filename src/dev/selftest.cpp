@@ -2150,7 +2150,7 @@ void testCaveWater() {
             ++s.columns;
             bool colWet = false;
             for (int y = 3; y < h && y < world::WH; ++y) {
-              const world::BlockId id = chunk.data->voxels[world::localIdx(x, y, z)];
+              const world::BlockId id = chunk.data->voxels.get(world::localIdx(x, y, z));
               const bool isWater = id == world::wk().water;
               if (!isWater && id != world::kAir) continue;
               ++s.carved;
@@ -2162,7 +2162,7 @@ void testCaveWater() {
               if (y > world::pocketCeiling(ver)) ++s.aboveCeiling;
               // Nothing may hang in the air: a lake is filled from its floor up,
               // so whatever is under a wet cell is either rock or more water.
-              const world::BlockId under = chunk.data->voxels[world::localIdx(x, y - 1, z)];
+              const world::BlockId under = chunk.data->voxels.get(world::localIdx(x, y - 1, z));
               if (under == world::kAir) ++s.floating;
               // Does it touch more water sideways? A lake should read as a body of
               // water rather than as a scattering of single wet cells, and noise
@@ -2170,10 +2170,10 @@ void testCaveWater() {
               // Chunk-interior only, so the borders do not count as isolated.
               if (x > 0 && x < world::CX - 1 && z > 0 && z < world::CZ - 1) {
                 const bool touch =
-                    chunk.data->voxels[world::localIdx(x + 1, y, z)] == world::wk().water ||
-                    chunk.data->voxels[world::localIdx(x - 1, y, z)] == world::wk().water ||
-                    chunk.data->voxels[world::localIdx(x, y, z + 1)] == world::wk().water ||
-                    chunk.data->voxels[world::localIdx(x, y, z - 1)] == world::wk().water;
+                    chunk.data->voxels.get(world::localIdx(x + 1, y, z)) == world::wk().water ||
+                    chunk.data->voxels.get(world::localIdx(x - 1, y, z)) == world::wk().water ||
+                    chunk.data->voxels.get(world::localIdx(x, y, z + 1)) == world::wk().water ||
+                    chunk.data->voxels.get(world::localIdx(x, y, z - 1)) == world::wk().water;
                 if (touch) ++s.joined;
               }
             }
@@ -2259,7 +2259,7 @@ void testWorldgenDepth() {
           const int h = world::heightAt(noise, cx * world::CX + x, cz * world::CZ + z, 3);
           if (h < lowestSurface) lowestSurface = h;
           for (int y = 0; y < world::WH; ++y) {
-            const world::BlockId id = chunk.data->voxels[world::localIdx(x, y, z)];
+            const world::BlockId id = chunk.data->voxels.get(world::localIdx(x, y, z));
             for (Seen& s : rare) {
               if (id == s.id && y > s.highest) s.highest = y;
             }
@@ -2292,7 +2292,7 @@ void testWorldgenDepth() {
     bool clean = true;
     for (int y = 128; y < world::WH; ++y) {
       for (int i = 0; i < world::CX * world::CZ; ++i) {
-        if (legacy.data->voxels[y * world::CX * world::CZ + i] != world::kAir) clean = false;
+        if (legacy.data->voxels.get(y * world::CX * world::CZ + i) != world::kAir) clean = false;
       }
     }
     check(clean, "a v2 chunk leaves the space above y=128 empty");
@@ -2683,7 +2683,7 @@ void testSpawnChoice() {
       }
       const int lx = wx - cx * world::CX, lz = wz - cz * world::CZ;
       for (int y = world::WH - 1; y >= 0; --y) {
-        if (world::blocks().solid(it->second->voxels[world::localIdx(lx, y, lz)])) return y;
+        if (world::blocks().solid(it->second->voxels.get(world::localIdx(lx, y, lz)))) return y;
       }
       return 0;
     }
@@ -2781,6 +2781,100 @@ int settleBlocks(world::World& w, int maxTicks) {
 // re-meshed its neighbours but never re-lit them, so light that had to cross a seam
 // crossed it only if the two chunks happened to be lit in the right order, and a
 // torch a block from a border lit its own chunk and stopped dead at the line.
+// --- chunk storage -----------------------------------------------------------
+//
+// A chunk keeps each of its four per-cell arrays a band at a time, and each band
+// either as one repeated value or as a dense buffer. Everything here is about the
+// two ways that can go wrong: addressing the wrong band, which quietly corrupts
+// a world, and failing to stay uniform, which quietly gives back the memory the
+// whole exercise was for.
+void testChunkStorage() {
+  std::printf("banded chunk storage\n");
+
+  // The property every `i >> kBandShift` in the codebase rests on. There is a
+  // static_assert for one case; this is all of them, because getting it wrong for
+  // some y and not others is exactly the shape of bug that survives a spot check.
+  {
+    bool ok = true;
+    for (int y = 0; y < world::WH && ok; ++y) {
+      for (int z = 0; z < world::CZ && ok; ++z) {
+        for (int x = 0; x < world::CX; ++x) {
+          const int i = world::localIdx(x, y, z);
+          if ((i >> world::kBandShift) != y / world::kBandHeight) ok = false;
+        }
+      }
+    }
+    check(ok, "every cell lands in the band its y says it should");
+  }
+
+  {
+    world::Banded<std::uint8_t> a;
+    check(a.bytes() == 0, "a fresh column holds no buffers at all");
+    check(a.get(0) == 0 && a.get(world::kCellsPerChunk - 1) == 0, "and reads as zero");
+
+    // Writing a band's own value back must not be what makes it dense — this is
+    // the case that fires thousands of times a tick from the water simulation.
+    a.set(world::localIdx(3, 40, 9), 0);
+    check(a.bytes() == 0, "writing a band's own value back keeps it free");
+
+    a.set(world::localIdx(3, 40, 9), 7);
+    checkf(a.bytes() == world::kCellsPerBand, "one differing cell costs one band (%zu bytes)",
+           a.bytes());
+    check(a.get(world::localIdx(3, 40, 9)) == 7, "and reads back");
+    check(a.get(world::localIdx(4, 40, 9)) == 0, "without disturbing its neighbour");
+    check(a.get(world::localIdx(3, 8, 9)) == 0, "or the band below");
+
+    a.set(world::localIdx(3, 40, 9), 0);
+    check(a.bytes() == world::kCellsPerBand, "putting it back does not un-dense on its own");
+    a.compact();
+    check(a.bytes() == 0, "but compacting notices they all agree again");
+    check(a.get(world::localIdx(3, 40, 9)) == 0, "and the value survives the collapse");
+  }
+
+  // Every cell, written and read back, against a plain array holding the same
+  // thing. Catches an off-by-one in the band index that a sparse test would miss.
+  {
+    world::Banded<world::BlockId> s;
+    std::vector<world::BlockId> flat(world::kCellsPerChunk);
+    std::uint32_t state = 20260804u;
+    const auto next = [&state] {
+      state = state * 1664525u + 1013904223u;
+      return state >> 16;
+    };
+    for (int i = 0; i < world::kCellsPerChunk; ++i) {
+      // Mostly one value, so some bands stay uniform and some do not.
+      const std::uint32_t r = next();
+      const world::BlockId v =
+          (r & 63) == 0 ? static_cast<world::BlockId>(1 + (r >> 6) % 40) : 0;
+      flat[i] = v;
+      s.set(i, v);
+    }
+    bool same = true;
+    for (int i = 0; i < world::kCellsPerChunk && same; ++i) same = s.get(i) == flat[i];
+    check(same, "every one of the 49152 cells reads back what was written");
+
+    world::Banded<world::BlockId> loaded;
+    loaded.loadFrom(flat.data());
+    check(loaded == s, "loadFrom builds the same column that set() did");
+
+    std::vector<world::BlockId> out(world::kCellsPerChunk, 0xFFFF);
+    s.copyTo(out.data());
+    check(out == flat, "and copyTo hands back exactly what went in");
+  }
+
+  // The point of the exercise, on real terrain rather than a synthetic pattern.
+  {
+    world::Chunk chunk;
+    chunk.cx = 7;
+    chunk.cz = -3;
+    world::generate(chunk, world::NoiseSet(3918175327u), world::kGenVersion);
+    const std::size_t flat = static_cast<std::size_t>(world::kCellsPerChunk) * 5;
+    const std::size_t got = chunk.data->bytes();
+    checkf(got < flat / 2, "a generated chunk costs under half of flat storage (%zu vs %zu KB)",
+           got / 1024, flat / 1024);
+  }
+}
+
 // Rebuilds the light of every lit chunk from zero, repeatedly, until the whole set
 // stops changing — and reports the worst disagreement with what the world is
 // actually holding.
@@ -2842,8 +2936,8 @@ int worstLightDrift(world::World& w, std::string& where) {
     const world::LoadedChunk* lc = w.chunkAt(world::keyCx(key), world::keyCz(key));
     const world::ChunkData& live = *lc->chunk.data;
     for (int i = 0; i < world::kCellsPerChunk; ++i) {
-      const int ds = static_cast<int>(live.skylight[i]) - static_cast<int>(d->skylight[i]);
-      const int db = static_cast<int>(live.blocklight[i]) - static_cast<int>(d->blocklight[i]);
+      const int ds = static_cast<int>(live.skylight.get(i)) - static_cast<int>(d->skylight.get(i));
+      const int db = static_cast<int>(live.blocklight.get(i)) - static_cast<int>(d->blocklight.get(i));
       for (const auto& [delta, name] :
            {std::pair<int, const char*>{ds, "sky"}, std::pair<int, const char*>{db, "block"}}) {
         if (std::abs(delta) <= worst) continue;
@@ -2852,8 +2946,8 @@ int worstLightDrift(world::World& w, std::string& where) {
         std::snprintf(buf, sizeof(buf), "%s at (%d,%d,%d): world %d, rebuild %d", name,
                       world::keyCx(key) * world::CX + world::idxX(i), world::idxY(i),
                       world::keyCz(key) * world::CZ + world::idxZ(i),
-                      static_cast<int>(name[0] == 's' ? live.skylight[i] : live.blocklight[i]),
-                      static_cast<int>(name[0] == 's' ? d->skylight[i] : d->blocklight[i]));
+                      static_cast<int>(name[0] == 's' ? live.skylight.get(i) : live.blocklight.get(i)),
+                      static_cast<int>(name[0] == 's' ? d->skylight.get(i) : d->blocklight.get(i)));
         where = buf;
       }
     }
@@ -4320,13 +4414,22 @@ std::uint64_t hashWorld(const world::World& w) {
     if (lc->chunk.generated) keys.push_back(key);
   }
   std::sort(keys.begin(), keys.end());
+  // Expanded flat before hashing, deliberately. The hash has to describe the
+  // CONTENTS of a chunk and nothing else: whether a band happens to be stored
+  // uniform or dense is a storage decision that can legitimately differ between
+  // two worlds holding identical cells, and hashing the representation would make
+  // this fingerprint fire on that.
+  std::vector<world::BlockId> voxels(world::kCellsPerChunk);
+  std::vector<std::uint8_t> bytes(world::kCellsPerChunk);
   for (const world::ChunkKey key : keys) {
     mix(&key, sizeof key);
     const world::ChunkData& d = *w.chunkAt(world::keyCx(key), world::keyCz(key))->chunk.data;
-    mix(d.voxels.data(), d.voxels.size() * sizeof(world::BlockId));
-    mix(d.meta.data(), d.meta.size());
-    mix(d.skylight.data(), d.skylight.size());
-    mix(d.blocklight.data(), d.blocklight.size());
+    d.voxels.copyTo(voxels.data());
+    mix(voxels.data(), voxels.size() * sizeof(world::BlockId));
+    for (const world::Banded<std::uint8_t>* array : {&d.meta, &d.skylight, &d.blocklight}) {
+      array->copyTo(bytes.data());
+      mix(bytes.data(), bytes.size());
+    }
   }
   return h;
 }
@@ -4435,7 +4538,7 @@ void testThreading() {
       w->setBlock(6, kY, 6, world::wk().greystone, 0);
       check(lc->chunk.data.get() != before,
             "writing while a job holds the chunk clones it instead of racing");
-      check(held->voxels[world::localIdx(6, kY, 6)] == world::kAir,
+      check(held->voxels.get(world::localIdx(6, kY, 6)) == world::kAir,
             "and the job's snapshot still shows what it was given");
       check(w->getBlock(6, kY, 6) == world::wk().greystone, "while the world sees the edit");
 
@@ -4535,6 +4638,7 @@ int runSelfTest() {
   testPaintings();
   testRecipeConvenience();
   testWater();
+  testChunkStorage();
   testLighting();
   testSleep();
   testBlockSupport();

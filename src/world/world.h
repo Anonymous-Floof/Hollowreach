@@ -281,6 +281,10 @@ class World {
 
   // Counts, for the debug overlay.
   std::size_t loadedChunkCount() const { return chunks_.size(); }
+  // What the resident chunks actually occupy, cell buffers only. Worth having as
+  // a number rather than an estimate: banded storage means a chunk costs what its
+  // contents happen to need, so "chunks times a constant" stopped being true.
+  std::size_t residentBytes() const;
   std::size_t pendingCount() const;
   // Chunk jobs queued or running, which is what the overlay's "streaming" number
   // should actually show now that the work is not on this thread.

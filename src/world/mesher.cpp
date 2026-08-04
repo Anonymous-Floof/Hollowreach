@@ -110,23 +110,23 @@ class Sampler {
     if (ly < 0) return bedrock_;
     if (ly >= WH) return kAir;
     const ChunkData* c = pick(lx, lz);
-    return c ? c->voxels[localIdx(wrap(lx), ly, wrap(lz))] : kAir;
+    return c ? c->voxels.get(localIdx(wrap(lx), ly, wrap(lz))) : kAir;
   }
   int sky(int lx, int ly, int lz) const {
     if (ly < 0) return 0;
     if (ly >= WH) return 15;
     const ChunkData* c = pick(lx, lz);
-    return c ? c->skylight[localIdx(wrap(lx), ly, wrap(lz))] : 15;
+    return c ? c->skylight.get(localIdx(wrap(lx), ly, wrap(lz))) : 15;
   }
   int blockLight(int lx, int ly, int lz) const {
     if (ly < 0 || ly >= WH) return 0;
     const ChunkData* c = pick(lx, lz);
-    return c ? c->blocklight[localIdx(wrap(lx), ly, wrap(lz))] : 0;
+    return c ? c->blocklight.get(localIdx(wrap(lx), ly, wrap(lz))) : 0;
   }
   int meta(int lx, int ly, int lz) const {
     if (ly < 0 || ly >= WH) return 0;
     const ChunkData* c = pick(lx, lz);
-    return c ? c->meta[localIdx(wrap(lx), ly, wrap(lz))] : 0;
+    return c ? c->meta.get(localIdx(wrap(lx), ly, wrap(lz))) : 0;
   }
   bool opaque(int lx, int ly, int lz) const { return reg_.opaque(voxel(lx, ly, lz)); }
   bool isWater(int lx, int ly, int lz) const { return voxel(lx, ly, lz) == water_; }
@@ -229,7 +229,7 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
     }
     for (int z = 0; z < CZ; ++z) {
       for (int x = 0; x < CX; ++x) {
-        const BlockId id = centre->voxels[localIdx(x, y, z)];
+        const BlockId id = centre->voxels.get(localIdx(x, y, z));
         if (id == kAir) continue;
 
         const BlockDef& def = reg.def(id);
@@ -255,7 +255,7 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
             // more of itself above, so only the top shows the tufted crown.
             const resource::TileRef* tile = &tiles.face(id, 0);
             if (tiles.hasStem(id) && y + 1 < WH &&
-                centre->voxels[localIdx(x, y + 1, z)] == id) {
+                centre->voxels.get(localIdx(x, y + 1, z)) == id) {
               tile = &tiles.stem(id);
             }
             const double H = def.plantHeight > 0 ? def.plantHeight : 0.9;
@@ -304,7 +304,7 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
             double bx = wx + 0.5, bz = wz + 0.5, by = wy;
             double tx = wx + 0.5, tz = wz + 0.5, ty = wy + H;
             int dx = 0, dz = 0;
-            if (crossMountDir(centre->meta[localIdx(x, y, z)], dx, dz)) {
+            if (crossMountDir(centre->meta.get(localIdx(x, y, z)), dx, dz)) {
               by = wy + 0.18;                 // sit up the wall a little
               bx = wx + 0.5 - dx * 0.42;      // base against the wall
               bz = wz + 0.5 - dz * 0.42;
@@ -332,7 +332,7 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
 
         // ---- shaped blocks: each sub-box as a small textured cuboid ----------
         if (isShaped(def.render)) {
-          const int meta = centre->meta[localIdx(x, y, z)];
+          const int meta = centre->meta.get(localIdx(x, y, z));
           const std::vector<Box> boxes = renderBoxes(def.render, meta);
           // The bed's top texture turns with the block so the pillow stays at the
           // head end; its foot cell shows the blanket instead of the pillow.

@@ -84,20 +84,20 @@ class World::LightCursor {
     if (wy < 0 || wy >= WH) return true;
     LoadedChunk* lc = chunk(wx, wz);
     if (!lc) return true;
-    return blocks().opaque(lc->chunk.data->voxels[cell(wx, wy, wz)]);
+    return blocks().opaque(lc->chunk.data->voxels.get(cell(wx, wy, wz)));
   }
 
   // Opacity alone, for walking a column that is known to be inside one chunk.
   bool opaque(int wx, int wy, int wz) {
     LoadedChunk* lc = chunk(wx, wz);
     if (!lc) return true;
-    return blocks().opaque(lc->chunk.data->voxels[cell(wx, wy, wz)]);
+    return blocks().opaque(lc->chunk.data->voxels.get(cell(wx, wy, wz)));
   }
 
   int emit(int wx, int wy, int wz) {
     LoadedChunk* lc = chunk(wx, wz);
     if (!lc) return 0;
-    return blocks().emit(lc->chunk.data->voxels[cell(wx, wy, wz)]);
+    return blocks().emit(lc->chunk.data->voxels.get(cell(wx, wy, wz)));
   }
 
   int level(int channel, int wx, int wy, int wz) {
@@ -106,7 +106,7 @@ class World::LightCursor {
     if (!lc) return 0;
     const ChunkData& d = *lc->chunk.data;
     const int i = cell(wx, wy, wz);
-    return channel == kSkyChannel ? d.skylight[i] : d.blocklight[i];
+    return channel == kSkyChannel ? d.skylight.get(i) : d.blocklight.get(i);
   }
 
   void setLevel(int channel, int wx, int wy, int wz, int value) {
@@ -117,8 +117,8 @@ class World::LightCursor {
     // rather than once per cell.
     ChunkData& d = world_.mutableData(*lc);
     const int i = cell(wx, wy, wz);
-    (channel == kSkyChannel ? d.skylight : d.blocklight)[i] =
-        static_cast<std::uint8_t>(value);
+    (channel == kSkyChannel ? d.skylight : d.blocklight)
+        .set(i, static_cast<std::uint8_t>(value));
     // Noted once per visit to a chunk rather than once per cell. A flood is
     // spatially coherent, so this collapses tens of thousands of hash inserts
     // into a handful.
@@ -348,8 +348,8 @@ void World::seedSeams(LoadedChunk& lc) {
       for (int t = 0; t < 16; ++t) {
         const int oi = xFace ? localIdx(ourAt, y, t) : localIdx(t, y, ourAt);
         const int ti = xFace ? localIdx(theirAt, y, t) : localIdx(t, y, theirAt);
-        const bool oBlocked = reg.opaque(ours.voxels[oi]);
-        const bool tBlocked = reg.opaque(theirs.voxels[ti]);
+        const bool oBlocked = reg.opaque(ours.voxels.get(oi));
+        const bool tBlocked = reg.opaque(theirs.voxels.get(ti));
         if (oBlocked && tBlocked) continue;
 
         const int ox = ourBaseX + (xFace ? ourAt : t);
@@ -360,7 +360,7 @@ void World::seedSeams(LoadedChunk& lc) {
         for (int channel = 0; channel < 2; ++channel) {
           const auto& oArr = channel == kSkyChannel ? ours.skylight : ours.blocklight;
           const auto& tArr = channel == kSkyChannel ? theirs.skylight : theirs.blocklight;
-          const int a = oArr[oi], b = tArr[ti];
+          const int a = oArr.get(oi), b = tArr.get(ti);
           // Queue only a side that can actually raise the other. On open ground
           // both sit at full skylight forever, and this is what keeps a world
           // load from queueing a million cells to discover they all agree.
