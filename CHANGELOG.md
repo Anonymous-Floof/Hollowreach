@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.5.1] - 2026-08-04
+
 > Plays with 2.5.0. The multiplayer protocol did not change, so a 2.5.1 machine
 > and a 2.5.0 one can still share a world — though only the 2.5.1 side gets the
 > discovery fix, so host from that one if a world will not appear.
@@ -552,7 +554,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.5.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.1
 [2.5.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.4.0
 [2.3.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.3.0
