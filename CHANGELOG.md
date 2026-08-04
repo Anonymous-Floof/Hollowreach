@@ -15,6 +15,13 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Multiplayer needs both machines on this version.** A world's difficulty and
+> cheat rules are now the host's to set, and an older build has no idea they
+> exist — it would quietly go on applying its own monster and flight settings in
+> somebody else's world, with nobody told. So the two refuse each other at the
+> join screen instead. Your **saves are fine in both directions**: a world made
+> here opens in 2.5.x under the default rules.
+
 ### Added
 - **Some settings now belong to the world, not to you.** The settings screen has
   two new tabs, **Difficulty** (fall damage, hunger, monster spawning) and
