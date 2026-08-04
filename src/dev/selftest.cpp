@@ -655,6 +655,191 @@ void testCrafting() {
 
 // --- crouching ---------------------------------------------------------------
 
+// --- walking up things ---------------------------------------------------------
+//
+// The auto-step lifts the body by its step height and tries the move again, which
+// is what walks you up a slab without jumping. A stair's bottom tread is the same
+// height as a bottom slab and should behave identically from the low side — it is
+// the single most common thing anybody builds a staircase out of.
+void testAutoStep() {
+  std::printf("walking up steps\n");
+
+  const world::BlockId stone = world::wk().greystone;
+  game::PlayerOptions options;
+  options.fallDamageEnabled = false;
+
+  // Floor at kY-1, and one obstacle at kY in a wall across the path. The player
+  // starts to its -x side and holds the key that walks toward +x.
+  const auto walkInto = [&](world::BlockId id, int meta, float stepHeight) {
+    auto w = makeWorld();
+    for (int x = 0; x <= 16; ++x) {
+      for (int z = 4; z <= 12; ++z) {
+        w->setBlock(x, kY - 1, z, stone, 0);
+        for (int y = kY; y <= kY + 3; ++y) w->setBlock(x, y, z, world::kAir, 0);
+      }
+    }
+    for (int z = 4; z <= 12; ++z) w->setBlock(9, kY, z, id, meta);
+    w->waitForIdle(kOriginX, kOriginZ);
+
+    game::PlayerOptions o = options;
+    o.stepHeight = stepHeight;
+    game::Player player(6.5f, static_cast<float>(kY), 8.5f);
+    Input in;
+    for (int i = 0; i < 150; ++i) {
+      in.endFrame();
+      in.feedKey(Key::D, true, false);  // +x when facing -z
+      player.update(1.0f / 60.0f, in, *w, o, i / 60.0);
+    }
+    return player.pos();
+  };
+
+  const auto& slabs = world::blocks().slabOf();
+  const auto slabIt = slabs.find("greystone");
+  const world::BlockId slab =
+      slabIt == slabs.end() ? 0 : world::blocks().idOf(slabIt->second);
+  const world::BlockId stair = world::blocks().idOf("greystone_stairs");
+  const world::BlockId vslab = world::blocks().idOf("greystone_vslab");
+  check(slab != 0, "there is a greystone slab to walk at");
+  check(stair != 0, "and a greystone stair");
+
+  // Every orientation, at both step heights, printed rather than asserted — this
+  // is the sweep that has to say WHICH shapes behave like a wall before anything
+  // is asserted about them.
+  std::printf("       %-22s %-8s %-8s\n", "obstacle", "step .6", "step 1.0");
+  const auto sweep = [&](const char* label, world::BlockId id, int meta) {
+    const float low = walkInto(id, meta, game::playerConst::kStep).x;
+    const float high = walkInto(id, meta, 1.0f).x;
+    std::printf("       %-22s %-8s %-8s\n", label, low > 9.5f ? "over" : "WALL",
+                high > 9.5f ? "over" : "WALL");
+  };
+  sweep("full block", stone, 0);
+  sweep("slab bottom", slab, 0);
+  sweep("slab top", slab, 1);
+  for (int m = 0; m < 4; ++m) {
+    char label[32];
+    std::snprintf(label, sizeof label, "stair facing %d", m);
+    sweep(label, stair, m);
+  }
+  for (int m = 0; m < 4; ++m) {
+    char label[32];
+    std::snprintf(label, sizeof label, "stair facing %d, top", m);
+    sweep(label, stair, m | 4);
+  }
+  if (vslab != 0) {
+    for (int m = 0; m < 4; ++m) {
+      char label[32];
+      std::snprintf(label, sizeof label, "vslab %d", m);
+      sweep(label, vslab, m);
+    }
+  }
+
+  // The case anybody actually builds: a flight of stairs, each one a block higher
+  // than the last, facing the way you climb. Walking into it should carry you up.
+  const auto climbStaircase = [&](float stepHeight, bool useStairs, int ceilingAbove = 0) {
+    auto w = makeWorld();
+    for (int x = 0; x <= 20; ++x) {
+      for (int z = 4; z <= 12; ++z) {
+        w->setBlock(x, kY - 1, z, stone, 0);
+        for (int y = kY; y <= kY + 8; ++y) w->setBlock(x, y, z, world::kAir, 0);
+      }
+    }
+    // Six treads climbing toward +x from x = 9. Facing 0 puts the riser on the +x
+    // side, which is the low side for somebody walking that way.
+    for (int i = 0; i < 6; ++i) {
+      for (int z = 4; z <= 12; ++z) {
+        if (useStairs) {
+          w->setBlock(9 + i, kY + i, z, stair, 0);
+        } else {
+          w->setBlock(9 + i, kY + i, z, stone, 0);
+        }
+        // Fill under each tread so it is a solid flight rather than floating steps.
+        for (int y = kY; y < kY + i; ++y) w->setBlock(9 + i, y, z, stone, 0);
+      }
+    }
+    // A ceiling that follows the flight up, which is what a staircase inside a
+    // building has and an open ramp does not.
+    if (ceilingAbove > 0) {
+      for (int z = 4; z <= 12; ++z) {
+        for (int x = 0; x < 9; ++x) w->setBlock(x, kY + ceilingAbove, z, stone, 0);
+        for (int i = 0; i < 6; ++i) {
+          w->setBlock(9 + i, kY + i + ceilingAbove, z, stone, 0);
+        }
+      }
+    }
+    w->waitForIdle(kOriginX, kOriginZ);
+    game::PlayerOptions o = options;
+    o.stepHeight = stepHeight;
+    game::Player player(6.5f, static_cast<float>(kY), 8.5f);
+    Input in;
+    // The HIGHEST point reached, not the final one: past the top tread the flight
+    // runs out of floor and the player walks off it, so the last frame describes
+    // a fall rather than the climb being asked about.
+    float best = player.pos().y;
+    for (int i = 0; i < 400; ++i) {
+      in.endFrame();
+      in.feedKey(Key::D, true, false);
+      player.update(1.0f / 60.0f, in, *w, o, i / 60.0);
+      best = std::max(best, player.pos().y);
+    }
+    return best;
+  };
+  {
+    const float s6 = climbStaircase(game::playerConst::kStep, true);
+    const float s10 = climbStaircase(1.0f, true);
+    const float b10 = climbStaircase(1.0f, false);
+    const float base = static_cast<float>(kY);
+    std::printf("       %-22s +%-7.1f +%-7.1f\n", "stair flight", s6 - base, s10 - base);
+    std::printf("       %-22s %-8s +%-7.1f\n", "block flight", "-", b10 - base);
+    // The same flight with a roof over it, at the two headrooms a builder would
+    // actually use. High Step lifts the whole body a full block before testing, so
+    // it needs 0.4 more clearance than the default does — if that is the fault,
+    // this is where it shows.
+    bool highStepNeverWorse = true;
+    float roofed4High = 0, roofed4Low = 0;
+    for (int head : {3, 4, 5}) {
+      const float c6 = climbStaircase(game::playerConst::kStep, true, head);
+      const float c10 = climbStaircase(1.0f, true, head);
+      char label[40];
+      std::snprintf(label, sizeof label, "roofed flight, %d up", head);
+      std::printf("       %-22s +%-7.1f +%-7.1f\n", label, c6 - base, c10 - base);
+      if (c10 < c6 - 0.01f) highStepNeverWorse = false;
+      if (head == 4) {
+        roofed4Low = c6 - base;
+        roofed4High = c10 - base;
+      }
+    }
+    checkf(s6 > base + 4.0f, "a flight of stairs is climbable at the default step (up %.1f)",
+           s6 - base);
+    // The invariant the fix is really about, and the one worth keeping: a taller
+    // step must never climb LESS than a shorter one. It could, because the probe
+    // used to lift the body by the whole step height and demand headroom there —
+    // so switching High Step on made an indoor staircase unclimbable.
+    check(highStepNeverWorse, "High Step never climbs less than the default step does");
+    checkf(roofed4High > 4.0f,
+           "and a staircase with a ceiling over it is climbable with High Step on "
+           "(up %.1f, default manages %.1f)",
+           roofed4High, roofed4Low);
+  }
+
+  // A bottom slab is half a block, well under the 0.6 default step.
+  {
+    const Vec3 after = walkInto(slab, 0, game::playerConst::kStep);
+    checkf(after.x > 9.5f, "a bottom slab is walked straight over (x %.2f)", after.x);
+  }
+
+  // With High Step on, a full block is walkable too — that is the whole feature.
+  {
+    const Vec3 after = walkInto(stone, 0, 1.0f);
+    checkf(after.x > 9.5f, "High Step walks up a whole block (x %.2f)", after.x);
+  }
+
+  // And without it, a full block is still a wall.
+  {
+    const Vec3 after = walkInto(stone, 0, game::playerConst::kStep);
+    checkf(after.x < 9.0f, "but a whole block stops you without it (x %.2f)", after.x);
+  }
+}
+
 void testCrouch() {
   std::printf("crouching\n");
   const world::BlockId stone = world::wk().greystone;
@@ -4902,6 +5087,7 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testAutoStep();
   testCrouch();
   testSurvival();
   testLayout();

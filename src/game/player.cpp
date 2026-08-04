@@ -11,6 +11,56 @@ namespace {
 using namespace playerConst;
 constexpr float EPS = kCollisionEpsilon;
 constexpr float kPi = 3.14159265358979323846f;
+
+// The heights the things in the way actually present, lowest first.
+//
+// stepMove used to lift the body by the WHOLE step height and test for headroom
+// there, which asks for more room than the step it is about to make. At High
+// Step's 1.0 the body occupies feet+1.0 to feet+2.8 during that probe, while
+// landing on a stair's half-block tread only ever needed 2.3. So a staircase with
+// a roof over it — which is every staircase indoors — refused the step that the
+// smaller default step happily made, and turning High Step ON was what stopped
+// you walking up stairs. Measured: a flight under a four-block ceiling climbs its
+// full six blocks at 0.6 and stalls after one and a half at 1.0.
+//
+// So the probe now asks for the least it can. The candidates are the tops of
+// whatever is in front of the body, within reach, tried in ascending order — a
+// stair is tried at 0.5 before 1.0 is ever considered.
+int gatherStepRises(const world::World& world, const Body& body, int axis, float delta,
+                    float maxStep, float* out, int cap) {
+  // The volume the body was trying to move into, from its feet up to as far as it
+  // could possibly step.
+  Vec3 lo {body.pos.x - body.hw, body.pos.y + EPS, body.pos.z - body.hw};
+  Vec3 hi {body.pos.x + body.hw, body.pos.y + maxStep, body.pos.z + body.hw};
+  if (axis == 0) {
+    (delta > 0 ? hi.x : lo.x) += delta;
+  } else {
+    (delta > 0 ? hi.z : lo.z) += delta;
+  }
+
+  int n = 0;
+  const int x0 = static_cast<int>(std::floor(lo.x)), x1 = static_cast<int>(std::floor(hi.x));
+  const int y0 = static_cast<int>(std::floor(lo.y)), y1 = static_cast<int>(std::floor(hi.y));
+  const int z0 = static_cast<int>(std::floor(lo.z)), z1 = static_cast<int>(std::floor(hi.z));
+  for (int x = x0; x <= x1 && n < cap; ++x) {
+    for (int y = y0; y <= y1 && n < cap; ++y) {
+      for (int z = z0; z <= z1 && n < cap; ++z) {
+        const std::vector<world::Box> boxes = world.collisionBoxesAt(x, y, z);
+        for (const world::Box& b : boxes) {
+          const float rise = b.y1 - body.pos.y;
+          if (rise <= EPS || rise > maxStep + EPS) continue;
+          bool seen = false;
+          for (int i = 0; i < n; ++i) {
+            if (std::fabs(out[i] - rise) < EPS) seen = true;
+          }
+          if (!seen && n < cap) out[n++] = rise;
+        }
+      }
+    }
+  }
+  std::sort(out, out + n);
+  return n;
+}
 }  // namespace
 
 Player::Player(float x, float y, float z) {
@@ -93,39 +143,55 @@ void Player::stepMove(const world::World& world, int axis, float delta, bool swi
   const float savedAxis = axis == 0 ? body_.pos.x : body_.pos.z;
   const float savedY = body_.pos.y;
 
-  body_.pos.y += stepH + EPS;
-  if (bodyOverlaps(world, body_)) {
-    body_.pos.y = savedY;  // no headroom
-    return;
-  }
-  if (!moveAxis(world, axis, delta)) {
-    if (!swimming) {
-      // Stepped onto the ledge. Settle straight down onto it rather than leaving
-      // the body floating at the full step height and letting gravity find the
-      // surface: that fall takes several frames during which onGround_ is false,
-      // which stops the walk cycle dead and starts it again on landing. Once per
-      // tread, that flicker is what a staircase felt like.
-      //
-      // The sweep can only find the thing that blocked us in the first place: it
-      // overlaps our new footprint, and its top must lie between the old height
-      // and the raised one, or we would still be blocked up here.
-      moveAxis(world, 1, -(stepH + EPS));
-      noteStepRise(body_.pos.y - savedY);
-      return;
+  // What is actually in the way, lowest first, with the full step height as the
+  // last resort — that last entry is what this used to try, and only try. Water
+  // keeps the single full-height probe: hauling yourself onto a shore is a lift of
+  // a whole block by definition, and the surfacing rule below is written for it.
+  float rises[9];
+  int count = 0;
+  if (!swimming) count = gatherStepRises(world, body_, axis, delta, stepH, rises, 8);
+  rises[count++] = stepH;
+
+  for (int i = 0; i < count; ++i) {
+    body_.pos.y = savedY + rises[i] + EPS;
+    // No headroom at this height. A taller one may still clear whatever is
+    // overhead, so keep going rather than giving up here.
+    if (bodyOverlaps(world, body_)) continue;
+
+    if (!moveAxis(world, axis, delta)) {
+      if (!swimming) {
+        // Stepped onto the ledge. Settle straight down onto it rather than leaving
+        // the body floating and letting gravity find the surface: that fall takes
+        // several frames during which onGround_ is false, which stops the walk
+        // cycle dead and starts it again on landing. Once per tread, that flicker
+        // is what a staircase felt like.
+        //
+        // Dropped by the whole step height, not by the rise that succeeded: the
+        // sweep stops at the first surface under the new footprint, so asking for
+        // more than is needed still lands on the tread and cannot overshoot it.
+        moveAxis(world, 1, -(stepH + EPS));
+        noteStepRise(body_.pos.y - savedY);
+        return;
+      }
+      // Only climb out of water if the head would surface into open air, otherwise
+      // you would swim up through an overhang.
+      const bool headAir =
+          world.getBlock(static_cast<int>(std::floor(body_.pos.x)),
+                         static_cast<int>(std::floor(body_.pos.y + kHeight)),
+                         static_cast<int>(std::floor(body_.pos.z))) == world::kAir;
+      if (headAir) {
+        vel_.y = std::max(vel_.y, 0.0f);
+        noteStepRise(body_.pos.y - savedY);
+        return;
+      }
     }
-    // Only climb out of water if the head would surface into open air, otherwise
-    // you would swim up through an overhang.
-    const bool headAir =
-        world.getBlock(static_cast<int>(std::floor(body_.pos.x)),
-                       static_cast<int>(std::floor(body_.pos.y + kHeight)),
-                       static_cast<int>(std::floor(body_.pos.z))) == world::kAir;
-    if (headAir) {
-      vel_.y = std::max(vel_.y, 0.0f);
-      noteStepRise(body_.pos.y - savedY);
-      return;
-    }
+    // Blocked at this height too. Put the horizontal position back before trying
+    // the next one, or a partial slide would be carried into it.
+    if (axis == 0) body_.pos.x = savedAxis;
+    else body_.pos.z = savedAxis;
   }
-  // Still blocked at the raised height: undo the probe.
+
+  // Nothing worked: undo the probe entirely.
   if (axis == 0) body_.pos.x = savedAxis;
   else body_.pos.z = savedAxis;
   body_.pos.y = savedY;
@@ -509,3 +575,4 @@ Vec3 Player::viewOffset() const {
 }
 
 }  // namespace hr::game
+
