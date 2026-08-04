@@ -174,14 +174,24 @@ fbm3(12345; 1.5, 2.5, 3.5, 4) = bfb1111111111111
 ## worldgen.heightAt
 heightAt(3479357960, v1) = 49,44,42,48,47,36,48,44,52,47,49,47,46,38,47,47,39,50,40,43,46,40,46,54,38,42,52,52,47,36,49,41
 heightAt(3479357960, v2) = 49,44,42,53,79,47,50,44,52,47,49,74,72,52,47,47,39,50,40,43,46,40,46,54,38,42,52,52,47,36,49,52
+heightAt(3479357960, v3) = 103,98,96,107,133,101,104,98,106,101,103,128,126,106,101,101,93,104,94,97,100,94,100,108,92,96,106,106,101,90,103,106
+heightAt(3479357960, v4) = 103,98,96,107,133,101,104,98,106,101,103,128,126,106,101,101,93,104,94,97,100,94,100,108,92,96,106,106,101,90,103,106
 heightAt(3918175327, v1) = 51,46,54,38,39,48,45,46,46,36,57,42,43,55,46,45,46,43,50,43,47,38,48,43,37,50,48,46,46,39,54,46
 heightAt(3918175327, v2) = 51,46,54,46,65,73,75,52,60,46,60,42,43,55,46,45,46,58,61,43,47,38,61,60,38,50,48,46,50,39,54,46
+heightAt(3918175327, v3) = 105,100,108,100,119,127,129,106,114,100,114,96,97,109,100,99,100,112,115,97,101,92,115,114,92,104,102,100,104,93,108,100
+heightAt(3918175327, v4) = 105,100,108,100,119,127,129,106,114,100,114,96,97,109,100,99,100,112,115,97,101,92,115,114,92,104,102,100,104,93,108,100
 heightAt(1, v1) = 46,46,44,47,46,49,38,47,52,50,44,39,47,47,42,42,39,48,44,43,34,53,39,50,45,47,48,38,49,44,52,51
 heightAt(1, v2) = 46,46,44,47,56,49,38,47,52,50,58,39,47,51,43,43,39,48,44,43,34,53,39,50,45,47,69,58,51,46,52,51
+heightAt(1, v3) = 100,100,98,101,110,103,92,101,106,104,112,93,101,105,97,97,93,102,98,97,88,107,93,104,99,101,123,112,105,100,106,105
+heightAt(1, v4) = 100,100,98,101,110,103,92,101,106,104,112,93,101,105,97,97,93,102,98,97,88,107,93,104,99,101,123,112,105,100,106,105
 heightAt(12345, v1) = 47,37,46,47,37,43,38,53,45,48,43,46,53,41,35,48,46,40,45,45,48,38,55,43,43,42,50,41,49,48,49,47
 heightAt(12345, v2) = 47,37,46,54,37,43,38,53,45,48,43,65,53,41,35,49,46,57,62,71,69,72,71,43,43,50,55,60,67,48,49,50
+heightAt(12345, v3) = 101,91,100,108,91,97,92,107,99,102,97,119,107,95,89,103,100,111,116,125,123,126,125,97,97,104,109,114,121,102,103,104
+heightAt(12345, v4) = 101,91,100,108,91,97,92,107,99,102,97,119,107,95,89,103,100,111,116,125,123,126,125,97,97,104,109,114,121,102,103,104
 heightAt(4294967295, v1) = 41,49,54,38,39,43,52,45,46,37,51,40,53,44,42,53,54,40,38,53,44,49,48,47,46,41,45,47,38,51,32,40
 heightAt(4294967295, v2) = 41,49,54,38,39,43,52,45,46,37,53,51,69,70,42,55,54,40,38,53,52,77,48,47,46,41,45,67,55,55,32,40
+heightAt(4294967295, v3) = 95,103,108,92,93,97,106,99,100,91,107,105,123,124,96,109,108,94,92,107,106,131,102,101,100,95,99,121,109,109,86,94
+heightAt(4294967295, v4) = 95,103,108,92,93,97,106,99,100,91,107,105,123,124,96,109,108,94,92,107,106,131,102,101,100,95,99,121,109,109,86,94
 
 ## worldgen.biomeAt
 biomeHist(3479357960) = 3003,1195,482,266,830
@@ -193,49 +203,179 @@ biomeHist(4294967295) = 3103,1312,484,479,398
 ## worldgen.surfacePreview
 surfacePreview(3479357960, v1) = sand@47 water@42 water@41 water@45 sand@46 water@43 water@45 pine_leaves@58 water@45 pine_leaves@55 water@44 water@42 turf@50 pine_leaves@56 dusk_leaves@53 water@40 water@41 water@41 sand@47 sand@47 sand@47 sand@47 turf@50 leaves@53
 surfacePreview(3479357960, v2) = turf@57 turf@74 turf@77 pine_leaves@77 turf@56 turf@49 pine_leaves@59 pine_leaves@93 snowturf@75 dusk_leaves@72 turf@52 turf@50 turf@55 dusk_leaves@62 pine_leaves@56 water@41 water@41 sand@46 turf@61 leaves@72 turf@54 sand@47 turf@50 leaves@53
+surfacePreview(3479357960, v3) = turf@111 turf@128 turf@131 pine_leaves@131 turf@110 turf@103 pine_leaves@113 pine_leaves@147 snowturf@129 dusk_leaves@126 turf@106 turf@104 turf@109 dusk_leaves@116 pine_leaves@110 water@95 water@95 sand@100 turf@115 leaves@126 turf@108 sand@101 turf@104 leaves@107
+surfacePreview(3479357960, v4) = turf@111 turf@128 turf@131 pine_leaves@131 turf@110 turf@103 pine_leaves@113 pine_leaves@147 snowturf@129 dusk_leaves@126 turf@106 turf@104 turf@109 dusk_leaves@116 pine_leaves@110 water@95 water@95 sand@100 turf@115 leaves@126 turf@108 sand@101 turf@104 leaves@107
 surfacePreview(3918175327, v1) = turf@48 water@41 sand@47 pine_leaves@54 leaves@53 pine_leaves@55 water@40 sand@46 water@45 leaves@53 turf@50 pine_leaves@54 water@43 water@33 water@45 pine_leaves@56 water@45 water@44 turf@53 turf@49 water@44 water@43 water@39 water@43
 surfacePreview(3918175327, v2) = turf@48 water@41 sand@47 birch_leaves@54 birch_leaves@53 pine_leaves@55 water@40 sand@46 water@45 leaves@53 turf@50 dusk_leaves@54 water@43 water@33 water@45 dusk_leaves@56 water@45 water@44 snowturf@53 snowturf@49 water@44 water@43 water@39 water@43
+surfacePreview(3918175327, v3) = turf@102 water@95 sand@101 birch_leaves@108 birch_leaves@107 pine_leaves@109 water@94 sand@100 water@99 leaves@107 turf@104 dusk_leaves@108 water@97 water@87 water@99 dusk_leaves@110 water@99 water@98 snowturf@107 snowturf@103 water@98 water@97 water@93 water@97
+surfacePreview(3918175327, v4) = turf@102 water@95 sand@101 birch_leaves@108 birch_leaves@107 pine_leaves@109 water@94 sand@100 water@99 leaves@107 turf@104 dusk_leaves@108 water@97 water@87 water@99 dusk_leaves@110 water@99 water@98 snowturf@107 snowturf@103 water@98 water@97 water@93 water@97
 
 ## worldgen.generate
 chunk(3479357960, v1, 0, 0) ids=278eb6db keys=174139c4 nonAir=11405
+chunkFull(3479357960, v1, 0, 0) ids=8434b6db keys=00a639c4
 chunk(3479357960, v1, 1, 0) ids=f57626f2 keys=be38057d nonAir=10810
+chunkFull(3479357960, v1, 1, 0) ids=c5fa26f2 keys=b398057d
 chunk(3479357960, v1, 0, 1) ids=8a626907 keys=3f3aa89d nonAir=11696
+chunkFull(3479357960, v1, 0, 1) ids=c3206907 keys=699aa89d
 chunk(3479357960, v1, -1, -1) ids=53a8c435 keys=17251c21 nonAir=11172
+chunkFull(3479357960, v1, -1, -1) ids=5a22c435 keys=e4851c21
 chunk(3479357960, v1, 7, -3) ids=4fb6ad80 keys=071a083c nonAir=10829
+chunkFull(3479357960, v1, 7, -3) ids=22b6ad80 keys=d15f083c
 chunk(3479357960, v1, -12, 25) ids=f7000d4d keys=f9a3025b nonAir=11448
+chunkFull(3479357960, v1, -12, 25) ids=9b2a0d4d keys=d23a025b
 chunk(3479357960, v1, 100, 100) ids=df754bbd keys=fed55565 nonAir=10846
+chunkFull(3479357960, v1, 100, 100) ids=cb7f4bbd keys=45dd5565
 chunk(3479357960, v2, 0, 0) ids=83fab364 keys=9d078e35 nonAir=10349
+chunkFull(3479357960, v2, 0, 0) ids=e802b364 keys=356f8e35
 chunk(3479357960, v2, 1, 0) ids=ca954078 keys=7d6f68f1 nonAir=11127
+chunkFull(3479357960, v2, 1, 0) ids=f5054078 keys=a98f68f1
 chunk(3479357960, v2, 0, 1) ids=a15f143b keys=523156c8 nonAir=11422
+chunkFull(3479357960, v2, 0, 1) ids=36c5143b keys=b28656c8
 chunk(3479357960, v2, -1, -1) ids=fcbc1a0d keys=68c5ef95 nonAir=11480
+chunkFull(3479357960, v2, -1, -1) ids=56661a0d keys=ec4def95
 chunk(3479357960, v2, 7, -3) ids=e5a87fc0 keys=c3bed834 nonAir=11079
+chunkFull(3479357960, v2, 7, -3) ids=f1287fc0 keys=b0e3d834
 chunk(3479357960, v2, -12, 25) ids=45a84ffb keys=b504950f nonAir=11806
+chunkFull(3479357960, v2, -12, 25) ids=1e8e4ffb keys=678b950f
 chunk(3479357960, v2, 100, 100) ids=0d8e5d51 keys=f021fdc1 nonAir=11211
+chunkFull(3479357960, v2, 100, 100) ids=f1005d51 keys=4a61fdc1
+chunk(3479357960, v3, 0, 0) ids=c12fcf80 keys=3ddbad6f nonAir=24892
+chunkFull(3479357960, v3, 0, 0) ids=782fcf80 keys=00e2ad6f
+chunk(3479357960, v3, 1, 0) ids=c58dca69 keys=3ca9570b nonAir=25192
+chunkFull(3479357960, v3, 1, 0) ids=ceafca69 keys=6300570b
+chunk(3479357960, v3, 0, 1) ids=5dd9866f keys=6f5fe85e nonAir=25635
+chunkFull(3479357960, v3, 0, 1) ids=8de7866f keys=03cfe85e
+chunk(3479357960, v3, -1, -1) ids=efa238c5 keys=cef124a7 nonAir=24390
+chunkFull(3479357960, v3, -1, -1) ids=843c38c5 keys=315824a7
+chunk(3479357960, v3, 7, -3) ids=05c33fc2 keys=38de0368 nonAir=25188
+chunkFull(3479357960, v3, 7, -3) ids=e0e73fc2 keys=ffb30368
+chunk(3479357960, v3, -12, 25) ids=452b3632 keys=9e14d8d5 nonAir=26547
+chunkFull(3479357960, v3, -12, 25) ids=582f3632 keys=869cd8d5
+chunk(3479357960, v3, 100, 100) ids=5099207a keys=a30e6f75 nonAir=25240
+chunkFull(3479357960, v3, 100, 100) ids=8aad207a keys=c8766f75
+chunk(3479357960, v4, 0, 0) ids=1fa5f638 keys=072ef4bb nonAir=22942
+chunkFull(3479357960, v4, 0, 0) ids=a195f638 keys=9f45f4bb
+chunk(3479357960, v4, 1, 0) ids=09397cc9 keys=f0041491 nonAir=22562
+chunkFull(3479357960, v4, 1, 0) ids=051b7cc9 keys=7e241491
+chunk(3479357960, v4, 0, 1) ids=b99dc8e6 keys=e20f93a7 nonAir=22952
+chunkFull(3479357960, v4, 0, 1) ids=9049c8e6 keys=607693a7
+chunk(3479357960, v4, -1, -1) ids=30250a85 keys=1eaf6cd3 nonAir=22312
+chunkFull(3479357960, v4, -1, -1) ids=143f0a85 keys=ffe66cd3
+chunk(3479357960, v4, 7, -3) ids=6afde542 keys=66896734 nonAir=23354
+chunkFull(3479357960, v4, 7, -3) ids=8921e542 keys=efae6734
+chunk(3479357960, v4, -12, 25) ids=eb8834ca keys=a9b5a8bf nonAir=24111
+chunkFull(3479357960, v4, -12, 25) ids=ff3c34ca keys=4c7ca8bf
+chunk(3479357960, v4, 100, 100) ids=f3ec35b3 keys=67bd256a nonAir=23697
+chunkFull(3479357960, v4, 100, 100) ids=45c235b3 keys=3b9d256a
 chunk(3918175327, v1, 0, 0) ids=dc5d985d keys=c8ebf2d5 nonAir=10982
+chunkFull(3918175327, v1, 0, 0) ids=03a7985d keys=5973f2d5
 chunk(3918175327, v1, 1, 0) ids=030c544d keys=203801f6 nonAir=10899
+chunkFull(3918175327, v1, 1, 0) ids=e536544d keys=825801f6
 chunk(3918175327, v1, 0, 1) ids=5f7d763d keys=f136faaf nonAir=10966
+chunkFull(3918175327, v1, 0, 1) ids=a887763d keys=e33dfaaf
 chunk(3918175327, v1, -1, -1) ids=e0771c01 keys=f6afbd2a nonAir=12256
+chunkFull(3918175327, v1, -1, -1) ids=00491c01 keys=1cefbd2a
 chunk(3918175327, v1, 7, -3) ids=7f1afa93 keys=ff9e09d9 nonAir=12243
+chunkFull(3918175327, v1, 7, -3) ids=70b0fa93 keys=dd8e09d9
 chunk(3918175327, v1, -12, 25) ids=77dface5 keys=5644b7ce nonAir=10783
+chunkFull(3918175327, v1, -12, 25) ids=2eb9ace5 keys=8894b7ce
 chunk(3918175327, v1, 100, 100) ids=1aa19a88 keys=deb3e3fd nonAir=11170
+chunkFull(3918175327, v1, 100, 100) ids=96319a88 keys=de13e3fd
 chunk(3918175327, v2, 0, 0) ids=49e38ed2 keys=32ea504a nonAir=11198
+chunkFull(3918175327, v2, 0, 0) ids=70278ed2 keys=c0ea504a
 chunk(3918175327, v2, 1, 0) ids=c2095885 keys=7fd6f71e nonAir=11133
+chunkFull(3918175327, v2, 1, 0) ids=a2235885 keys=0446f71e
 chunk(3918175327, v2, 0, 1) ids=d558f3ac keys=61258fe2 nonAir=11273
+chunkFull(3918175327, v2, 0, 1) ids=ec70f3ac keys=36b58fe2
 chunk(3918175327, v2, -1, -1) ids=21693a73 keys=c508d97a nonAir=10315
+chunkFull(3918175327, v2, -1, -1) ids=98bf3a73 keys=f0c8d97a
 chunk(3918175327, v2, 7, -3) ids=ee7d1b89 keys=9d443ea3 nonAir=12362
+chunkFull(3918175327, v2, 7, -3) ids=63df1b89 keys=fbbb3ea3
 chunk(3918175327, v2, -12, 25) ids=d382adc5 keys=7367365e nonAir=11103
+chunkFull(3918175327, v2, -12, 25) ids=621cadc5 keys=ffd7365e
 chunk(3918175327, v2, 100, 100) ids=edfb0b00 keys=8c84e951 nonAir=11348
+chunkFull(3918175327, v2, 100, 100) ids=f3fb0b00 keys=4b84e951
+chunk(3918175327, v3, 0, 0) ids=091ece1b keys=2d27afd9 nonAir=24947
+chunkFull(3918175327, v3, 0, 0) ids=3844ce1b keys=6317afd9
+chunk(3918175327, v3, 1, 0) ids=1c0c609e keys=26a38dce nonAir=24848
+chunkFull(3918175327, v3, 1, 0) ids=6fa8609e keys=70f38dce
+chunk(3918175327, v3, 0, 1) ids=ddd8bb56 keys=8c61fcaa nonAir=24862
+chunkFull(3918175327, v3, 0, 1) ids=a464bb56 keys=e0a1fcaa
+chunk(3918175327, v3, -1, -1) ids=ddc093be keys=aa568cbe nonAir=23917
+chunkFull(3918175327, v3, -1, -1) ids=019c93be keys=e1a68cbe
+chunk(3918175327, v3, 7, -3) ids=f941c17c keys=83127af8 nonAir=26250
+chunkFull(3918175327, v3, 7, -3) ids=94f9c17c keys=77a77af8
+chunk(3918175327, v3, -12, 25) ids=ae89757c keys=1348005d nonAir=24720
+chunkFull(3918175327, v3, -12, 25) ids=f241757c keys=d948005d
+chunk(3918175327, v3, 100, 100) ids=912edbd6 keys=a008f2ea nonAir=24869
+chunkFull(3918175327, v3, 100, 100) ids=80badbd6 keys=99e8f2ea
+chunk(3918175327, v4, 0, 0) ids=77f8dbab keys=8b3820d5 nonAir=22941
+chunkFull(3918175327, v4, 0, 0) ids=b73edbab keys=93c020d5
+chunk(3918175327, v4, 1, 0) ids=a64c2e27 keys=678afe73 nonAir=22499
+chunkFull(3918175327, v4, 1, 0) ids=734a2e27 keys=5141fe73
+chunk(3918175327, v4, 0, 1) ids=a62d5dd7 keys=70049e17 nonAir=22291
+chunkFull(3918175327, v4, 0, 1) ids=618b5dd7 keys=f7ab9e17
+chunk(3918175327, v4, -1, -1) ids=f698e747 keys=cb718271 nonAir=22396
+chunkFull(3918175327, v4, -1, -1) ids=7fd6e747 keys=cd918271
+chunk(3918175327, v4, 7, -3) ids=43591c0c keys=43251388 nonAir=24066
+chunkFull(3918175327, v4, 7, -3) ids=19311c0c keys=aa7a1388
+chunk(3918175327, v4, -12, 25) ids=a8d9c6d5 keys=2c822828 nonAir=22419
+chunkFull(3918175327, v4, -12, 25) ids=3693c6d5 keys=f2572828
+chunk(3918175327, v4, 100, 100) ids=27e74b2f keys=14eeb2d3 nonAir=23310
+chunkFull(3918175327, v4, 100, 100) ids=fd754b2f keys=ce25b2d3
 chunk(12345, v1, 0, 0) ids=4c6cd6b8 keys=10776c10 nonAir=11056
+chunkFull(12345, v1, 0, 0) ids=775cd6b8 keys=272c6c10
 chunk(12345, v1, 1, 0) ids=edefa1e5 keys=0e6abaed nonAir=10904
+chunkFull(12345, v1, 1, 0) ids=9ec9a1e5 keys=a5eabaed
 chunk(12345, v1, 0, 1) ids=a04c4067 keys=6c492f9a nonAir=12269
+chunkFull(12345, v1, 0, 1) ids=25ca4067 keys=79092f9a
 chunk(12345, v1, -1, -1) ids=ffe5087e keys=57dbf0a5 nonAir=10891
+chunkFull(12345, v1, -1, -1) ids=2941087e keys=81e3f0a5
 chunk(12345, v1, 7, -3) ids=07cf4c2d keys=87523f56 nonAir=10863
+chunkFull(12345, v1, 7, -3) ids=5fb94c2d keys=38923f56
 chunk(12345, v1, -12, 25) ids=7f93e93b keys=10862bac nonAir=10762
+chunkFull(12345, v1, -12, 25) ids=cef9e93b keys=9f8b2bac
 chunk(12345, v1, 100, 100) ids=5086ccfe keys=8a427813 nonAir=11121
+chunkFull(12345, v1, 100, 100) ids=2ae2ccfe keys=1c797813
 chunk(12345, v2, 0, 0) ids=eb8fc617 keys=1dae93fe nonAir=10937
+chunkFull(12345, v2, 0, 0) ids=eb6dc617 keys=321e93fe
 chunk(12345, v2, 1, 0) ids=3e6b63c4 keys=006c7c40 nonAir=11059
+chunkFull(12345, v2, 1, 0) ids=f13363c4 keys=0f617c40
 chunk(12345, v2, 0, 1) ids=d3ea8520 keys=35168f2e nonAir=11347
+chunkFull(12345, v2, 0, 1) ids=e82a8520 keys=5e868f2e
 chunk(12345, v2, -1, -1) ids=4a06ce89 keys=06c9831e nonAir=11221
+chunkFull(12345, v2, -1, -1) ids=9568ce89 keys=3b39831e
 chunk(12345, v2, 7, -3) ids=83c3dabc keys=f77581f3 nonAir=11482
+chunkFull(12345, v2, 7, -3) ids=95fbdabc keys=9f2c81f3
 chunk(12345, v2, -12, 25) ids=0c8fda79 keys=f4efe962 nonAir=11237
+chunkFull(12345, v2, -12, 25) ids=b2d1da79 keys=a07fe962
 chunk(12345, v2, 100, 100) ids=bd6c6281 keys=94e0c385 nonAir=15100
+chunkFull(12345, v2, 100, 100) ids=323e6281 keys=5fc8c385
+chunk(12345, v3, 0, 0) ids=c4b4f310 keys=c76deffd nonAir=24427
+chunkFull(12345, v3, 0, 0) ids=97d4f310 keys=76cdeffd
+chunk(12345, v3, 1, 0) ids=6a757dc7 keys=b15efda4 nonAir=24778
+chunkFull(12345, v3, 1, 0) ids=e8b37dc7 keys=df43fda4
+chunk(12345, v3, 0, 1) ids=0bc23afc keys=8d01072d nonAir=24686
+chunkFull(12345, v3, 0, 1) ids=d27a3afc keys=6281072d
+chunk(12345, v3, -1, -1) ids=6988c6b0 keys=46d18f7b nonAir=25166
+chunkFull(12345, v3, -1, -1) ids=35e8c6b0 keys=61e88f7b
+chunk(12345, v3, 7, -3) ids=17758025 keys=f6c9190a nonAir=25185
+chunkFull(12345, v3, 7, -3) ids=d8cf8025 keys=9cc9190a
+chunk(12345, v3, -12, 25) ids=bb2902b1 keys=851f2f44 nonAir=25704
+chunkFull(12345, v3, -12, 25) ids=e75b02b1 keys=34842f44
+chunk(12345, v3, 100, 100) ids=2cbdb089 keys=b704f6e1 nonAir=29393
+chunkFull(12345, v3, 100, 100) ids=dc1fb089 keys=4084f6e1
+chunk(12345, v4, 0, 0) ids=7fb27678 keys=a79477d7 nonAir=22145
+chunkFull(12345, v4, 0, 0) ids=f6227678 keys=203b77d7
+chunk(12345, v4, 1, 0) ids=0743140f keys=ebb0da44 nonAir=22824
+chunkFull(12345, v4, 1, 0) ids=c491140f keys=2715da44
+chunk(12345, v4, 0, 1) ids=8cfc206d keys=ccb9bee4 nonAir=22837
+chunkFull(12345, v4, 0, 1) ids=c166206d keys=399ebee4
+chunk(12345, v4, -1, -1) ids=420a9629 keys=de4d76b2 nonAir=23439
+chunkFull(12345, v4, -1, -1) ids=aeac9629 keys=241d76b2
+chunk(12345, v4, 7, -3) ids=25c3003d keys=57da9a6e nonAir=23097
+chunkFull(12345, v4, 7, -3) ids=a2cd003d keys=394a9a6e
+chunk(12345, v4, -12, 25) ids=db6dd159 keys=e5646f04 nonAir=23600
+chunkFull(12345, v4, -12, 25) ids=256fd159 keys=f1c96f04
+chunk(12345, v4, 100, 100) ids=d4f41888 keys=19754f02 nonAir=28358
+chunkFull(12345, v4, 100, 100) ids=ac841888 keys=bc454f02
