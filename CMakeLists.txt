@@ -116,6 +116,10 @@ if(MSVC)
   target_compile_definitions(hollowreach PRIVATE
     _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN
   )
+  # GetAdaptersAddresses, for enumerating the machine's own networks. Discovery
+  # broadcasts to each interface's own subnet rather than trusting the routing
+  # table to pick one — see src/net/interfaces.h.
+  target_link_libraries(hollowreach PRIVATE iphlpapi)
   # Console in Debug (log output), windowed in Release.
   set_target_properties(hollowreach PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin

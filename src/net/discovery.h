@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+#include "net/interfaces.h"
+
 namespace hr::net {
 
 // Fixed, so a guest knows where to listen without being told.
@@ -53,7 +55,14 @@ struct Beacon {
 // very first poll and simply never heard anyone knock.
 inline constexpr std::uint64_t kNoSocket = ~static_cast<std::uint64_t>(0);
 
-// The host side: opens a broadcast socket and beacons on a timer.
+// The host side: beacons on a timer, and answers a guest that asks.
+//
+// Two ways to be found, because either can be the one that works. The beacon is
+// pushed to every interface's own subnet broadcast — see net/interfaces.h for why
+// one datagram to 255.255.255.255 is not enough. The reply is pulled: a guest
+// broadcasts a query and the host answers it directly, which arrives even where a
+// broadcast from this side would not, and which fills the Join list at once
+// instead of within a beacon period.
 class Advertiser {
  public:
   ~Advertiser();
@@ -61,11 +70,15 @@ class Advertiser {
   void stop();
   bool active() const { return socket_ != kNoSocket; }
   void setPlayers(int players, int maxPlayers);
-  // Call every frame; sends at most one beacon a second.
+  // Call every frame; beacons on its own timer and answers queries as they land.
   void update(double dt);
 
  private:
-  void send();
+  void beacon();
+  void answerQueries();
+  // Builds the beacon payload, which is the same whether it is pushed or pulled.
+  std::vector<std::uint8_t> payload() const;
+  void refreshInterfaces(bool logThem);
 
   std::uint64_t socket_ = kNoSocket;  // an ENetSocket, or kNoSocket
   std::uint16_t gamePort_ = kDefaultGamePort;
@@ -74,22 +87,39 @@ class Advertiser {
   std::uint8_t players_ = 0;
   std::uint8_t maxPlayers_ = 0;
   double timer_ = 0.0;
+  // Adapters come and go while the game runs — a VPN connects, a cable is pulled
+  // — so the list is rebuilt occasionally rather than only at start.
+  double interfaceTimer_ = 0.0;
+  std::vector<Interface> interfaces_;
+  bool bound_ = false;  // whether queries can be heard at all
 };
 
-// The guest side: listens and keeps a list of what it has heard recently.
+// The guest side: listens for beacons, asks for them, and keeps what it heard.
 class Listener {
  public:
   ~Listener();
   bool start();
   void stop();
   bool active() const { return socket_ != kNoSocket; }
-  // Drains the socket and ages out anything not heard from in `forgetAfter`.
+  // Drains the socket, sends a query on its own timer, and ages out anything not
+  // heard from in `forgetAfter`.
   void update(double dt, double forgetAfter = 6.0);
   const std::vector<Beacon>& found() const { return beacons_; }
+  // Why the list might be empty through no fault of the network. Empty when the
+  // listener is working, so the Join screen can say something useful instead of
+  // showing nothing and leaving the player to guess.
+  const std::string& problem() const { return problem_; }
 
  private:
+  void query();
+  void refreshInterfaces(bool logThem);
+
   std::uint64_t socket_ = kNoSocket;
   std::vector<Beacon> beacons_;
+  std::vector<Interface> interfaces_;
+  double queryTimer_ = 0.0;
+  double interfaceTimer_ = 0.0;
+  std::string problem_;
 };
 
 // ---- invite codes -----------------------------------------------------------

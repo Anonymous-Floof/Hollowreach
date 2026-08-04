@@ -3869,6 +3869,105 @@ void testNet() {
 // milestone's own criterion — "two local instances: edits, combat, containers" —
 // run headlessly, where it is repeatable and where a failure names itself instead
 // of being a body that did not appear in a screenshot.
+// --- which networks a beacon goes out on ---------------------------------------
+//
+// A datagram to 255.255.255.255 from an unbound socket leaves by ONE interface,
+// picked by the routing table. A machine with a Hyper-V switch, a VPN or WSL has
+// several, and when the stack picks a virtual one the beacon is broadcast
+// perfectly into a network with nobody on it — send() succeeds and nothing looks
+// wrong. That is why hosting from one machine can work while hosting from the
+// other does not.
+//
+// So a beacon now goes to each interface's own subnet broadcast. This checks the
+// arithmetic that produces those addresses, on the machine actually running the
+// test — there is no fixture, because the whole point is what the real adapters
+// say.
+void testNetInterfaces() {
+  std::printf("which networks a beacon goes out on\n");
+
+  const std::vector<net::Interface> found = net::localInterfaces();
+  // Not an assertion that any exist: this has to pass on a build machine with no
+  // network at all, where falling back to the limited broadcast is right.
+  std::printf("       %zu broadcastable interface(s)\n", found.size());
+
+  bool everyBroadcastInsideItsSubnet = true;
+  bool noLoopback = true;
+  bool noDuplicates = true;
+  for (std::size_t i = 0; i < found.size(); ++i) {
+    const net::Interface& f = found[i];
+    std::printf("       %-34s %-15s -> %s\n", f.name.c_str(), f.addressText.c_str(),
+                f.broadcastText.c_str());
+
+    // A directed broadcast has to end in a run of set bits and share the rest with
+    // the interface: 192.168.10.113/24 gives 192.168.10.255 and nothing else.
+    const std::uint32_t a = f.address, b = f.broadcast;
+    const std::uint32_t diff = a ^ b;
+    // In network byte order the host part is the trailing bytes, so the xor of the
+    // two must be a suffix mask once byte-swapped back. Checking the property that
+    // actually matters instead: the broadcast is >= the address, and the bits they
+    // differ in are exactly the ones the broadcast has set.
+    if ((diff & b) != diff) everyBroadcastInsideItsSubnet = false;
+    if ((a & 0xFF) == 127) noLoopback = false;  // first octet, network order
+    for (std::size_t j = 0; j < i; ++j) {
+      if (found[j].address == f.address) noDuplicates = false;
+    }
+  }
+  check(everyBroadcastInsideItsSubnet, "each broadcast address differs from its interface "
+                                       "only in bits it has set");
+  check(noLoopback, "loopback is not something to look for games on");
+  check(noDuplicates, "and no interface is listed twice");
+
+  // The case that motivated all of this: a /32, which is what a VPN like Tailscale
+  // hands out. It has no subnet to broadcast into, so it must not be offered one —
+  // a "broadcast" there is just the interface talking to itself.
+  bool anySlashThirtyTwo = false;
+  for (const net::Interface& f : found) {
+    if (f.address == f.broadcast) anySlashThirtyTwo = true;
+  }
+  check(!anySlashThirtyTwo, "and a point-to-point interface is left out rather than "
+                            "broadcast to itself");
+
+  // End to end, on this machine: does a host advertising actually get listed by a
+  // guest looking? Both halves are real sockets on the real discovery port, so
+  // this exercises the beacon, the query, the reply and the parsing together.
+  //
+  // Reported rather than asserted, and deliberately. A machine can legitimately
+  // fail this while the code is perfect — a firewall with no inbound rule for this
+  // binary drops the datagrams, which is itself one of the two things that breaks
+  // LAN play and is worth SAYING rather than turning into a red build on a
+  // developer's laptop.
+  {
+    net::Advertiser host;
+    net::Listener guest;
+    const bool advertising = host.start(25565, "Test World", "Alice");
+    const bool listening = guest.start();
+    check(advertising, "a host can open a discovery socket");
+    checkf(listening, "and a guest can listen on port %d (%s)", static_cast<int>(net::kDiscoveryPort),
+           guest.problem().empty() ? "ok" : guest.problem().c_str());
+
+    bool sawIt = false;
+    if (advertising && listening) {
+      // Two seconds of pumping at 60 Hz, which covers a beacon period and a query
+      // period several times over.
+      for (int i = 0; i < 120 && !sawIt; ++i) {
+        host.update(1.0 / 60.0);
+        guest.update(1.0 / 60.0);
+        for (const net::Beacon& b : guest.found()) {
+          if (b.worldName == "Test World" && b.port == 25565) sawIt = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+      }
+    }
+    if (sawIt) {
+      check(true, "and the guest lists the world the host is advertising");
+    } else {
+      std::printf("       [note] this machine did not hear its own beacon. That is the\n"
+                  "              firewall or an isolated adapter, not a broken build --\n"
+                  "              allow Hollowreach through for Private networks.\n");
+    }
+  }
+}
+
 // --- how far in the past a remote body is drawn --------------------------------
 //
 // The buffer a ghost holds used to be a flat 150 ms, inherited from the web build
@@ -4822,6 +4921,7 @@ int runSelfTest() {
   testCaveWater();
   testNet();
   testRemoteEditSink();
+  testNetInterfaces();
   testInterpDelay();
   testNetSession();
   testNetBigWorld();

@@ -448,6 +448,25 @@ The invite code is the same `HRW1…HRW1` envelope the browser build used, so it
 still survives being lowercased, broken up by a chat client, or read out loud —
 it is Crockford base32, with the letters that look like digits left out.
 
+**If a world does not appear in the list**, there are only really two causes, and
+the first is not the game:
+
+- **The firewall has not been asked.** Windows drops unsolicited inbound UDP for
+  a program with no rule, while still allowing the outbound connection a typed-in
+  address makes — which is exactly why typing the address can work when the list
+  stays empty. Allow Hollowreach through Windows Defender Firewall for **Private**
+  networks on the *hosting* machine. If the network is classified Public, either
+  change it to Private or expect discovery not to work.
+- **The beacon left by the wrong network card.** A machine with Hyper-V, WSL,
+  VirtualBox or a VPN has several, and a broadcast only goes out one of them.
+  Hollowreach now beacons on every interface it finds and guests actively ask as
+  well as listen, which is what this used to get wrong; run with `--verbose` and
+  the log names every network it is using, so you can see whether the one you
+  expect is there.
+
+Failing both, the address field always works: the host's Open to LAN panel shows
+the address to type.
+
 **Known limit:** this is LAN-first. The browser build got NAT traversal for free
 from WebRTC; UDP does not, so playing with someone outside your network needs a
 forwarded port (default **25565/udp**) on the host's router. The transport layer
