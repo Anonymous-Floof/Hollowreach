@@ -93,7 +93,23 @@ void Ghosts::clear() {
   players_.clear();
   entityGhosts_.clear();
   nameplates_.clear();
+  index_.clear();
   nextNetId_ = kPlayerNetBase;
+}
+
+void Ghosts::rebuildIndex() {
+  index_.clear();
+  if (!entities_) return;
+  std::vector<game::Entity>& all = entities_->all();
+  for (std::size_t i = 0; i < all.size(); ++i) {
+    if (all[i].ghost && !all[i].dead) index_[all[i].netId] = i;
+  }
+}
+
+game::Entity* Ghosts::bodyFor(int netId) {
+  auto it = index_.find(netId);
+  if (it == index_.end()) return nullptr;
+  return &entities_->all()[it->second];
 }
 
 int Ghosts::netIdFor(const std::string& playerId) {
@@ -145,6 +161,7 @@ void Ghosts::feedSnapshot(const SnapshotMsg& snap, double now) {
     g.type = e.type;
     g.a = e.a;
     g.b = e.b;
+    g.key = e.key;
     g.seen = true;
     g.track.push(e.pos, e.yaw, 0.0f, now);
   }
@@ -175,24 +192,36 @@ bool Ghosts::playerPos(const std::string& playerId, Vec3& out) const {
 void Ghosts::update(double now) {
   nameplates_.clear();
   if (!entities_) return;
+  rebuildIndex();
 
-  const auto findGhost = [this](int netId) -> game::Entity* {
-    for (game::Entity& e : entities_->all()) {
-      if (e.ghost && !e.dead && e.netId == netId) return &e;
-    }
-    return nullptr;
+  // Puts a freshly spawned body into the index, so the rest of this pass finds it
+  // by lookup like any other. Returns null if the manager refused to make one.
+  const auto spawnInto = [this](int netId, game::EntityType type, const Vec3& pos) {
+    game::Entity* made = entities_->spawnGhost(netId, type, pos);
+    if (made) index_[netId] = entities_->all().size() - 1;
+    return made;
   };
 
   for (auto& [pid, g] : players_) {
+    // A track with no samples in it has nothing to say about where this player is,
+    // and `pos` would come back as the default — the world origin, at bedrock.
+    // Spawning a body from that put a full-size person inside the ground at 0,0,0,
+    // which reads as "they are standing at world spawn" from a distance and as
+    // "they have vanished" from anywhere else. It is a real state, not a rare one:
+    // a roster entry arrives on the reliable channel and the first snapshot on the
+    // fast one, so every join passes through it. Nothing is drawn until a sample
+    // says where to draw it.
+    if (!g.track.primed) continue;
+
     Vec3 pos;
     float yaw = 0, pitch = 0;
     // Each track carries its own delay: a host interpolating two guests is
     // reading two independent streams that may be paced quite differently.
     g.track.sample(now - g.track.delay(), pos, yaw, pitch);
 
-    game::Entity* body = findGhost(g.netId);
+    game::Entity* body = bodyFor(g.netId);
     if (!body) {
-      body = entities_->spawnGhost(g.netId, game::EntityType::RemotePlayer, pos);
+      body = spawnInto(g.netId, game::EntityType::RemotePlayer, pos);
       if (!body) continue;
     }
     body->pos = pos;
@@ -216,19 +245,25 @@ void Ghosts::update(double now) {
     plate.name = g.name;
     plate.pos = pos;
     plate.health = g.health;
+    // The sampled yaw, not the body's: the body has had half a turn added to it
+    // so that a model built facing +z looks the right way, and the Atlas wants
+    // the direction the person is actually looking.
+    plate.yaw = yaw;
     nameplates_.push_back(std::move(plate));
   }
 
   for (auto& [id, g] : entityGhosts_) {
+    if (!g.track.primed) continue;
+
     Vec3 pos;
     float yaw = 0, pitch = 0;
     g.track.sample(now - g.track.delay(), pos, yaw, pitch);
 
-    game::Entity* body = findGhost(id);
+    game::Entity* body = bodyFor(id);
     if (!body) {
       const auto type = static_cast<game::EntityType>(g.type);
       if (type == game::EntityType::None || type >= game::EntityType::Count) continue;
-      body = entities_->spawnGhost(id, type, pos);
+      body = spawnInto(id, type, pos);
       if (!body) continue;
     }
     body->pos = pos;
@@ -238,6 +273,14 @@ void Ghosts::update(double now) {
     switch (body->type) {
       case game::EntityType::Drop:
         body->data.count = static_cast<int>(g.a);
+        // What it is, which the renderer looks up to find a model. Without it
+        // every dropped item in a guest's world — every ore, every tool, every
+        // loaf — came out as the same grey cube the renderer falls back to when
+        // it cannot identify an item.
+        body->data.key = g.key;
+        break;
+      case game::EntityType::FallingBlock:
+        body->data.key = g.key;
         break;
       case game::EntityType::Boat:
         body->data.rider = g.a > 0.5f;

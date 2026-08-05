@@ -141,6 +141,17 @@ struct EntityContext {
   const render::Sky* sky = nullptr;
   const Input* input = nullptr;  // only the rideable boat reads this
   std::function<void(const std::string&)> notify;
+  // Whether other people are in this world. `player` is the local body and the
+  // only one an entity can see; in a shared world it is one of several, and the
+  // rules that quietly assume it is the only one have to stop.
+  //
+  // Exactly one of those today, and it is worth naming: an "instant" drop — the
+  // kind a mined block makes — is vacuumed up with no distance check at all, so
+  // that mining feels immediate. With guests in the world that stopped meaning
+  // "straight into your hands" and started meaning "straight into the host's,
+  // from wherever the host happens to be standing". A guest could watch its own
+  // ore fly off across the map.
+  bool sharedWorld = false;
 };
 
 struct EntityFlags {

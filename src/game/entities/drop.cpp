@@ -57,8 +57,13 @@ void dropUpdate(Entity& e, float dt, EntityContext& ctx) {
     }
   }
 
-  // An instant drop collects from anywhere; a tossed one needs proximity.
-  if (!e.data.instant) {
+  // An instant drop collects from anywhere; a tossed one needs proximity. In a
+  // shared world both need it: "from anywhere" is only generous while there is
+  // one pair of hands it could go to, and with guests present it means the host
+  // silently harvests everything anyone mines, anywhere in the world. It is the
+  // same rule underneath — an instant drop still has the shorter pickup delay,
+  // so mining is still immediate for the person stood over the block.
+  if (!e.data.instant || ctx.sharedWorld) {
     const Vec3 p = ctx.player->pos();
     const float dx = p.x - e.pos.x, dy = (p.y + 0.9f) - e.pos.y, dz = p.z - e.pos.z;
     if (dx * dx + dy * dy + dz * dz > kPickupRange2) return;

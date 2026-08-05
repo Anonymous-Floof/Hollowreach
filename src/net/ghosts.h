@@ -100,6 +100,9 @@ class Ghosts {
     std::string name;
     Vec3 pos;
     float health = 20.0f;
+    // Which way they are facing, in the player convention (0 looks down -z), for
+    // anything that wants to draw a heading rather than a dot. The Atlas does.
+    float yaw = 0.0f;
   };
   const std::vector<Nameplate>& nameplates() const { return nameplates_; }
 
@@ -124,8 +127,20 @@ class Ghosts {
     Track track;
     std::uint8_t type = 0;
     float a = 0, b = 0;
+    std::string key;
     bool seen = false;
   };
+
+  // netId -> index into the entity manager's vector, rebuilt once per update.
+  //
+  // This was a linear scan per ghost, inside a loop over every ghost, so the cost
+  // of drawing other people grew as the square of how much was going on. At the
+  // protocol's cap of 512 entities that is a quarter of a million comparisons
+  // every frame, on the main thread, and it arrived exactly when a session had
+  // been running long enough to have that much in it.
+  std::unordered_map<int, std::size_t> index_;
+  void rebuildIndex();
+  game::Entity* bodyFor(int netId);
 
   // Ghost ids are the network's, not the manager's. A player's is derived from a
   // running counter rather than from its id string, because the entity layer keys

@@ -65,6 +65,8 @@ bool Client::start(const std::string& address, std::uint16_t port, const std::st
   host_ = transport_.peers().empty() ? kNoPeer : transport_.peers().front();
   connectTimer_ = 0;
   poseTimer_ = stateTimer_ = 0;
+  poseSeq_ = lastSnapSeq_ = 0;
+  haveSnapSeq_ = false;
   return true;
 }
 
@@ -166,6 +168,7 @@ void Client::sendPose() {
                                       (game_.player->sneaking() ? 2 : 0) |
                                       (game_.player->flying() ? 4 : 0) |
                                       (game_.player->sprinting() ? 8 : 0));
+  m.seq = ++poseSeq_;
   send(MsgType::Pose, m, Channel::Fast);
 }
 
@@ -183,6 +186,12 @@ void Client::sendPlayerState() {
   for (const game::ItemStack& slot : game_.inventory->slots()) m.slots.push_back(toWire(slot));
   for (const game::ItemStack& slot : game_.inventory->armor()) m.armor.push_back(toWire(slot));
   m.selected = game_.inventory->selected();
+  // Where this player wakes up. The fields have been on the wire since the first
+  // multiplayer build and nothing ever filled them in, so the host stored a
+  // hasSpawn of false for every guest it had ever met: a guest could bind a Soul
+  // Anchor, and the moment they left and came back it was as if they never had.
+  m.hasSpawn = spawn_.bound;
+  m.spawn = spawn_.at;
   send(MsgType::PlayerState, m);
 }
 
@@ -233,6 +242,14 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
     case MsgType::Snapshot: {
       SnapshotMsg m;
       if (!decode(r, m)) break;
+      // Older than one already applied, or a duplicate of it. A snapshot is a
+      // complete census — every entity that exists, and by omission every one
+      // that does not — so applying a stale one does not merely repeat old news,
+      // it un-picks-up items, un-kills mobs and walks everybody backwards. See
+      // SnapshotMsg::seq.
+      if (haveSnapSeq_ && !newerSeq(m.seq, lastSnapSeq_)) break;
+      lastSnapSeq_ = m.seq;
+      haveSnapSeq_ = true;
       // The host's own player is in here; drawing a ghost of ourselves would be a
       // second body standing where we are.
       m.players.erase(std::remove_if(m.players.begin(), m.players.end(),
@@ -315,8 +332,16 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
     case MsgType::Give: {
       GiveMsg m;
       if (decode(r, m) && game_.inventory && game::getItem(m.key)) {
-        game_.inventory->give(m.key, m.count, m.dura);
-        audio::sfx::pickup();
+        const int left = game_.inventory->give(m.key, m.count, m.dura);
+        if (left < m.count) audio::sfx::pickup();
+        // A full bag. The host has already destroyed the drop on its side, so
+        // anything that would not fit has to go back into the world or it simply
+        // stops existing — which is how an award for a kill, or a stack the host
+        // handed over when we walked onto it, quietly vanished.
+        if (left > 0 && game_.player) {
+          const Vec3 p = game_.player->pos();
+          sendToss(Vec3{p.x, p.y + 0.6f, p.z}, Vec3{0, 0, 0}, m.key, left, m.dura);
+        }
       }
       break;
     }

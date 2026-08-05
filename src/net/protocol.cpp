@@ -149,6 +149,7 @@ void encode(ByteWriter& w, const PoseMsg& m) {
   w.f32(m.pitch);
   w.f32(m.health);
   w.u8(m.flags);
+  w.u32(m.seq);
 }
 bool decode(ByteReader& r, PoseMsg& m) {
   m.pos = readVec3(r);
@@ -157,12 +158,14 @@ bool decode(ByteReader& r, PoseMsg& m) {
   m.pitch = r.f32();
   m.health = r.f32();
   m.flags = r.u8();
+  m.seq = r.u32();
   return r.ok() && okPos(m.pos) && okVel(m.vel) && okF(m.yaw, -64, 64) &&
          okF(m.pitch, -4, 4) && okF(m.health, 0, 40) && m.flags <= 15;
 }
 
 void encode(ByteWriter& w, const SnapshotMsg& m) {
   w.f32(m.time);
+  w.u32(m.seq);
   w.u32(static_cast<std::uint32_t>(m.entities.size()));
   for (const SnapEntity& e : m.entities) {
     w.i32(e.id);
@@ -171,6 +174,7 @@ void encode(ByteWriter& w, const SnapshotMsg& m) {
     w.f32(e.yaw);
     w.f32(e.a);
     w.f32(e.b);
+    w.str(e.key);
   }
   w.u32(static_cast<std::uint32_t>(m.players.size()));
   for (const SnapPlayer& p : m.players) {
@@ -185,6 +189,7 @@ void encode(ByteWriter& w, const SnapshotMsg& m) {
 }
 bool decode(ByteReader& r, SnapshotMsg& m) {
   m.time = r.f32();
+  m.seq = r.u32();
   if (!r.ok() || !okF(m.time, 0, 1)) return false;
 
   std::uint32_t n = 0;
@@ -197,8 +202,13 @@ bool decode(ByteReader& r, SnapshotMsg& m) {
     e.yaw = r.f32();
     e.a = r.f32();
     e.b = r.f32();
+    e.key = r.str();
+    // An empty key is the ordinary case — only a drop and a falling block have one
+    // — so it is length that is checked here, not presence. Whether the key names
+    // anything this build knows is the receiver's business: an unknown item draws
+    // as the fallback cube rather than rejecting a whole snapshot of good entities.
     if (!okPos(e.pos) || !okF(e.yaw, -64, 64) || !okF(e.a, -kMaxCoord, kMaxCoord) ||
-        !okF(e.b, -kMaxCoord, kMaxCoord)) {
+        !okF(e.b, -kMaxCoord, kMaxCoord) || !okStr(e.key, kMaxItemKey)) {
       return false;
     }
   }

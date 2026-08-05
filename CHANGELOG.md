@@ -15,6 +15,60 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Multiplayer needs both machines on this version.** A guest is now told what a
+> dropped item actually is, and both ends stamp their position updates so a packet
+> that arrives late can be recognised as late — neither of which an older build can
+> read. **Saves are fine in both directions.**
+
+### Added
+- **Everyone shows up on the Atlas.** Other players in the world are drawn on the
+  full map and the corner minimap as a coloured arrow pointing the way they are
+  facing, with their name beside it on the big map. Off the edge of the minimap
+  they clamp to the rim, the way waypoints do, so the arrow still points you at
+  them. Each person keeps the same colour for everybody, in every session.
+
+### Fixed
+- **The world no longer stops when somebody opens a screen.** Opening the
+  inventory, the map or the pause menu used to halt the entire simulation — which
+  is right when you are on your own and the game is waiting for you, and quite
+  wrong when there are other people in it. The host glancing in a chest froze every
+  mob mid-stride, hung every dropped item in the air, stopped every forge and left
+  the guests looking at a photograph. In a shared world nothing pauses now: mobs
+  move, items fall, furnaces smelt, the sun goes on setting, and your own body
+  keeps falling and drowning while you are reading a menu. Single player pauses
+  exactly as it always did.
+- **Dropped items look like what they are.** Every item lying on the ground in
+  somebody else's world was drawn as the same anonymous grey cube — ore, tools,
+  bread, all identical — because a guest was told where a drop was and how many
+  of it there were, and never what it was.
+- **Guests can pick things up.** Anything the host owned — your own death scatter
+  most of all — could be walked over all day and never collected, because only the
+  host was running the code that picks a drop up. Standing on a drop now collects
+  it whoever you are. Mined blocks also stop flying across the world into the
+  host's pockets: an item that vacuums up from any distance is a kindness in a
+  world of one and a theft in a world of two.
+- **No more animals only one player can see.** A joining guest was handed the
+  host's list of mobs and quietly built its own private copy of every one, which
+  then wandered off under its own AI beside the ghost of the real animal — visible
+  to nobody else, and impossible to kill, because the thing you were swinging at
+  had never existed for anyone but you. They accumulated for as long as the session
+  ran, which is most of why things drifted further apart the longer you played.
+- **Respawning takes you to your spawn point.** A guest who died more than about a
+  dozen blocks from where they should wake up was dragged straight back to the spot
+  they had just died on, standing in their own dropped things. The host was reading
+  the respawn as a speed hack and undoing it.
+- **A Soul Anchor a guest binds is remembered.** The host had never been told about
+  it, so a guest's bound spawn lasted exactly until they left the world.
+- **Players stop appearing at world spawn.** For the moment between learning that
+  somebody had joined and learning where they were, a body was drawn at the world
+  origin — buried at bedrock, near the spot most worlds call home. Nobody is drawn
+  now until there is somewhere to draw them.
+- **Late packets are recognised as late.** Positions travel on a channel that does
+  not promise to keep them in order, and an update that overtook a newer one was
+  being believed: bodies snapped backwards, picked-up items reappeared, and mobs
+  that had just spawned blinked out. Both ends now number what they send and ignore
+  anything they have already passed.
+
 ## [2.6.0] - 2026-08-04
 
 > **Multiplayer needs both machines on this version.** A world's difficulty and

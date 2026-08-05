@@ -4392,6 +4392,98 @@ void testInterpDelay() {
   }
 }
 
+// --- what arrives out of order, and what has not arrived at all ----------------
+//
+// Two failures that look nothing alike on the surface and are the same mistake
+// underneath: treating "I have not been told" as "I have been told nothing".
+//
+// The fast channel is ENET_PACKET_FLAG_UNSEQUENCED, so packets arrive in whatever
+// order the network hands them over. A ghost stamps every sample with its ARRIVAL
+// time, so an old snapshot overtaking a new one was not ignored — it was taken as
+// the newest thing known, and dragged everybody back to where they had been.
+//
+// And a roster entry arrives on the reliable channel while the first snapshot is
+// still in flight on the fast one, so for a moment a player is known to exist and
+// not known to be anywhere. Drawing that gave them a body at the default position,
+// which is the world origin at bedrock: buried, at the spot most worlds call home.
+void testGhostArrival() {
+  std::printf("ghosts, and what has not arrived yet\n");
+
+  // --- newer-than, across the wrap -------------------------------------------
+  {
+    check(net::newerSeq(2, 1), "a later sequence number is newer");
+    check(!net::newerSeq(1, 2), "an earlier one is not");
+    check(!net::newerSeq(5, 5), "and a repeat of the newest is not either");
+    // The counter is 32 bits and a peer may send whatever it likes. A plain
+    // greater-than would reject everything for the rest of the session the
+    // instant it wrapped.
+    check(net::newerSeq(1, 0xFFFFFFFFu), "one past the end of the range is newer, not older");
+    check(!net::newerSeq(0xFFFFFFFFu, 1), "and the value it wrapped from is older, not newer");
+  }
+
+  // --- the number survives the wire ------------------------------------------
+  {
+    net::SnapshotMsg out;
+    out.seq = 4242;
+    out.time = 0.4f;
+    net::SnapEntity e;
+    e.id = 9;
+    e.type = static_cast<std::uint8_t>(game::EntityType::Drop);
+    e.pos = Vec3{1, 2, 3};
+    e.a = 5;
+    e.key = "greystone";
+    out.entities.push_back(e);
+
+    ByteWriter w;
+    net::begin(w, net::MsgType::Snapshot);
+    encode(w, out);
+    ByteReader r(w.data().data(), w.data().size());
+    r.skip(1);
+    net::SnapshotMsg back;
+    const bool ok = decode(r, back);
+    check(ok && back.seq == 4242, "a snapshot carries its sequence number across the wire");
+    check(ok && back.entities.size() == 1 && back.entities.front().key == "greystone",
+          "and says what a dropped item is, not merely where");
+  }
+
+  // --- a player known about but not yet located -------------------------------
+  {
+    game::EntityManager entities;
+    net::Ghosts ghosts;
+    ghosts.attach(&entities);
+
+    // The roster message, ahead of any snapshot. This is every join, every time.
+    ghosts.addPlayer("pguest000001", "Bob");
+    ghosts.update(100.0);
+    int bodies = 0;
+    for (const game::Entity& e : entities.all()) {
+      if (e.ghost && !e.dead) ++bodies;
+    }
+    checkf(bodies == 0, "a player nobody has located yet is not drawn anywhere (%d bodies)",
+           bodies);
+
+    // And once a snapshot says where they are, they appear there.
+    net::SnapshotMsg snap;
+    net::SnapPlayer p;
+    p.playerId = "pguest000001";
+    p.pos = Vec3{120.0f, 70.0f, -40.0f};
+    snap.players.push_back(p);
+    ghosts.feedSnapshot(snap, 100.05);
+    ghosts.update(100.10);
+
+    const game::Entity* body = nullptr;
+    for (const game::Entity& e : entities.all()) {
+      if (e.ghost && e.type == game::EntityType::RemotePlayer && !e.dead) body = &e;
+    }
+    checkf(body != nullptr, "and appears as soon as one does");
+    if (body) {
+      const float off = std::fabs(body->pos.x - 120.0f) + std::fabs(body->pos.y - 70.0f);
+      checkf(off < 0.01f, "at the place they actually are, not at the origin (%.1f %.1f)",
+             body->pos.x, body->pos.y);
+    }
+  }
+}
+
 void testNetSession() {
   std::printf("multiplayer session\n");
 
@@ -4410,6 +4502,22 @@ void testNetSession() {
   hostRefs.entities = &hostEntities;
   hostRefs.sky = &hostSky;
 
+  // The host's own entity tick, run alongside the network pump below. Without it
+  // nothing in the host's world ages, falls or is collected, and the half of
+  // multiplayer that is about things rather than about blocks cannot be exercised
+  // at all. `sharedWorld` because that is what this world is: see EntityContext.
+  game::EntityContext hostCtx;
+  hostCtx.world = hostWorld.get();
+  hostCtx.player = &hostPlayer;
+  hostCtx.inventory = &hostInventory;
+  hostCtx.entities = &hostEntities;
+  hostCtx.sky = &hostSky;
+  hostCtx.sharedWorld = true;
+
+  // Something alive before anyone joins, so the payload has something to strip.
+  hostEntities.spawn(game::EntityType::Pig,
+                     Vec3{kOriginX + 1.0f, static_cast<float>(kY), kOriginZ + 1.0f});
+
   net::SessionHooks hostHooks;
   hostHooks.buildSave = [&] {
     save::WorldSave data;
@@ -4420,6 +4528,9 @@ void testNetSession() {
     data.meta.time = hostSky.time;
     data.edits = hostWorld->edits();
     data.player = hostPlayer.state();
+    // Exactly what App::buildSave puts in one, because the question of what a
+    // guest is sent is only interesting if the thing it is sent is real.
+    data.entities = hostEntities.serialize();
     return data;
   };
   hostHooks.notify = [](const std::string&) {};
@@ -4440,16 +4551,25 @@ void testNetSession() {
   game::EntityManager guestEntities;
   render::Sky guestSky;
   bool adopted = false;
+  // How many entities were in the world the host sent. A guest owns none of them:
+  // they belong to the host and arrive as ghosts in the snapshot stream.
+  std::size_t payloadEntities = 999;
 
   net::Client client;
   net::SessionHooks guestHooks;
   guestHooks.notify = [](const std::string&) {};
   guestHooks.onDisconnected = [](const std::string&) {};
   guestHooks.adoptWorld = [&](const save::WorldSave& data) {
+    payloadEntities = data.entities.size();
     guestWorld = std::make_unique<world::World>(data.meta.seed, 2, data.meta.genVersion);
     guestWorld->setEdits(data.edits);
     guestWorld->primeSpawn(kOriginX, kOriginZ);
     guestSky.time = data.meta.time;
+    // App::startWorld does this for every world it opens, and a guest's world goes
+    // through the same door. Reproduced here because the interesting question is
+    // what happens to a guest that is HANDED a list of animals, and a harness that
+    // quietly ignored the list could not ask it.
+    guestEntities.load(data.entities);
     adopted = true;
 
     net::GameRefs refs;
@@ -4489,6 +4609,18 @@ void testNetSession() {
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
   };
+  // The same pump with the host's world alive underneath it. Kept separate from
+  // the plain one so the checks above, which are about messages rather than about
+  // things, are not at the mercy of a wandering pig.
+  const auto pumpLive = [&](int steps) {
+    for (int i = 0; i < steps; ++i) {
+      now += 0.02;
+      hostEntities.tick(0.02f, hostCtx);
+      host.update(0.02, now);
+      client.update(0.02, now);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  };
 
   pump(150);
   checkf(adopted && client.state() == net::Client::State::Playing,
@@ -4499,6 +4631,23 @@ void testNetSession() {
     return;
   }
   check(guestSky.time == 0.42f, "and adopts the host's clock rather than its own");
+
+  // --- the payload carries the world, and nothing living ----------------------
+  //
+  // There is a pig in the host's world and the host's save has it. A guest must
+  // not: it would build a full local copy, tick it with its own AI, and stand it
+  // beside the ghost of the real animal for the rest of the session — a creature
+  // only one player can see, that walks away on its own and cannot be killed,
+  // because the thing being swung at was never the thing that existed.
+  checkf(payloadEntities == 0,
+         "the world a guest is sent contains no entities of its own (%zu)", payloadEntities);
+  {
+    int locals = 0;
+    for (const game::Entity& e : guestEntities.all()) {
+      if (!e.ghost && !e.dead) ++locals;
+    }
+    checkf(locals == 0, "so a guest's world holds nothing but ghosts (%d local)", locals);
+  }
 
   // --- the roster ------------------------------------------------------------
   {
@@ -4658,13 +4807,7 @@ void testNetSession() {
     for (game::Entity& e : hostEntities.all()) {
       if (e.type == game::EntityType::Cow) e.dead = true;
     }
-    game::EntityContext ctx;
-    ctx.world = hostWorld.get();
-    ctx.player = &hostPlayer;
-    ctx.inventory = &hostInventory;
-    ctx.entities = &hostEntities;
-    ctx.sky = &hostSky;
-    hostEntities.tick(0.02f, ctx);
+    hostEntities.tick(0.02f, hostCtx);
     pump(40);
     cows = 0;
     for (const game::Entity& e : guestEntities.all()) {
@@ -4672,6 +4815,121 @@ void testNetSession() {
     }
     check(cows == 0, "and vanishes from the guest when the host's copy dies");
   }
+
+  // --- what a dropped item is, and who is allowed to have it -------------------
+  //
+  // A snapshot entity used to be a position, a type and two floats, which is the
+  // whole of a sheep and not nearly the whole of a dropped item. A guest was told
+  // where the thing was and how many of it there were, and never what it was, so
+  // the renderer fell through to its last-resort grey cube: every ore, every tool,
+  // every loaf in the world, the same anonymous block.
+  //
+  // And it could not be picked up. Drops the host owns are ghosts on a guest, and
+  // a ghost is never ticked, so the code that collects one never ran on the side
+  // that was standing on it. That included a guest's own death scatter.
+  {
+    // Something for it to land on. makeWorld carves its pocket out of open air a
+    // long way above the terrain — which is exactly what the other checks want,
+    // and means anything with gravity in it falls out of the bottom.
+    for (int x = 6; x <= 11; ++x) {
+      for (int z = 6; z <= 11; ++z) {
+        hostWorld->setBlock(x, kY - 3, z, world::wk().greystone, 0);
+      }
+    }
+    const float floorY = static_cast<float>(kY) - 2.0f;
+    hostPlayer.setPos(Vec3{kOriginX + 6.0f, floorY, kOriginZ});
+    guestPlayer.setPos(Vec3{kOriginX + 4.0f, floorY, kOriginZ});
+    pumpLive(40);
+
+    hostEntities.spawnDrop(Vec3{kOriginX, static_cast<float>(kY), kOriginZ}, "greystone", 3, -1);
+    pumpLive(90);
+
+    const game::Entity* ghost = nullptr;
+    for (const game::Entity& e : guestEntities.all()) {
+      if (e.ghost && e.type == game::EntityType::Drop && !e.dead) ghost = &e;
+    }
+    checkf(ghost != nullptr, "a dropped item the host owns is mirrored to the guest");
+    if (ghost) {
+      checkf(ghost->data.key == "greystone",
+             "and the guest is told what it is, not only where (\"%s\")",
+             ghost->data.key.c_str());
+      checkf(ghost->data.count == 3, "and how many of it there are (%d)", ghost->data.count);
+    }
+    // Six blocks away and it has stayed put. An instant drop is vacuumed with no
+    // distance check at all in a world of one, and that quietly became "the host
+    // harvests everything anyone mines, from anywhere" the moment a guest arrived.
+    checkf(hostInventory.countOf("greystone") == 0,
+           "and the host has not taken it from across the world (%d)",
+           hostInventory.countOf("greystone"));
+
+    const int before = guestInventory.countOf("greystone");
+    guestPlayer.setPos(Vec3{kOriginX, floorY, kOriginZ});
+    pumpLive(90);
+    checkf(guestInventory.countOf("greystone") == before + 3,
+           "a guest standing on a drop picks it up (%d -> %d)", before,
+           guestInventory.countOf("greystone"));
+    int leftover = 0;
+    for (const game::Entity& e : hostEntities.all()) {
+      if (!e.dead && e.type == game::EntityType::Drop) ++leftover;
+    }
+    checkf(leftover == 0, "and it leaves the host's world with them (%d still there)", leftover);
+  }
+
+  // --- waking up somewhere else ------------------------------------------------
+  //
+  // A respawn moves a body further in one step than any speed allows, and the
+  // host's movement check is right to notice. What it did about it was teleport
+  // the guest back to where the pose before the jump had them — which, for a
+  // respawn, is the spot they had just died on. Anyone who died more than about
+  // twelve blocks from their spawn woke up standing in their own dropped things.
+  //
+  // The two halves of this check are each other's control: the same leap, once
+  // unannounced and once announced, and the difference is the whole fix.
+  {
+    const float floorY = static_cast<float>(kY) - 2.0f;
+    const Vec3 home{kOriginX, floorY, kOriginZ};
+    const Vec3 away{kOriginX + 200.0f, floorY, kOriginZ + 200.0f};
+
+    guestPlayer.setPos(home);
+    pump(40);
+    guestPlayer.setPos(away);
+    pump(60);
+    const float dragged = std::fabs(guestPlayer.pos().x - away.x);
+    checkf(dragged > 1.0f, "an unannounced leap across the map is put back (%.0f blocks)",
+           dragged);
+
+    guestPlayer.setPos(home);
+    pump(40);
+    client.sendWarp();
+    guestPlayer.setPos(away);
+    // Short enough to stay inside net::kMoveGrace, which is measured in seconds of
+    // the same clock this pump advances by 20 ms a step.
+    pump(20);
+    checkf(std::fabs(guestPlayer.pos().x - away.x) < 0.01f,
+           "and the same leap, announced first, is left alone (x %.1f)", guestPlayer.pos().x);
+
+    // A second one, still inside the window the warning opened. The exemption
+    // cannot be a single free pose: the warning goes reliably on channel 0 and
+    // the poses that need it go unsequenced on channel 1, and the two channels do
+    // not wait for each other — so the pose the exemption was meant for is not
+    // reliably the first one to arrive after it.
+    const Vec3 further{away.x + 60.0f, floorY, away.z + 60.0f};
+    guestPlayer.setPos(further);
+    pump(20);
+    checkf(std::fabs(guestPlayer.pos().x - further.x) < 0.01f,
+           "and so is the next one, while the warning still stands (x %.1f)",
+           guestPlayer.pos().x);
+
+    guestPlayer.setPos(home);
+    pump(40);
+  }
+
+  // Bound now, checked after the goodbye below carries the last state across. The
+  // fields have been on the wire since the first multiplayer build and nothing
+  // ever filled them in, so the host stored "no spawn bound" for every guest it
+  // had ever met: a Soul Anchor lasted exactly until you left the world.
+  const Vec3 guestAnchor{kOriginX + 3.0f, static_cast<float>(kY), kOriginZ + 3.0f};
+  client.setSpawn(true, guestAnchor);
 
   // --- sleep is a vote on somebody's hour --------------------------------------
   {
@@ -4712,6 +4970,9 @@ void testNetSession() {
 
   // --- guest progress survives the host's save ---------------------------------
   {
+    // 17 handed straight into the bag, on top of the 3 they picked up off the
+    // floor earlier in this session.
+    constexpr int kGuestStone = 17 + 3;
     guestInventory.give("greystone", 17);
     // The periodic send is every ten seconds; the goodbye below carries the last
     // state, so this is what the host will have when the guest reconnects.
@@ -4725,8 +4986,12 @@ void testNetSession() {
            after.size());
     if (after.size() == 1) {
       check(after.front().playerId == "pguest000001" &&
-                after.front().inventory.countOf("greystone") == 17,
+                after.front().inventory.countOf("greystone") == kGuestStone,
             "with the inventory they left with");
+      checkf(after.front().hasSpawn &&
+                 std::fabs(after.front().spawn.x - guestAnchor.x) < 0.01f,
+             "and the Soul Anchor they had bound (%s, x %.1f)",
+             after.front().hasSpawn ? "bound" : "unbound", after.front().spawn.x);
 
       // And it round-trips through the save format, which is the point of the
       // section — the web build carried this as `remotePlayers`.
@@ -4739,7 +5004,7 @@ void testNetSession() {
       std::string why;
       const bool ok = save::decode(bytes.data(), bytes.size(), back, &why);
       check(ok && back.guests.size() == 1 &&
-                back.guests.front().inventory.countOf("greystone") == 17,
+                back.guests.front().inventory.countOf("greystone") == kGuestStone,
             "and it survives a save and a reload");
     }
   }
@@ -5275,6 +5540,7 @@ int runSelfTest() {
   testRemoteEditSink();
   testNetInterfaces();
   testInterpDelay();
+  testGhostArrival();
   testNetSession();
   testNetBigWorld();
   testNetGuestToGuest();

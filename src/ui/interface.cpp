@@ -181,6 +181,19 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
   // nothing is open, which App enforces by checking blocksGameplay().
   if (screen_ != Screen::None) event.wheel = static_cast<float>(input.wheelPeek());
 
+  // The same remote bodies the nameplates are drawn from, handed to the Atlas so
+  // the map and the minimap can show where everyone is. Refreshed before either
+  // of them is drawn, since the minimap goes out with the HUD and the full map
+  // with the screen switch below.
+  {
+    std::vector<Atlas::Companion> who;
+    who.reserve(frame.nameplates.size());
+    for (const UiFrame::Nameplate& p : frame.nameplates) {
+      who.push_back(Atlas::Companion{p.pos.x, p.pos.z, p.yaw, p.name});
+    }
+    atlas_.setCompanions(std::move(who));
+  }
+
   // The HUD shows over the world and over the screens that overlay it — exactly the set
   // the web build passed to hud.show() (js/main.js:212).
   const bool hudVisible = hudEnabled_ && frame.player && frame.inventory &&

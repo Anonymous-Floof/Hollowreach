@@ -57,6 +57,17 @@ class Atlas {
   std::vector<Waypoint>& waypoints() { return waypoints_; }
   const std::vector<Waypoint>& waypoints() const { return waypoints_; }
 
+  // Somebody else in the same world, as the map wants them: where they are, which
+  // way they are facing, and what to call them. Refreshed every frame from the net
+  // layer's roster of ghosts, and empty in single player — a map that can show you
+  // where your friends are is most of what a map in a shared world is for.
+  struct Companion {
+    float x = 0, z = 0;
+    float yaw = 0;
+    std::string name;
+  };
+  void setCompanions(std::vector<Companion> who) { companions_ = std::move(who); }
+
   // The Atlas item gates the whole feature, exactly as in the original.
   static bool hasAtlasItem(const game::Inventory& inventory);
 
@@ -126,6 +137,11 @@ class Atlas {
   float dragX_ = 0, dragY_ = 0;
 
   std::vector<Waypoint> waypoints_;
+  std::vector<Companion> companions_;
+  // A stable colour per person, so the arrow you learned to look for stays the
+  // colour it was. Derived from the name rather than handed out in join order,
+  // which would recolour everyone when somebody leaves.
+  static Rgba companionColor(const std::string& name);
   Doc panel_;
   int hoveredTag_ = 0;
   int hoveredIndex_ = 0;

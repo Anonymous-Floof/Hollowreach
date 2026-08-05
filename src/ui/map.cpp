@@ -532,6 +532,19 @@ void Atlas::drawArrow(Ui2D& ui, float x, float y, float angle, float r, Rgba col
   ui.strokePoly(points, 4, rgba(10, 12, 16, 0.9), 1.5f);
 }
 
+// The waypoint swatches reused as player colours, chosen by name so the same
+// person is the same colour in every session and on everyone's screen. White is
+// skipped: that is the local player's own arrow, and two white arrows on one map
+// is precisely the confusion this is meant to remove.
+Rgba Atlas::companionColor(const std::string& name) {
+  std::uint32_t h = 2166136261u;  // FNV-1a, for no reason beyond being short
+  for (const char c : name) {
+    h ^= static_cast<std::uint8_t>(c);
+    h *= 16777619u;
+  }
+  return kWaypointColors[h % (kWaypointColorCount - 1)];
+}
+
 void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& player) {
   const float w = ui.width();
   const float h = ui.height();
@@ -611,6 +624,22 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
   }
   (void)lm;
 
+  // Everyone else, drawn before the local arrow so that standing on top of a
+  // friend still shows you where you are.
+  for (const Companion& c : companions_) {
+    const float sx = (c.x - centerX_) * z + w * 0.5f;
+    const float sy = (c.z - centerZ_) * z + h * 0.5f;
+    if (sx < -20 || sx > w + 20 || sy < -20 || sy > h + 20) continue;
+    const Rgba tint = companionColor(c.name);
+    drawArrow(ui, sx, sy, std::atan2(-std::sin(c.yaw), std::cos(c.yaw)), 7, tint);
+    if (c.name.empty()) continue;
+    const float tw = text.measure(c.name, labelStyle);
+    ui.fillRect({sx - tw * 0.5f - 4, sy - 24, tw + 8, 15}, rgba(8, 10, 14, 0.75));
+    TextStyle ts = labelStyle;
+    ts.color = tint;
+    text.draw(ui, sx - tw * 0.5f, sy - 12.5f, c.name, ts);
+  }
+
   // The player: a heading arrow. The map's y axis is world z, so the yaw has to be
   // remapped the same way the JS did with atan2(-sin, cos).
   const float px = (player.pos().x - centerX_) * z + w * 0.5f;
@@ -688,6 +717,20 @@ void Atlas::drawHud(Ui2D& ui, Text& text, world::World& world, const game::Playe
         dz = dz / d * limit;
       }
       drawDiamond(ui, box.x + S * 0.5f + dx, box.y + S * 0.5f + dz, 3.5f, wp.color);
+    }
+    // Companions get the same rim-clamping the waypoints do, so a friend off the
+    // edge of the minimap still shows which way to walk.
+    for (const Companion& c : companions_) {
+      float dx = c.x - px;
+      float dz = c.z - pz;
+      const float d = std::max(std::fabs(dx), std::fabs(dz));
+      const float limit = S * 0.5f - 6.0f;
+      if (d > limit) {
+        dx = dx / d * limit;
+        dz = dz / d * limit;
+      }
+      drawArrow(ui, box.x + S * 0.5f + dx, box.y + S * 0.5f + dz,
+                std::atan2(-std::sin(c.yaw), std::cos(c.yaw)), 4.5f, companionColor(c.name));
     }
     drawArrow(ui, box.x + S * 0.5f, box.y + S * 0.5f,
               std::atan2(-std::sin(player.yaw()), std::cos(player.yaw())), 6, color::white);

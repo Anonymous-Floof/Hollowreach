@@ -51,6 +51,7 @@ class Client {
   void sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta);
   void sendHit(int entityId, const std::string& held, bool crit);
   void sendPlayerHit(const std::string& playerId, const std::string& held, bool crit);
+  // Puts an item into the world through the host, which owns every entity in it.
   void sendToss(const Vec3& pos, const Vec3& dir, const std::string& key, int count, int dura);
   void sendBoatSpawn(const Vec3& pos);
   void sendBoatMount(int entityId, bool on);
@@ -62,15 +63,29 @@ class Client {
   // opened while this is set shows the proposal rather than a fresh chooser.
   float proposedSleep() const { return sleepActive_ ? sleepTarget_ : -1.0f; }
   const std::string& proposer() const { return sleepProposer_; }
-  // A wayshard moved the player straight up, further in one step than the host's
-  // movement check allows. Without this the host reads it as a speed hack and
-  // teleports them back underground, which looks exactly like the item failing.
+  // This player is about to move further in one step than any speed allows, and
+  // it is legitimate. The host suspends its movement check for a moment rather
+  // than answering the jump with a teleport back.
+  //
+  // Two things need it. A wayshard, which throws the player straight up: without
+  // this the host reads it as a speed hack and puts them back underground, which
+  // looks exactly like the item failing. And a respawn, which is the same jump
+  // over a longer distance — anyone who died more than about twelve blocks from
+  // their spawn point was dragged straight back to the spot they had just died
+  // on, standing in their own dropped things, wondering what respawning was for.
   void sendWarp();
   // Ask the host to hang a picture. Nothing is applied locally: the host answers
   // with what it stored, which is what everyone else will see too.
   void sendPainting(int x, int y, int z, const game::Painting& art);
   void sendBlockEntityRequest(int x, int y, int z, std::uint8_t kind);
   void sendBlockEntityState(const BeStateMsg& state);
+  // Where this player has bound their spawn, so the host can keep it with the
+  // rest of their progress. Told rather than read: binding a Soul Anchor is a
+  // game event and App is where it happens.
+  void setSpawn(bool bound, const Vec3& at) {
+    spawn_.bound = bound;
+    spawn_.at = at;
+  }
 
   std::vector<RosterEntry> roster() const;
   const Ghosts& ghosts() const { return ghosts_; }
@@ -113,6 +128,18 @@ class Client {
   double poseTimer_ = 0;
   double stateTimer_ = 0;
   double connectTimer_ = 0;
+  // Our own pose counter, and the newest snapshot the host has managed to get
+  // here. Both exist because the fast channel does not promise order; see
+  // SnapshotMsg::seq.
+  std::uint32_t poseSeq_ = 0;
+  std::uint32_t lastSnapSeq_ = 0;
+  bool haveSnapSeq_ = false;
+
+  struct BoundSpawn {
+    bool bound = false;
+    Vec3 at;
+  };
+  BoundSpawn spawn_;
 };
 
 }  // namespace hr::net

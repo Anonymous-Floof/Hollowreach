@@ -104,7 +104,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 586 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 608 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -506,6 +506,14 @@ client-side, so it feels instant), **milk cows**, use **Wayshards**, land
 falling **critical hits**, and attune a **Soul Anchor** — a guest's spawn
 point, inventory and position are all saved inside the host's world and
 restored if they reconnect.
+
+**Nothing pauses in a shared world.** Opening the inventory, the map or the pause
+menu stops the game when you are on your own, because on your own the game is
+waiting for you. With other people in it, it is not yours to stop: mobs keep
+moving, dropped items keep falling, forges keep smelting, the sun keeps setting,
+and your own body keeps standing there — falling, drowning and taking hits —
+while you read a menu. Every other player also appears on the **Atlas** and the
+minimap as a coloured arrow pointing the way they are facing.
 
 **Sleeping together** works like a proposal rather than a poll. Whoever opens a
 bed first picks the hour, and only *they* have to be tired enough to sleep;

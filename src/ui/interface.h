@@ -106,6 +106,7 @@ struct UiFrame {
     Vec3 pos;
     std::string name;
     float health = 20.0f;
+    float yaw = 0.0f;
   };
   std::vector<Nameplate> nameplates;
   std::string netLine;

@@ -97,7 +97,21 @@ class Host {
     std::uint8_t flags = 0;
     bool havePose = false;
     double lastPoseTime = 0;
+    // The highest pose sequence seen. Poses ride the unsequenced channel, so an
+    // old one can overtake a new one; taking it would move this guest backwards
+    // for everybody else and — much worse — feed a stale position to the movement
+    // check, which then answers the guest's real position with a teleport.
+    std::uint32_t lastPoseSeq = 0;
+    bool havePoseSeq = false;
     float health = 20.0f;
+    // Until when the movement check is suspended for this guest, on the host's
+    // clock. A wayshard and a respawn both move a body further in one step than
+    // any speed allows, and both say so first — but "first" is not a thing the
+    // network guarantees: the warning goes reliably on channel 0 and the pose that
+    // needs it goes unsequenced on channel 1, and the two channels do not wait for
+    // each other. A window rather than a single exemption, so the pose that
+    // arrives just before its own warning is still covered.
+    double moveGraceUntil = -1.0;
     // Game hours since this guest last slept, counted by the host off its own
     // clock. Held here rather than trusted from the guest for the same reason
     // every other limit is checked on this side, and runtime-only: a guest who
@@ -142,6 +156,12 @@ class Host {
   void sendSnapshot();
   void flushEdits();
   void spillBlockEntity(int x, int y, int z);
+  // Walks the drops and hands each one to whichever guest is stood on it. The
+  // host's own player collects through the entity tick like it always has; a
+  // guest's body is not simulated here, so there is nothing on that side for the
+  // drop to notice, and until this existed a guest could not pick up so much as
+  // its own death scatter.
+  void collectDrops();
 
   template <typename T>
   void sendTo(PeerId peer, MsgType type, const T& msg, Channel channel = Channel::Reliable);
@@ -165,6 +185,9 @@ class Host {
   std::vector<EditMsg> pendingEdits_;
   double snapTimer_ = 0;
   double timeTimer_ = 0;
+  // Stamped on each snapshot so a guest can tell a new one from one that took the
+  // scenic route. Starts at 1, because 0 is what an unset field decodes to.
+  std::uint32_t snapSeq_ = 0;
 
   // Containers a guest has open, so two people cannot stir the same forge.
   std::unordered_map<std::uint64_t, std::string> beLocks_;

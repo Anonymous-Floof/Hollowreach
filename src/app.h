@@ -171,7 +171,17 @@ class App {
 
  private:
   void frame();
+  // The half of a frame that reads the mouse and keyboard: looking, the hotbar,
+  // mining and placing. Only runs while the world is actually in front of you.
   void updatePlaying(double dt);
+  // The half that does not: entities, water, block updates, spawning, streaming,
+  // the sky, the autosave and the respawn poll. Runs behind an open screen too
+  // whenever anyone else is in the world — see its definition.
+  void stepWorld(double dt);
+  // The body. Split out because it is simulated in both halves of that split, with
+  // real input in one and none in the other. Takes its step size from the clock.
+  void stepPlayer(Input& input);
+  void syncSettingsIfChanged();
   void renderWorld();
   void renderMenuScene(double dt);
   void limitFrameRate();
@@ -355,6 +365,11 @@ class App {
 
   // 0..1 strength of the submerged post, eased toward the target each frame.
   float underwater_ = 0.0f;
+
+  // An Input nothing ever feeds. It is what the body and the entities are given
+  // while a screen is open in a shared world: the simulation carries on, and reads
+  // every key as up and every button as unclicked.
+  Input idleInput_;
 
   // Frames of interaction to swallow after the pointer is re-captured.
   int resumeClickGuard_ = 0;

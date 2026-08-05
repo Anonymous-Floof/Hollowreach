@@ -32,6 +32,15 @@ constexpr float kBeReach = 8.0f;
 // channel, which is a few kilobytes a second.
 constexpr double kSnapPeriod = 0.050;
 constexpr double kTimePeriod = 2.0;     // authoritative clock
+// How long the movement check stays suspended after a guest says it is about to
+// jump. Generous on purpose: it is bounded by an explicit request that costs a
+// token, so the worst a peer can buy with it is the freedom to move oddly for a
+// second at a rate its own bucket already limits.
+constexpr double kMoveGrace = 1.0;
+// How close a guest has to be to collect a drop. game/entities/drop.cpp uses 1.8
+// for the local player and this has to agree with it, or the same item is
+// collectable by one of them and not the other from the same spot.
+constexpr float kPickupRange = 1.8f;
 
 float dist3(const Vec3& a, const Vec3& b) {
   const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
@@ -208,6 +217,10 @@ void Host::update(double dt, double now) {
   // A burst still batches: a flood of water writes hundreds of cells in one tick
   // and they leave together, capped at the protocol's 512 per message.
   flushEdits();
+  // Before the snapshot, so a drop that has just been handed to somebody is gone
+  // from the census that goes out in the same breath rather than being drawn for
+  // one more frame in a place it no longer is.
+  collectDrops();
   snapTimer_ += dt;
   if (snapTimer_ >= kSnapPeriod) {
     snapTimer_ -= kSnapPeriod;
@@ -269,7 +282,10 @@ void Host::onMessage(PeerState& st, const std::uint8_t* data, std::size_t size, 
     // still costs a token, so a peer that spams it hits its own rate limit rather
     // than gaining free teleports.
     case MsgType::Warp:
-      if (st.active && st.misc.take(now)) st.havePose = false;
+      if (st.active && st.misc.take(now)) {
+        st.havePose = false;
+        st.moveGraceUntil = now + kMoveGrace;
+      }
       break;
     case MsgType::Pose: {
       PoseMsg m;
@@ -413,6 +429,16 @@ void Host::sendWorld(PeerState& st) {
   }
   // A guest never receives anyone else's progress.
   data.guests.clear();
+  // Nor the entities. Every mob, drop and boat in this world belongs to the host
+  // and reaches a guest as a ghost in the snapshot stream, which is what makes it
+  // the same creature for both of them. Shipping the list in the payload as well
+  // had the guest build a full LOCAL copy of each one — ticked by its own AI,
+  // wandering off on its own, invisible to the host, and impossible to kill,
+  // because the thing being swung at was never the thing that existed. Every one
+  // of them then sat beside the ghost of the real animal for the rest of the
+  // session. Cleared here rather than only on the far side so that a guest on any
+  // build is told the truth about whose world it is.
+  data.entities.clear();
   WorldMsg m;
   m.save = save::encode(data);
   if (m.save.size() > kMaxWorldBytes) {
@@ -455,7 +481,15 @@ void Host::onReady(PeerState& st) {
 void Host::onPose(PeerState& st, const PoseMsg& m, double now) {
   if (!st.active || !st.pose.take(now)) return;
 
-  if (st.havePose) {
+  // Out of order on the unsequenced channel, or a duplicate. Taking one would move
+  // this guest backwards for everybody else and — worse — feed a stale position to
+  // the movement check below, which then answers their real position with a
+  // teleport.
+  if (st.havePoseSeq && !newerSeq(m.seq, st.lastPoseSeq)) return;
+  st.lastPoseSeq = m.seq;
+  st.havePoseSeq = true;
+
+  if (st.havePose && now >= st.moveGraceUntil) {
     // Movement sanity. Not an anti-cheat so much as a bound on what one message
     // can do: eighty blocks a second plus eight of slack is well past sprinting,
     // flying or a boat, and short of teleporting across the map.
@@ -970,6 +1004,39 @@ void Host::onLocalSfx(const std::string& kind, const Vec3& pos) {
   if (hooks_.playSfx) hooks_.playSfx(m.kind, pos);
 }
 
+void Host::collectDrops() {
+  if (!game_.entities) return;
+  for (game::Entity& e : game_.entities->all()) {
+    if (e.dead || e.ghost || e.type != game::EntityType::Drop) continue;
+    if (e.data.key.empty() || e.data.count <= 0) continue;
+    // The same delay the local player waits out, so a thrown item cannot be
+    // caught by the thrower before it has left their hand.
+    if (e.age < e.data.pickupDelay) continue;
+
+    for (PeerState& st : peers_) {
+      if (!st.active || !st.havePose) continue;
+      // Measured to the chest rather than the feet, matching drop.cpp: a drop
+      // resting on the ground you are stood on is a block below your eyes and
+      // most of a body away from your ankles.
+      const Vec3 chest{st.lastPose.x, st.lastPose.y + 0.9f, st.lastPose.z};
+      if (dist3(chest, e.pos) > kPickupRange) continue;
+
+      GiveMsg give;
+      give.key = e.data.key;
+      give.count = e.data.count;
+      give.dura = e.data.dura;
+      sendTo(st.peer, MsgType::Give, give);
+      // Handed over whole. What will not fit in the guest's bag comes straight
+      // back as a toss, which is the same round trip a full inventory takes
+      // locally and keeps the host the only place an item can exist. No sound
+      // from here: the collector's own Give handler plays it, and a pickup is
+      // heard by the person who picked it up.
+      e.dead = true;
+      break;
+    }
+  }
+}
+
 void Host::flushEdits() {
   if (pendingEdits_.empty()) return;
   EditsMsg batch;
@@ -985,6 +1052,7 @@ void Host::sendSnapshot() {
   if (!game_.entities || peers_.empty()) return;
   SnapshotMsg snap;
   snap.time = game_.sky ? game_.sky->time : 0.32f;
+  snap.seq = ++snapSeq_;
 
   for (const game::Entity& e : game_.entities->all()) {
     if (e.dead || e.ghost) continue;
@@ -997,6 +1065,16 @@ void Host::sendSnapshot() {
     switch (e.type) {
       case game::EntityType::Drop:
         out.a = static_cast<float>(e.data.count);
+        // Which item this is. Everything else in a snapshot is a number because
+        // a sheep is entirely described by being a sheep; a drop is not, and
+        // sending it without this left the receiver drawing the renderer's
+        // last-resort cube for every item in the world.
+        out.key = e.data.key.substr(0, kMaxItemKey);
+        break;
+      case game::EntityType::FallingBlock:
+        // The block it looks like, for the same reason. The id it will put back
+        // down travels in `dura` and is the host's business, not the guest's.
+        out.key = e.data.key.substr(0, kMaxItemKey);
         break;
       case game::EntityType::Boat:
         out.a = e.data.rider ? 1.0f : 0.0f;

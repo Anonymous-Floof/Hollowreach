@@ -492,6 +492,9 @@ game::InteractHooks App::makeInteractHooks() {
   hooks.onSetSpawn = [this](int x, int y, int z) {
     hasSpawn_ = true;
     spawn_ = {x + 0.5f, static_cast<float>(y + 1), z + 0.5f};
+    // A guest's spawn is the host's to remember, since a guest's world is never
+    // written. It travels with the rest of their progress in PlayerState.
+    if (netGuest()) netClient_.setSpawn(true, spawn_);
     log::info("spawn bound to %d %d %d", x, y, z);
     interface_.notify().push("Spawn point bound");
   };
@@ -505,6 +508,7 @@ game::InteractHooks App::makeInteractHooks() {
       return;
     }
     hasSpawn_ = false;
+    if (netGuest()) netClient_.setSpawn(false, Vec3{});
     interface_.notify().push("Spawn point unbound");
   };
   hooks.onEat = [this](const game::ItemDef& item) {
@@ -633,7 +637,8 @@ ui::UiFrame App::uiFrame() {
                                              : nullptr;
   if (ghosts) {
     for (const net::Ghosts::Nameplate& plate : ghosts->nameplates()) {
-      f.nameplates.push_back(ui::UiFrame::Nameplate{plate.pos, plate.name, plate.health});
+      f.nameplates.push_back(
+          ui::UiFrame::Nameplate{plate.pos, plate.name, plate.health, plate.yaw});
     }
     const int others = static_cast<int>(ghosts->playerCount());
     f.netLine = (netHosting() ? "hosting \xC2\xB7 " : "guest \xC2\xB7 ") +
@@ -1003,6 +1008,20 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
   entities_.clear();
   world_->setDropSink([this](float x, float y, float z, const std::string& key, int count,
                              int dura) {
+    // A guest owns no entities, so it cannot make one here. Everything that
+    // reaches this sink on a guest is something the local player just broke —
+    // mining, or a bucket that would not fit back in the bag — so it goes
+    // straight into their hands, which is what the local drop entity did anyway
+    // half a second later. Spawning one instead built a private item that only
+    // this guest could ever see, and that nobody could ever tidy away.
+    //
+    // Whatever will not fit goes to the host as a real thrown item, so a full bag
+    // spills onto the floor in front of everyone rather than deleting the ore.
+    if (netGuest()) {
+      const int left = inventory_.give(key, count, dura);
+      if (left > 0) netClient_.sendToss(Vec3{x, y, z}, Vec3{0, 0, 0}, key, left, dura);
+      return;
+    }
     entities_.spawnDrop(Vec3{x, y, z}, key, count, dura);
   });
   world_->fallSink = [this](float x, float y, float z, world::BlockId id, int meta) {
@@ -1243,7 +1262,14 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
   // capture has to be able to stand somewhere it can see the host from.
   options.startingItems.clear();
   options.startingEntities.clear();
-  if (!startWorld(options, &data)) {
+  // Nothing living comes out of the payload. A current host has already stripped
+  // this (net/host.cpp sendWorld says why); it is stripped again here because the
+  // consequence of getting it wrong is a world full of animals only one player can
+  // see, and because the sender is not ours to trust. The copy costs one pass over
+  // the edit map, once, at the moment a session begins.
+  save::WorldSave scrubbed = data;
+  scrubbed.entities.clear();
+  if (!startWorld(options, &scrubbed)) {
     leaveNetwork("Could not build the host's world");
     return;
   }
@@ -1253,6 +1279,11 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
   worldMeta_.id.clear();
   worldOnDisk_ = false;
   netClient_.attachGame(gameRefs());
+  // The spawn the host was holding for us, handed straight back. Without this the
+  // first PlayerState of the session would report an unbound spawn and overwrite
+  // the very anchor the payload had just restored — a Soul Anchor that survived
+  // exactly until ten seconds after rejoining.
+  netClient_.setSpawn(hasSpawn_, spawn_);
   // startWorld installed the host's rules from the payload; they are not this
   // player's to change.
   ui::settings().setWorldLocked(true);
@@ -1449,6 +1480,12 @@ void App::respawnPlayer() {
   const Vec3 wake = spawnPoint();
   // Synchronous, so the ground is there to be stood on before the next physics step.
   world_->primeSpawn(wake.x, wake.z);
+  // Warn the host before the jump, not after. Waking at spawn moves the body
+  // further in one step than any speed allows, and the host's movement check
+  // answered exactly that by teleporting the guest back where it came from — which
+  // is the spot they had just died on. Anyone who died more than about twelve
+  // blocks from their spawn point respawned standing in their own dropped things.
+  if (netGuest()) netClient_.sendWarp();
   player_->teleport(wake);
   player_->reviveFull();
   interface_.notify().push("You blacked out and woke at spawn. Your things are where you fell.");
@@ -1473,11 +1510,23 @@ void App::frame() {
   // pointer-recapture click, so the whole input path is skipped for it.
   if (options_.startScreen.empty()) handleGlobalKeys();
 
-  if (state_ == AppState::Playing) updatePlaying(dt);
-
-  // Block entities keep ticking behind an open station screen — a forge does not stop
-  // smelting because you are looking at it.
-  if (world_ && state_ != AppState::Playing) {
+  if (state_ == AppState::Playing) {
+    updatePlaying(dt);
+  } else if (world_ && player_ && multiplayer()) {
+    // A screen is open, and this world has other people in it. Theirs keeps
+    // running, so ours has to as well — a paused body is a body that does not
+    // fall, does not drown and cannot be hit, and the guests would be watching
+    // someone stood in mid-air ignoring a zombie.
+    //
+    // The input is an empty one rather than the window's: the world goes on
+    // without us, but nothing we type into a menu reaches the body standing in it.
+    syncSettingsIfChanged();
+    stepPlayer(idleInput_);
+    stepWorld(dt);
+  } else if (world_) {
+    // Single player, screen open: the world is genuinely stopped. Block entities
+    // are the one exception, and always have been — a forge does not stop smelting
+    // because you are looking at it.
     world_->tickBlockEntities(static_cast<float>(dt));
   }
 
@@ -1552,20 +1601,40 @@ void App::frame() {
   }
 }
 
+// applySettings caches settings into playerOptions_ and the renderer, so anything
+// that changes one has to say so. Watching a counter rather than wiring a callback
+// into each path catches the one that would otherwise be missed: a guest being told
+// the host's rules mid-session, which arrives deep in the net client and would
+// leave them flying in a world that had just forbidden it.
+void App::syncSettingsIfChanged() {
+  if (ui::settings().revision() == settingsRevision_) return;
+  settingsRevision_ = ui::settings().revision();
+  applySettings();
+}
+
+// The body, substepped: a long frame is split so a fast one cannot pass through a
+// block. Everything else takes the whole dt.
+//
+// No dt argument, unlike everything around it — the substep count and size both
+// come from the clock, which is where the clamp that makes them safe lives.
+//
+// --freeze skips it entirely, which is what makes `--at` mean what it says. The
+// flag has always claimed to be "an exact camera placement", and for anything
+// above the ground it was not: gravity ran for the two hundred frames the world
+// needs to stream in, and the capture happened wherever the player landed.
+void App::stepPlayer(Input& in) {
+  if (options_.freezePlayer) return;
+  double step = 0;
+  const int steps = clock_.substeps(step);
+  for (int i = 0; i < steps; ++i) {
+    player_->update(static_cast<float>(step), in, *world_, playerOptions_, clock_.simTime());
+  }
+}
+
 void App::updatePlaying(double dt) {
   Input& in = window_.input();
-  const float fdt = static_cast<float>(dt);
 
-  // applySettings caches settings into playerOptions_ and the renderer, so
-  // anything that changes one has to say so. Watching a counter rather than
-  // wiring a callback into each path catches the one that would otherwise be
-  // missed: a guest being told the host's rules mid-session, which arrives deep
-  // in the net client and would leave them flying in a world that had just
-  // forbidden it.
-  if (ui::settings().revision() != settingsRevision_) {
-    settingsRevision_ = ui::settings().revision();
-    applySettings();
-  }
+  syncSettingsIfChanged();
 
   // Mouse look at render rate, not simulation rate, so aim latency stays low.
   if (window_.pointerCaptured()) {
@@ -1574,20 +1643,7 @@ void App::updatePlaying(double dt) {
     player_->look(dx, dy, playerOptions_);
   }
 
-  // The player and entities are the only things substepped: a long frame is split
-  // so a fast body cannot pass through a block. Everything else takes the whole dt.
-  //
-  // --freeze skips it entirely, which is what makes `--at` mean what it says. The
-  // flag has always claimed to be "an exact camera placement", and for anything
-  // above the ground it was not: gravity ran for the two hundred frames the world
-  // needs to stream in, and the capture happened wherever the player landed.
-  if (!options_.freezePlayer) {
-    double step = 0;
-    const int steps = clock_.substeps(step);
-    for (int i = 0; i < steps; ++i) {
-      player_->update(static_cast<float>(step), in, *world_, playerOptions_, clock_.simTime());
-    }
-  }
+  stepPlayer(in);
 
   handleHotbarInput(in, dt);
   // Interaction runs at render rate, on the same eye and forward vector the
@@ -1598,13 +1654,29 @@ void App::updatePlaying(double dt) {
     --resumeClickGuard_;
     interact_.reset();
   } else {
-    interact_.update(fdt, in, *player_, *world_, inventory_, interactHooks_);
+    interact_.update(static_cast<float>(dt), in, *player_, *world_, inventory_, interactHooks_);
   }
 
   render::Viewmodel& vm = renderer_.viewmodel();
   vm.setItem(inventory_.selectedSlot().key);
   if (interact_.swung()) vm.swing();
-  vm.update(fdt, player_->bobPhase(), player_->bobMagnitude());
+  vm.update(static_cast<float>(dt), player_->bobPhase(), player_->bobMagnitude());
+
+  stepWorld(dt);
+}
+
+// Everything that happens whether or not anyone is looking: the weather of the
+// place, as against what the player is doing to it.
+//
+// Split out of updatePlaying because of what "paused" has to mean once somebody
+// else is in the world. Opening the inventory used to stop the whole simulation,
+// which is exactly right on your own: the game waits for you. In a shared world it
+// is not yours to stop, and stopping it stopped it for everyone — the host glanced
+// at a chest and every mob froze mid-stride, every dropped item hung in the air,
+// every furnace stopped, and the guests watched a still photograph until the
+// screen closed. That is the whole of "the game still pauses per player".
+void App::stepWorld(double dt) {
+  const float fdt = static_cast<float>(dt);
 
   world_->tickBlockEntities(fdt);
   // Water runs on its own accumulator at roughly six batches a second, and only
@@ -1706,7 +1778,15 @@ void App::refreshEntityContext() {
   entityContext_.inventory = &inventory_;
   entityContext_.entities = &entities_;
   entityContext_.sky = &sky_;
-  entityContext_.input = &window_.input();
+  // The rideable boat is the only thing that reads this, and behind an open screen
+  // it must read nothing: the world goes on without us, but a key pressed at a
+  // menu does not steer a boat.
+  entityContext_.input = state_ == AppState::Playing ? &window_.input() : &idleInput_;
+  // Whether anyone else is standing in this world. Today it decides whether a
+  // mined item is vacuumed up from any distance or has to be walked over; see
+  // EntityContext. True for the host only — a guest owns no entities at all, so
+  // there is nothing on that side for the rule to apply to.
+  entityContext_.sharedWorld = netHosting();
   if (!entityContext_.notify) {
     entityContext_.notify = [this](const std::string& message) {
       interface_.notify().push(message);

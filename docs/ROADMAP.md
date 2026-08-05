@@ -216,9 +216,36 @@ attempt hole-punching with a rendezvous server and accept that symmetric NATs
 will fail, or both with a fallback. The invite-code envelope (`HRW1…HRW1`,
 Crockford base32) is already the natural place to carry a rendezvous token.
 
-Current protocol version is `kNetVersion = 4` (`src/net/protocol.h`). Guests are
+Current protocol version is `kNetVersion = 6` (`src/net/protocol.h`). Guests are
 untrusted and the host range-checks, reach-checks and rate-limits everything;
 whatever transport replaces this must not lose that.
+
+### The ownership rule, now that it is actually enforced
+
+**The host owns every entity in the world. A guest owns none.** That was always
+the design and for several releases it was only half true — the world payload
+shipped the host's entity list, and `startWorld` loads whatever it is given, so
+every guest built a private local copy of every mob and ticked it with its own
+AI. `sendWorld` now clears the list and `adoptRemoteWorld` clears it again.
+
+Two consequences worth keeping in mind before touching this area:
+
+- **A guest's `EntityManager` holds nothing but ghosts, and ghosts are never
+  ticked.** Anything that has to happen *to* an entity happens on the host. That
+  is why picking a drop up is a host-side pass (`Host::collectDrops`) rather than
+  something the guest does locally, and why a guest's mined item goes straight
+  into its inventory instead of becoming a drop entity.
+- **`EntityContext::sharedWorld` marks the rules that quietly assume one player.**
+  Today that is the instant-drop vacuum, which has no distance check at all; there
+  will be others, and this is where they go.
+
+### The fast channel is unsequenced, and always was
+
+`Channel::Fast` is `ENET_PACKET_FLAG_UNSEQUENCED`. Poses and snapshots therefore
+arrive in arbitrary order, and a `Ghosts::Track` stamps every sample with its
+*arrival* time — so a late packet is not ignored, it is believed. Both ends now
+carry a counter and use `net::newerSeq` to discard anything already passed. Any
+new message on that channel needs the same treatment or it inherits the same bug.
 
 ---
 

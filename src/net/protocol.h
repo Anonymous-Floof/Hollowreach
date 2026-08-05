@@ -61,7 +61,14 @@ namespace hr::net {
 // message type, which an older peer would take for one it knows by that tag -- and
 // far worse than the mismatch, a 2.5.x guest would go on applying its OWN monster
 // and flight settings in somebody else's world without either of them being told.
-inline constexpr std::uint16_t kNetVersion = 5;
+// 6: what a guest is told about the world it is standing in. Two layout changes,
+// both of them things the old wire could not say: a snapshot entity now names the
+// item it IS, because a drop that arrived as a position and a count was drawn by
+// every guest as a featureless grey cube; and a pose and a snapshot each carry a
+// sequence number, because the fast channel is unsequenced and a reordered packet
+// was being accepted as the newest one. A 2.6.0 peer would misread both from the
+// first packet it received.
+inline constexpr std::uint16_t kNetVersion = 6;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -154,6 +161,9 @@ struct PoseMsg {
   float health = 20.0f;
   // bit 0 swimming, 1 sneaking, 2 flying, 3 sprinting.
   std::uint8_t flags = 0;
+  // Counts up from the sender, one per pose. See SnapshotMsg::seq — a pose travels
+  // the same unsequenced channel and needs the same defence.
+  std::uint32_t seq = 0;
 };
 
 // One entity in a snapshot. `a` and `b` are per-type extras, exactly as the web
@@ -165,6 +175,17 @@ struct SnapEntity {
   Vec3 pos;
   float yaw = 0;
   float a = 0, b = 0;
+  // What this entity IS, for the two types whose appearance is not implied by
+  // their type: a dropped item and a falling block are both "whatever key names
+  // them", and without it the receiver has a position, a count, and no idea what
+  // to draw. Empty for everything else, which costs the one length byte.
+  //
+  // The key rather than an index into the item registry. An index is 2 bytes
+  // against ~12 and was the first instinct, but it would make the wire depend on
+  // registration order — a new item added anywhere but the end would silently
+  // redraw every drop in every session between two builds that both think they
+  // agree. A string cannot be wrong that way.
+  std::string key;
 };
 
 struct SnapPlayer {
@@ -180,6 +201,19 @@ struct SnapshotMsg {
   float time = 0.32f;
   std::vector<SnapEntity> entities;
   std::vector<SnapPlayer> players;
+  // Counts up from the host, one per snapshot, and the receiver discards anything
+  // it has already passed.
+  //
+  // The fast channel is ENET_PACKET_FLAG_UNSEQUENCED, which means exactly what it
+  // says: packets arrive in whatever order the network hands them over. A ghost
+  // stamps each sample with the time it ARRIVED, so an old snapshot overtaking a
+  // new one was not merely ignored — it was accepted as the newest thing known and
+  // dragged every body back to where they had been. Worse, the entity list is a
+  // full census and anything missing from it is treated as gone, so a stale
+  // snapshot resurrected items that had already been picked up and killed ones
+  // that had just been spawned. That is the flicker, and it is why it got worse
+  // the longer a session ran: more entities, more to disagree about.
+  std::uint32_t seq = 0;
 };
 
 struct TimeMsg {
@@ -338,6 +372,21 @@ struct PlayerLeaveMsg {
 struct NotifyMsg {
   std::string message;
 };
+
+// Whether `seq` is newer than the newest already seen, for the counters carried by
+// the messages that travel the unsequenced channel.
+//
+// The subtraction is the whole trick: an unsigned difference cast to signed is
+// positive exactly when `seq` is ahead of `last` within half the range, which
+// makes the comparison survive the counter wrapping. A plain `seq > last` would
+// reject every packet for the rest of a session once it did.
+//
+// One function rather than the same three lines in the host and the client,
+// because a rule about what to throw away that the two ends disagree about is
+// worse than no rule at all.
+inline bool newerSeq(std::uint32_t seq, std::uint32_t last) {
+  return static_cast<std::int32_t>(seq - last) > 0;
+}
 
 // ---- framing ----------------------------------------------------------------
 
