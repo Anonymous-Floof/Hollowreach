@@ -159,6 +159,11 @@ class EntityManager {
   // it appears.
   static constexpr float kHostileDespawn = 72.0f;
 
+  // The ceiling on drops lying about in the world, and the one thing that bounds
+  // a world's entity list at all. See cullExcessDrops for why it is a count and
+  // not a clock, and why it is set this high.
+  static constexpr std::size_t kMaxDrops = 1024;
+
   // How far up and down a column the spawn search sweeps, around the player's own
   // height. Deeper than it is tall because that is where the dark is: the ceiling
   // of the band only has to clear a hill you are standing at the foot of.
@@ -180,6 +185,8 @@ class EntityManager {
   // Every Evil Altar within range of the player gets a chance to breed. Separate
   // from trySpawnZombie because an altar answers to its own local cap: a dungeon
   // that stopped at the world's two-zombie ceiling would not be a dungeon.
+  // Kills off the oldest drops once there are more than kMaxDrops of them.
+  void cullExcessDrops();
   void tickEvilAltars(world::World& world, const Vec3& player, float dayFactor);
 
   std::vector<Entity>& all() { return entities_; }

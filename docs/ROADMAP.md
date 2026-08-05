@@ -216,7 +216,7 @@ attempt hole-punching with a rendezvous server and accept that symmetric NATs
 will fail, or both with a fallback. The invite-code envelope (`HRW1…HRW1`,
 Crockford base32) is already the natural place to carry a rendezvous token.
 
-Current protocol version is `kNetVersion = 6` (`src/net/protocol.h`). Guests are
+Current protocol version is `kNetVersion = 7` (`src/net/protocol.h`). Guests are
 untrusted and the host range-checks, reach-checks and rate-limits everything;
 whatever transport replaces this must not lose that.
 
@@ -238,6 +238,102 @@ Two consequences worth keeping in mind before touching this area:
 - **`EntityContext::sharedWorld` marks the rules that quietly assume one player.**
   Today that is the instant-drop vacuum, which has no distance check at all; there
   will be others, and this is where they go.
+
+### An oversized packet on the fast channel is not a fast packet
+
+The single worst bug this project has had, and none of it was in this project.
+
+`Transport::send` asks for `ENET_PACKET_FLAG_UNSEQUENCED` on channel 1. ENet
+decides what to do with a packet too big for one datagram in `enet_peer_send`
+(`peer.c:136`), and the test it uses is
+
+```c
+(packet->flags & (ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT))
+    == ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT
+```
+
+**`UNSEQUENCED` is not in that test.** It fails, and the `else` branch sends
+`SEND_FRAGMENT | FLAG_ACKNOWLEDGE` — reliable, ordered, acknowledged,
+retransmitted. The call returns 0 like any other. Nothing anywhere says a word.
+
+The threshold is `mtu - sizeof(ENetProtocolHeader) - sizeof(ENetProtocolSendFragment)`,
+1364 bytes at the default 1392 MTU and as little as 548 if a peer negotiates
+`ENET_PROTOCOL_MINIMUM_MTU`. A snapshot entity costs about 33 bytes, so a world
+with forty things in it is over it and stays over it. Twenty multi-fragment
+reliable packets a second is more than the reliable window can carry:
+`reliableDataInTransit` climbs past `(packetThrottle * windowSize) / 32`, the send
+stalls at `protocol.c:1472`, and the next snapshot is already queued behind the
+one that did not go. It does not recover. Channel 0 has its own window, which is
+why the world went on being edited while everything alive in it stood still —
+mobs and the other players froze in the same instant, because both travel in the
+snapshot.
+
+Two things guard it now and both are wanted:
+
+- **The flag.** `Channel::Fast` sends `UNSEQUENCED | UNRELIABLE_FRAGMENT`, so
+  something that does exceed a datagram degrades to "a lost fragment costs one
+  snapshot" instead of wedging the channel.
+- **The budget.** `Host::sendSnapshot` fills a message to `kSnapBudget` bytes,
+  measured with `net::wireSize`, so it does not fragment in the first place. There
+  is a self-test that the budget's arithmetic and the encoder agree, because
+  nothing else in the game would ever notice them drifting apart.
+
+**Anything new on the fast channel must be small.** Not "usually small" — bounded.
+
+### A snapshot is what is near you, not what exists
+
+`sendSnapshot` is per-peer: entities within `kSnapRange` of that guest, sorted
+nearest first, cut at the byte budget. The count cap of 512 is still there and is
+now unreachable in any world worth the check.
+
+The old version was a census in entity-vector order, which is oldest first. That
+matters more than it sounds, because `EntityManager::tick` skips a chunk that is
+not loaded *before* `age += dt` — so a drop in an unloaded chunk never despawns.
+A long session accumulates them, they are the oldest things in the vector, and
+they fill the message before it reaches the mob standing next to the player. A
+guest treats anything a snapshot does not mention as dead, so those mobs were not
+merely stale: they were deleted and respawned, over and over.
+
+The frozen-drop accumulation is still there and is now harmless to the network.
+**It is also the reason the symptom was permanent**, and that is worth stating
+plainly because it is not obvious: `App::buildSave` writes the entity list into
+the save, so the pile survives quitting. A guest leaving and rejoining gets a new
+ENet host, peer and channel set — new windows, new `reliableDataInTransit` — and
+would have recovered if the broken state lived in the connection. It did not. The
+world came back with the pile still in it, the first snapshot of the new session
+was already over the datagram, and it re-wedged in seconds. The host restarting
+did not help either, for the same reason and off the same file.
+
+So a bug whose *mechanism* is entirely per-connection presented as one nothing
+could clear, because its *trigger* is persisted. Worth remembering the next time
+"restarting does not fix it" is used to rule something out.
+
+The pile itself is now capped at `EntityManager::kMaxDrops` (1024), oldest id
+first. A **count and not a clock**, deliberately: a clock would eventually take
+things a player is still walking back for, and that the freeze keeps your
+belongings however long you take is the entire point of it. A cap cannot take
+anything anyone is coming back for, because reaching it means a thousand stacks
+abandoned in chunks never revisited. The precedent is `kHostileDespawn`, whose
+comment describes the identical failure for mobs.
+
+The ageing rule itself is untouched, and should stay untouched — it matches what
+players expect from this genre, and the leak was never the freeze, it was that
+nothing counted.
+
+### The rider owns the boat
+
+A boat is the one entity a guest may simulate, and it is the same exception the
+player already is: it goes where they go and only their keyboard turns it. So the
+guest ticks the hull it is sitting in (`EntityManager::tick`), `Ghosts::update`
+leaves that one body alone, and the host reads the boat's position back out of the
+rider's pose (`Host::syncRiddenBoats`) — no new message, and no trust the pose did
+not already have.
+
+`EntityData::remoteRider` is what keeps the two apart: `rider` means occupied,
+`remoteRider` means *the occupant is not the player on this machine*. Without it
+`boatUpdate` steers from `ctx.input` and seats `ctx.player`, which are always
+whoever is playing here — so a host whose guest took a boat was pulled into it
+from wherever they were standing. There is a self-test for exactly that.
 
 ### The fast channel is unsequenced, and always was
 

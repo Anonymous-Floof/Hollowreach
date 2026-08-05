@@ -1952,6 +1952,58 @@ void testEntities() {
     check(sheep == 1, "and an animal you left somewhere stays there");
   }
 
+  // --- the drop pile has a ceiling ---------------------------------------------
+  // Drops in unloaded chunks never age, and the pile went into the save, so a
+  // world only ever gained them. Far enough out that every one of these is frozen
+  // rather than ticking, which is exactly the ones that used to be immortal.
+  {
+    auto world = makeArena();
+    game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::Inventory inv;
+    game::EntityManager entities;
+    render::Sky sky;
+    game::EntityContext ctx;
+    ctx.world = world.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+    ctx.sky = &sky;
+
+    constexpr std::size_t kOver = 40;
+    const std::size_t want = game::EntityManager::kMaxDrops + kOver;
+    int firstId = 0, lastId = 0;
+    for (std::size_t i = 0; i < want; ++i) {
+      game::Entity* d = entities.spawnDrop(
+          Vec3{4000.5f + static_cast<float>(i), static_cast<float>(kY), 4000.5f}, "greystone", 1,
+          -1);
+      if (i == 0) firstId = d->id;
+      if (i + 1 == want) lastId = d->id;
+    }
+    entities.tick(1.0f / 60.0f, ctx);
+
+    std::size_t left = 0;
+    for (const game::Entity& e : entities.all()) {
+      if (!e.dead && e.type == game::EntityType::Drop) ++left;
+    }
+    checkf(left == game::EntityManager::kMaxDrops,
+           "a world cannot collect more than kMaxDrops frozen drops (%zu)", left);
+    check(entities.byId(firstId) == nullptr, "and the pile is trimmed from the oldest end");
+    check(entities.byId(lastId) != nullptr, "leaving what was dropped most recently");
+
+    // The ceiling is high enough that an ordinary world never meets it — the
+    // check that keeps this a safety valve rather than a rule players notice.
+    game::EntityManager ordinary;
+    ctx.entities = &ordinary;
+    for (int i = 0; i < 200; ++i) {
+      ordinary.spawnDrop(Vec3{4000.5f + static_cast<float>(i), static_cast<float>(kY), 4000.5f},
+                         "greystone", 1, -1);
+    }
+    const int before = ordinary.count();
+    ordinary.tick(1.0f / 60.0f, ctx);
+    checkf(ordinary.count() == before, "and a normal scattering of them is left alone (%d -> %d)",
+           before, ordinary.count());
+  }
+
   // --- the Evil Altar ---------------------------------------------------------
   {
     const world::BlockId altar = world::blocks().idOf("evil_altar");
@@ -4446,6 +4498,50 @@ void testGhostArrival() {
           "and says what a dropped item is, not merely where");
   }
 
+  // --- the snapshot budget can count ------------------------------------------
+  //
+  // Host::sendSnapshot fills a message up to a byte allowance so that it fits in
+  // one datagram, and it works that allowance out from wireSize rather than by
+  // encoding and measuring. That is only safe while the two agree exactly, and
+  // nothing else in the game would ever notice them drifting apart: a field added
+  // to the encoder without a matching change here makes the budget optimistic, the
+  // snapshot goes back over the fragment threshold, and the symptom arrives half an
+  // hour into somebody's session looking like a network fault.
+  {
+    net::SnapshotMsg m;
+    m.time = 0.31f;
+    m.seq = 77;
+    // Deliberately varied: an empty key, a short one, and a long one, because the
+    // length-prefixed string is the only part of the arithmetic that is not a
+    // constant and so the only part that can be wrong by a different amount each
+    // time.
+    for (const char* key : {"", "coal", "greystone_stairs"}) {
+      net::SnapEntity e;
+      e.id = 3;
+      e.type = static_cast<std::uint8_t>(game::EntityType::Drop);
+      e.pos = Vec3{1, 2, 3};
+      e.key = key;
+      m.entities.push_back(std::move(e));
+    }
+    for (const char* id : {"phost0000001", "pguest000001"}) {
+      net::SnapPlayer p;
+      p.playerId = id;
+      p.pos = Vec3{4, 5, 6};
+      m.players.push_back(std::move(p));
+    }
+
+    std::size_t predicted = net::snapshotOverhead();
+    for (const net::SnapEntity& e : m.entities) predicted += net::wireSize(e);
+    for (const net::SnapPlayer& p : m.players) predicted += net::wireSize(p);
+
+    ByteWriter w;
+    net::begin(w, net::MsgType::Snapshot);
+    encode(w, m);
+    checkf(predicted == w.data().size(),
+           "what a snapshot is budgeted at is what it actually encodes to (%zu vs %zu)",
+           predicted, w.data().size());
+  }
+
   // --- a player known about but not yet located -------------------------------
   {
     game::EntityManager entities;
@@ -4513,6 +4609,23 @@ void testNetSession() {
   hostCtx.entities = &hostEntities;
   hostCtx.sky = &hostSky;
   hostCtx.sharedWorld = true;
+  // An Input nobody is typing into, which is exactly what App gives this context
+  // whenever a screen is open — and never nullptr, which is what this harness used
+  // to give it. The difference is not cosmetic: the only thing that reads it is
+  // the rideable boat, and leaving it null meant the boat's rider branch could not
+  // run here at all. A test of who a boat carries that silently skipped the code
+  // that carries anybody is a test that would have passed whatever the answer was.
+  Input hostInput;
+  hostCtx.input = &hostInput;
+
+  // What App installs on a host: anything the world spills becomes a real item
+  // lying in it. Needed here because a container broken by a guest is emptied by
+  // the host, through this seam and nowhere else — without it the spill is a
+  // silent no-op and a test of it proves nothing.
+  hostWorld->setDropSink([&hostEntities](float x, float y, float z, const std::string& key,
+                                         int count, int dura) {
+    hostEntities.spawnDrop(Vec3{x, y, z}, key, count, dura);
+  });
 
   // Something alive before anyone joins, so the payload has something to strip.
   hostEntities.spawn(game::EntityType::Pig,
@@ -4559,6 +4672,15 @@ void testNetSession() {
   net::SessionHooks guestHooks;
   guestHooks.notify = [](const std::string&) {};
   guestHooks.onDisconnected = [](const std::string&) {};
+  // Why the host would not give us a container, if it refused one. App closes the
+  // screen on this; here it is simply recorded, because "the host said nothing" is
+  // the whole assertion for a container that is supposed to work.
+  std::string lastDeny;
+  guestHooks.onContainerDenied = [&lastDeny](int, int, int, const std::string& why) {
+    lastDeny = why;
+  };
+  int mountDenials = 0;
+  guestHooks.onMountDenied = [&mountDenials](int) { ++mountDenials; };
   guestHooks.adoptWorld = [&](const save::WorldSave& data) {
     payloadEntities = data.entities.size();
     guestWorld = std::make_unique<world::World>(data.meta.seed, 2, data.meta.genVersion);
@@ -4873,6 +4995,276 @@ void testNetSession() {
       if (!e.dead && e.type == game::EntityType::Drop) ++leftover;
     }
     checkf(leftover == 0, "and it leaves the host's world with them (%d still there)", leftover);
+  }
+
+  // --- a container a guest puts down is a real container -----------------------
+  //
+  // Interact::tryPlace creates a station's block entity the moment the block
+  // exists, because a forge should smelt and a chest should hold things whether or
+  // not anyone has opened them. Nothing did that for a block that arrived over the
+  // wire, so a chest a guest placed was a block on the host and a container
+  // nowhere. Every consequence pointed somewhere else: the request was refused
+  // with "Nothing there", the refusal meant no lock, no lock meant the contents
+  // the guest sent on closing were discarded without a word, and breaking it
+  // spilled nothing because there was nothing to spill. Meanwhile the guest's own
+  // screen worked perfectly the whole time — it was reading the copy in its own
+  // world — which is why this presented as a chest that worked and then stopped.
+  {
+    const world::BlockId chest = world::blocks().idOf("chest");
+    const float floorY = static_cast<float>(kY) - 2.0f;
+    const int cx = 9, cy = kY - 2, cz = 9;
+    guestPlayer.setPos(Vec3{kOriginX + 4.0f, floorY, kOriginZ + 4.0f});
+    pump(30);
+
+    // Exactly what tryPlace does on the guest: write the block, which the edit
+    // sink offers to the host, and make the container locally.
+    guestWorld->setBlock(cx, cy, cz, chest, 0);
+    guestWorld->getOrCreateBlockEntity(cx, cy, cz, game::BlockEntityKind::Chest);
+    pump(40);
+
+    check(hostWorld->getBlock(cx, cy, cz) == chest, "a chest a guest places reaches the host");
+    game::BlockEntity* hostBe = hostWorld->getBlockEntity(cx, cy, cz);
+    checkf(hostBe != nullptr, "and is a container there, not merely a block");
+
+    lastDeny.clear();
+    client.sendBlockEntityRequest(cx, cy, cz, static_cast<std::uint8_t>(game::BlockEntityKind::Chest));
+    pump(40);
+    checkf(lastDeny.empty(), "so opening it is not refused (\"%s\")", lastDeny.c_str());
+
+    // Put something in, and close it the way App does — one message carrying the
+    // result of the whole rummage, with `final` to release the lock.
+    if (game::BlockEntity* mine = guestWorld->getBlockEntity(cx, cy, cz)) {
+      mine->slots[0] = game::ItemStack{"greystone", 12, -1};
+      net::BeStateMsg state;
+      state.x = cx;
+      state.y = cy;
+      state.z = cz;
+      state.kind = static_cast<std::uint8_t>(game::BlockEntityKind::Chest);
+      for (const game::ItemStack& s : mine->slots) {
+        net::WireSlot out;
+        if (!s.empty()) {
+          out.key = s.key;
+          out.count = s.count;
+          out.dura = s.dura;
+        }
+        state.slots.push_back(std::move(out));
+      }
+      state.final = true;
+      client.sendBlockEntityState(state);
+    }
+    pump(40);
+    hostBe = hostWorld->getBlockEntity(cx, cy, cz);
+    const bool stored = hostBe != nullptr && !hostBe->slots.empty() &&
+                        hostBe->slots[0].key == "greystone" && hostBe->slots[0].count == 12;
+    check(stored, "and what the guest puts in it is held by the host, not by the guest");
+
+    // Break it. The host is the only one that can spill it, because the host is
+    // the only one that has it.
+    const int stoneBefore = hostInventory.countOf("greystone");
+    (void)stoneBefore;
+    guestWorld->setBlock(cx, cy, cz, world::kAir, 0);
+    pump(40);
+    int spilled = 0;
+    for (const game::Entity& e : hostEntities.all()) {
+      if (!e.dead && e.type == game::EntityType::Drop && e.data.key == "greystone" &&
+          e.data.count == 12) {
+        ++spilled;
+      }
+    }
+    checkf(spilled == 1, "and breaking it drops what was inside rather than losing it (%d)",
+           spilled);
+    checkf(hostWorld->getBlockEntity(cx, cy, cz) == nullptr,
+           "with nothing left behind at that position");
+
+    // A chest already standing in the world with nothing behind it, which is what
+    // every save written by an older build holds: the block was relayed and
+    // stored, the container never was. Reloading could not fix it and neither
+    // could rejoining — it is in the file — so opening one has to be what makes it
+    // real, or those worlds stay broken forever.
+    {
+      const int ox = 7, oy = kY - 2, oz = 10;
+      hostWorld->applyRemoteEdit(ox, oy, oz, chest, 0);
+      hostWorld->removeBlockEntity(ox, oy, oz);  // the state an old save is in
+      guestPlayer.setPos(Vec3{static_cast<float>(ox), floorY, static_cast<float>(oz)});
+      pump(30);
+      lastDeny.clear();
+      client.sendBlockEntityRequest(ox, oy, oz,
+                                    static_cast<std::uint8_t>(game::BlockEntityKind::Chest));
+      pump(40);
+      checkf(lastDeny.empty(), "a chest left containerless by an older build opens (\"%s\")",
+             lastDeny.c_str());
+      checkf(hostWorld->getBlockEntity(ox, oy, oz) != nullptr,
+             "and is a real container from then on");
+    }
+
+    // And the other direction, which is where the contents were actually going
+    // missing. A guest learns that a station was destroyed only as a relayed edit,
+    // and there is no path on that side that cleans up after one — so the
+    // container stayed in the guest's world at that position, invisible, holding
+    // what it held, and handed it all to the next block placed there.
+    const int hx = 11, hy = kY - 2, hz = 9;
+    hostWorld->setBlock(hx, hy, hz, chest, 0);
+    hostWorld->getOrCreateBlockEntity(hx, hy, hz, game::BlockEntityKind::Chest);
+    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(chest), 0);
+    pump(40);
+    // What the guest would be holding after opening it once.
+    if (game::BlockEntity* seen =
+            guestWorld->getOrCreateBlockEntity(hx, hy, hz, game::BlockEntityKind::Chest)) {
+      seen->slots[0] = game::ItemStack{"coal", 5, -1};
+    }
+    hostWorld->setBlock(hx, hy, hz, world::kAir, 0);
+    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(world::kAir), 0);
+    pump(40);
+    checkf(guestWorld->getBlockEntity(hx, hy, hz) == nullptr,
+           "and a container the host destroys does not linger in the guest's world");
+
+    // Swept up before the sections below walk past it. It is a real item lying on
+    // a real floor now, which is the point of the check — and which means the
+    // guest would collect it the moment the boat test moves them over it, and the
+    // inventory the save check counts would be twelve stone heavier than the
+    // arithmetic there says.
+    for (game::Entity& e : hostEntities.all()) {
+      if (!e.dead && e.type == game::EntityType::Drop) e.dead = true;
+    }
+    hostEntities.tick(0.02f, hostCtx);
+    pump(20);
+  }
+
+  // --- a boat a guest is sitting in --------------------------------------------
+  //
+  // Two faults, and the first hid the second. App asked to mount by the entity's
+  // LOCAL id, and on a guest every entity is a ghost whose id is -netId - 1 — so
+  // the host looked up a negative id, found nothing, and refused every mount
+  // anybody ever asked for. Behind that, a boat is steered from ctx.input and
+  // seats ctx.player, both of which mean "whoever is playing on THIS machine", so
+  // a mount that did succeed would have dragged the host into the boat.
+  {
+    const float floorY = static_cast<float>(kY) - 2.0f;
+    guestPlayer.setPos(Vec3{kOriginX + 1.0f, floorY, kOriginZ});
+    hostPlayer.setPos(Vec3{kOriginX + 9.0f, floorY, kOriginZ});
+    pumpLive(30);
+
+    game::Entity* boat = hostEntities.spawn(game::EntityType::Boat,
+                                            Vec3{kOriginX + 1.0f, floorY, kOriginZ});
+    const int boatId = boat ? boat->id : 0;
+    checkf(boatId > 0, "the host has a boat to be asked about");
+    pumpLive(30);
+
+    // The old call, exactly: a ghost's id rather than the host's. It is worth
+    // asking for explicitly, because the check below is only meaningful if this
+    // one is genuinely refused.
+    mountDenials = 0;
+    client.sendBoatMount(-boatId - 1, true);
+    pumpLive(30);
+    checkf(mountDenials == 1, "a mount asked for by the ghost's own id is refused (%d)",
+           mountDenials);
+
+    // Where the host is standing BEFORE anyone asks for the boat. Taken here and
+    // not after, because what is being watched for happens on the very first tick
+    // of a successful mount: measuring from a position already inside the boat
+    // would compare the wrong thing against itself and pass either way.
+    const Vec3 stood = hostPlayer.pos();
+
+    mountDenials = 0;
+    client.sendBoatMount(boatId, true);
+    pumpLive(30);
+    boat = hostEntities.byId(boatId);
+    checkf(mountDenials == 0 && boat != nullptr && boat->data.rider,
+           "and the host's id for the same boat is accepted");
+
+    // The host is standing eight blocks away and stays there. Without the
+    // remoteRider guard the boat's update hook reads the host's keyboard and puts
+    // the host's body in the seat, so the person who was not in the boat is the
+    // one who ends up in it.
+    pumpLive(40);
+    const Vec3 after = hostPlayer.pos();
+    const float moved = std::fabs(after.x - stood.x) + std::fabs(after.y - stood.y) +
+                        std::fabs(after.z - stood.z);
+    checkf(moved < 0.5f, "while the host, who is not in it, is left where they stood (%.1f)",
+           moved);
+
+    // The rider owns the hull: it goes where they go, and the host learns that
+    // from the pose they already send rather than from a message of its own.
+    guestPlayer.setPos(Vec3{kOriginX + 5.0f, floorY, kOriginZ + 2.0f});
+    pumpLive(40);
+    boat = hostEntities.byId(boatId);
+    const float lag = boat ? std::fabs(boat->pos.x - (kOriginX + 5.0f)) : 99.0f;
+    checkf(lag < 0.5f, "and the boat follows the guest who is steering it (x %.1f)",
+           boat ? boat->pos.x : 0.0f);
+
+    client.sendBoatMount(boatId, false);
+    pumpLive(30);
+    boat = hostEntities.byId(boatId);
+    checkf(boat != nullptr && !boat->data.rider,
+           "standing up hands it back to the world");
+    if (boat) boat->dead = true;
+    pumpLive(20);
+  }
+
+  // --- a busy world does not crowd out what is next to you ----------------------
+  //
+  // The snapshot was a census of everything, capped at 512 and filled in the order
+  // the entity vector happened to hold. That order is oldest first, and a drop in
+  // an unloaded chunk never ages — the tick skips it before `age += dt` — so a
+  // long session accumulated a queue of frozen items that filled the allowance
+  // before it ever reached the mob standing beside the player. A guest treats
+  // anything a snapshot does not mention as gone, so those mobs did not merely
+  // stop updating: they were deleted, over and over, as fast as they appeared.
+  {
+    const float floorY = static_cast<float>(kY) - 2.0f;
+    guestPlayer.setPos(Vec3{kOriginX, floorY, kOriginZ});
+    pump(30);
+
+    // Six hundred of them, comfortably past the old 512 and all of them older
+    // than the animal below. Far enough away to be irrelevant, near enough to be
+    // inside the range filter, so this tests the allowance rather than the radius.
+    for (int i = 0; i < 600; ++i) {
+      hostEntities.spawnDrop(Vec3{kOriginX + 40.0f + static_cast<float>(i % 8),
+                                  static_cast<float>(kY),
+                                  kOriginZ + 40.0f + static_cast<float>(i / 8)},
+                             "coal", 1, -1);
+    }
+    game::Entity* neighbour = hostEntities.spawn(
+        game::EntityType::Sheep, Vec3{kOriginX + 2.0f, floorY, kOriginZ});
+    const int sheepId = neighbour ? neighbour->id : 0;
+    pump(60);
+
+    int sheep = 0;
+    std::size_t arrived = net::snapshotOverhead();
+    for (const game::Entity& e : guestEntities.all()) {
+      if (!e.ghost || e.dead) continue;
+      if (e.type == game::EntityType::RemotePlayer) {
+        net::SnapPlayer p;
+        p.playerId = "phost0000001";
+        arrived += net::wireSize(p);
+        continue;
+      }
+      net::SnapEntity out;
+      out.key = e.data.key;
+      arrived += net::wireSize(out);
+      if (e.type == game::EntityType::Sheep) ++sheep;
+    }
+    checkf(sheep == 1, "an animal at arm's length survives six hundred distant drops (%d)",
+           sheep);
+
+    // And what arrived fits in one datagram, which is the whole point. ENet
+    // fragments a packet above mtu - sizeof(ENetProtocolHeader) -
+    // sizeof(ENetProtocolSendFragment) — 1364 bytes at the default MTU — and
+    // fragmenting on this channel used to mean far worse than fragmenting: the
+    // packet was silently promoted to reliable, ordered and retransmitted, twenty
+    // times a second, until the reliable window stalled and never recovered. Six
+    // hundred entities is about 20 KB, so this is a world that would have wedged.
+    constexpr std::size_t kEnetFragmentThreshold = 1392 - 4 - 24;
+    checkf(arrived <= kEnetFragmentThreshold,
+           "and what it was told fits in one datagram (%zu bytes, limit %zu)", arrived,
+           kEnetFragmentThreshold);
+
+    // Tidy up, so the sections after this are not looking at a world full of coal.
+    for (game::Entity& e : hostEntities.all()) {
+      if (e.type == game::EntityType::Drop || e.id == sheepId) e.dead = true;
+    }
+    hostEntities.tick(0.02f, hostCtx);
+    pump(40);
   }
 
   // --- waking up somewhere else ------------------------------------------------

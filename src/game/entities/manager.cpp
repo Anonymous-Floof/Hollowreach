@@ -118,9 +118,48 @@ int EntityManager::count() const {
   return n;
 }
 
+// A drop whose chunk is not loaded never ages, which is deliberate — see the
+// freeze in tick. Nothing bounded it, though, and App::buildSave writes the
+// entity list into the save, so a world only ever gained them: every session
+// started with the last one's pile and added to it. That is what made the
+// snapshot overflow of 2.7.0 survive rejoining and re-hosting, because the
+// trigger was in the file rather than in the connection. The snapshot is bounded
+// by bytes now and no longer cares, but the pile is still a leak — it costs
+// memory, save bytes, and a pass over every entity per snapshot, forever.
+//
+// Capped rather than timed, deliberately. A clock would eventually take things a
+// player is still coming back for, and walking back for your things however long
+// you take is the whole point of the freeze. A cap cannot: you would have to
+// leave a thousand stacks in chunks you never revisit to reach it, and if you
+// have, the oldest of them is not something anyone is returning for.
+//
+// Oldest first, by id, since ids are handed out in spawn order. Nothing else is
+// culled here: mobs are already held down by the spawn caps and kHostileDespawn.
+void EntityManager::cullExcessDrops() {
+  if (entities_.size() <= kMaxDrops) return;  // the common case, and free
+
+  std::vector<std::size_t> drops;
+  for (std::size_t i = 0; i < entities_.size(); ++i) {
+    const Entity& e = entities_[i];
+    // Ghosts are somebody else's entities and are not ours to cull; on a guest
+    // that is all of them, which makes this whole pass a no-op there.
+    if (!e.dead && !e.ghost && e.type == EntityType::Drop) drops.push_back(i);
+  }
+  if (drops.size() <= kMaxDrops) return;
+
+  const std::size_t excess = drops.size() - kMaxDrops;
+  std::nth_element(drops.begin(), drops.begin() + static_cast<std::ptrdiff_t>(excess), drops.end(),
+                   [this](std::size_t a, std::size_t b) { return entities_[a].id < entities_[b].id; });
+  for (std::size_t k = 0; k < excess; ++k) entities_[drops[k]].dead = true;
+}
+
 void EntityManager::tick(float dt, EntityContext& ctx) {
   world::World& world = *ctx.world;
   ai_.tick(dt, ctx);  // refresh the path budget, decay sounds, lay player scent
+
+  // Before the sweep below, so the ones it kills are compacted out by the same
+  // pass that handles everything else that died this frame.
+  cullExcessDrops();
 
   bool anyDead = false;
   // Indexed rather than ranged: an update hook can spawn (a drop, on death), and
@@ -132,8 +171,18 @@ void EntityManager::tick(float dt, EntityContext& ctx) {
       anyDead = true;
       continue;
     }
-    // Ghosts are driven by remote snapshots, never simulated here.
-    if (entities_[i].ghost) continue;
+    // Ghosts are driven by remote snapshots, never simulated here — with exactly
+    // one exception, and it is the same exception the player already is. A guest
+    // owns no entity in the host's world except the body it is standing in, and a
+    // boat it is sitting in is part of that body: it goes where the player goes,
+    // and the player is the only one holding the keys that steer it. So the one
+    // ghost a guest may tick is the hull underneath it. Everything else about that
+    // boat still comes from the host, and the host is told where it ended up by
+    // the rider's own pose — which it already sends twenty times a second.
+    if (entities_[i].ghost &&
+        !(ctx.player && entities_[i].id == ctx.player->mount() && ctx.player->mount() != 0)) {
+      continue;
+    }
 
     // Hostiles that have got a long way from the player are removed rather than
     // frozen. This has to come BEFORE the unloaded-chunk skip below, because a

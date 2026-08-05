@@ -134,7 +134,7 @@ void Client::update(double dt, double now) {
 
   if (state_ != State::Playing) return;
 
-  ghosts_.update(now);
+  ghosts_.update(now, game_.player ? game_.player->mount() : 0);
 
   poseTimer_ += dt;
   if (poseTimer_ >= kPosePeriod) {
@@ -433,13 +433,25 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
     }
     case MsgType::BeDeny: {
       BeDenyMsg m;
-      if (decode(r, m) && hooks_.notify) hooks_.notify(m.reason);
+      if (!decode(r, m)) break;
+      if (hooks_.notify) hooks_.notify(m.reason);
+      // A refusal used to be a line of text and nothing else, which made it the
+      // most misleading message in the protocol: the screen stayed open on the
+      // guest's own copy of the container, so the player went on filling a chest
+      // the host had already said it would not accept a word about. It looked
+      // like it was working. Closing it is the only honest answer.
+      if (hooks_.onContainerDenied) hooks_.onContainerDenied(m.x, m.y, m.z, m.reason);
       break;
     }
-    case MsgType::BoatDeny:
-      // The mount was refused. Nothing to undo — the guest asked and did not get
-      // it, and its own player was never seated.
+    case MsgType::BoatDeny: {
+      // The mount was refused: the boat is gone, out of reach, or somebody got to
+      // it first. There IS something to undo now — a guest seats itself the moment
+      // it clicks, because waiting a round trip to sit down in a boat you are
+      // standing next to feels broken, so the refusal is what stands it back up.
+      BoatMountMsg m;
+      if (decode(r, m) && hooks_.onMountDenied) hooks_.onMountDenied(m.entityId);
       break;
+    }
     case MsgType::Pong:
     case MsgType::Ping: break;
     case MsgType::Bye:

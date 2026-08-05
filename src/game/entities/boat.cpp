@@ -82,6 +82,15 @@ void boatSpawn(Entity& e) { e.data.rider = false; }
 void boatUpdate(Entity& e, float dt, EntityContext& ctx) {
   world::World& world = *ctx.world;
 
+  // Somebody else is aboard. A ridden boat is part of the rider's body — it goes
+  // where they go, and they are the only one holding the keys that steer it — so
+  // the machine they are playing on simulates it and everyone else is told where
+  // it ended up. There is nothing to do here, and doing the obvious thing would be
+  // much worse than nothing: the branch below reads OUR keyboard and puts OUR
+  // player in the seat, so a host whose guest took a boat would be dragged into it
+  // from wherever they were standing.
+  if (e.data.remoteRider) return;
+
   if (e.data.rider && ctx.player && ctx.input) {
     Player& p = *ctx.player;
     if (ctx.input->pressed(Key::ShiftLeft)) {
@@ -121,7 +130,10 @@ void boatInteract(Entity& e, EntityContext& ctx, InteractButton button) {
 
 // Nobody is aboard a boat that has just been loaded: the rider is the player, and
 // the player is restored separately, standing.
-void boatLoad(Entity& e) { e.data.rider = false; }
+void boatLoad(Entity& e) {
+  e.data.rider = false;
+  e.data.remoteRider = false;
+}
 
 }  // namespace
 

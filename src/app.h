@@ -371,6 +371,12 @@ class App {
   // every key as up and every button as unclicked.
   Input idleInput_;
 
+  // The host's id for the boat this guest is riding, or 0. Held separately from
+  // `player_->mount()`, which is the LOCAL entity id: the two differ (a ghost's is
+  // negative), and the host only answers to its own. Kept after a dismount just
+  // long enough to say so, since by then the local mount is already zero.
+  int mountedNetId_ = 0;
+
   // Frames of interaction to swallow after the pointer is re-captured.
   int resumeClickGuard_ = 0;
 

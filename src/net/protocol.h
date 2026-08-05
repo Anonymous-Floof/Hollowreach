@@ -68,7 +68,16 @@ namespace hr::net {
 // sequence number, because the fast channel is unsequenced and a reordered packet
 // was being accepted as the newest one. A 2.6.0 peer would misread both from the
 // first packet it received.
-inline constexpr std::uint16_t kNetVersion = 6;
+// 7: who owns a boat, and how much of the world a guest is told about at once.
+// The layout is unchanged and that is exactly why this has to be refused rather
+// than tolerated -- the same bytes now mean something different. A BoatMount used
+// to be asked for with the guest's own ghost id, which no host could ever match,
+// so every mount was refused and boats simply did not work for a guest; asking
+// with the host's id is what fixes it, and a 2.7.0 host answering that request
+// would mount the boat and then drag its OWN player into the seat and steer the
+// thing with its own keyboard. A silent version match would turn "boats do not
+// work" into "the host is abducted by anyone who touches a boat".
+inline constexpr std::uint16_t kNetVersion = 7;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -387,6 +396,16 @@ struct NotifyMsg {
 inline bool newerSeq(std::uint32_t seq, std::uint32_t last) {
   return static_cast<std::int32_t>(seq - last) > 0;
 }
+
+// What one entry costs a SnapshotMsg on the wire, and what an empty one costs.
+//
+// Here rather than at the caller because they have to agree with encode() exactly,
+// and the only way to keep that true is to define them next to it: a field added
+// above without a matching change here would make the host's budget optimistic and
+// push the snapshot back over the datagram it is being kept inside.
+std::size_t snapshotOverhead();
+std::size_t wireSize(const SnapEntity& e);
+std::size_t wireSize(const SnapPlayer& p);
 
 // ---- framing ----------------------------------------------------------------
 

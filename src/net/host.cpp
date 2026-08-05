@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <utility>
 
 #include "core/log.h"
 #include "game/blockentities.h"
@@ -41,6 +43,20 @@ constexpr double kMoveGrace = 1.0;
 // for the local player and this has to agree with it, or the same item is
 // collectable by one of them and not the other from the same spot.
 constexpr float kPickupRange = 1.8f;
+// How many bytes of one snapshot may go out, so that it arrives as one datagram.
+//
+// ENet fragments above mtu - sizeof(ENetProtocolHeader) - sizeof(ENetProtocolSendFragment),
+// which is 1364 bytes at the default 1392 MTU. Fragmenting is no longer the
+// disaster it was — see the flag in transport.cpp — but an unreliable fragment set
+// is delivered only if every piece arrives, so a snapshot in five pieces is five
+// times as likely to be thrown away whole. Staying inside one datagram is what
+// makes a dropped snapshot cost one frame of smoothing instead of a stutter, and
+// this is comfortably under so a peer that negotiates a smaller MTU still fits.
+constexpr std::size_t kSnapBudget = 1200;
+// Past this an entity is not a guest's business. The byte budget is the real
+// limit; this is the relevance filter in front of it, so the sort below has a
+// small list to work on rather than every entity in the world.
+constexpr float kSnapRange = 128.0f;
 
 float dist3(const Vec3& a, const Vec3& b) {
   const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
@@ -153,6 +169,22 @@ void Host::forget(PeerState& st) {
   if (!announce) return;
 
   ghosts_.removePlayer(pid);
+  // A boat cannot stay occupied by somebody who has gone home. It would be
+  // unbreakable, unmountable and, because the host does not simulate a hull
+  // somebody else is steering, motionless forever.
+  releaseBoats(pid);
+  // Their locks go with them. A guest that closes a container politely releases it
+  // with a final BeState; one that crashed, timed out, or was still standing in a
+  // chest when the power went out did not — and a lock is keyed by position, not by
+  // session, so it outlived them. Every later opener, including the host, was then
+  // told "Someone else has that open" about a chest belonging to nobody, forever.
+  for (auto it = beLocks_.begin(); it != beLocks_.end();) {
+    if (it->second == pid) {
+      it = beLocks_.erase(it);
+    } else {
+      ++it;
+    }
+  }
   // Their vote goes with them, and if they were the one who proposed the hour the
   // question closes — the rest were answering them, not the clock.
   sleepVotes_.erase(pid);
@@ -217,10 +249,12 @@ void Host::update(double dt, double now) {
   // A burst still batches: a flood of water writes hundreds of cells in one tick
   // and they leave together, capped at the protocol's 512 per message.
   flushEdits();
-  // Before the snapshot, so a drop that has just been handed to somebody is gone
-  // from the census that goes out in the same breath rather than being drawn for
-  // one more frame in a place it no longer is.
+  // Both before the snapshot, so what goes out is where things are now rather than
+  // where they were a frame ago: a drop that has just been handed to somebody is
+  // gone from the census in the same breath, and a boat somebody else is steering
+  // is at the position their latest pose puts it.
   collectDrops();
+  syncRiddenBoats();
   snapTimer_ += dt;
   if (snapTimer_ >= kSnapPeriod) {
     snapTimer_ -= kSnapPeriod;
@@ -551,6 +585,26 @@ void Host::onEdit(PeerState& st, const EditMsg& m, double now) {
   // a support giving way — runs on a later tick outside this call and still
   // reaches the sink normally, which is what relays the consequences.
   game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
+
+  // A station carries state from the moment it exists, and that state belongs to
+  // the host. Interact::tryPlace does exactly this for a block the local player
+  // puts down; nothing did it for a block that arrived over the wire, so a chest a
+  // guest placed existed on the host as a block and nowhere as a container.
+  //
+  // Everything downstream then failed in a way that pointed at the wrong thing.
+  // onBeRequest found nothing and answered "Nothing there"; because the request
+  // failed no lock was taken, so onBeState quietly discarded every write the guest
+  // sent when it closed the screen; and when the chest was broken spillBlockEntity
+  // had nothing to spill. Meanwhile the guest's own screen worked perfectly,
+  // because it was reading the copy in its own world the whole time — which is why
+  // this looked like a container that worked and then stopped rather than one that
+  // was never really there.
+  const game::BlockEntityKind kind =
+      game::entityKindFor(world::blocks().def(static_cast<world::BlockId>(m.id)).key);
+  if (kind != game::BlockEntityKind::None) {
+    game_.world->getOrCreateBlockEntity(m.x, m.y, m.z, kind);
+  }
+
   pendingEdits_.push_back(m);
 }
 
@@ -710,8 +764,60 @@ void Host::onBoatMount(PeerState& st, const BoatMountMsg& m, double now) {
       return;
     }
     boat->data.rider = true;
+    boat->data.remoteRider = true;
+    boatRiders_[boat->id] = st.playerId;
   } else {
+    // Only the person in it may get out of it. Without this a guest could stand
+    // anybody else up out of their boat by asking, from anywhere in the world —
+    // the reach check above is on mounting, and there is no reach at which
+    // ejecting somebody else is reasonable.
+    const auto seat = boatRiders_.find(boat->id);
+    if (seat != boatRiders_.end()) {
+      if (seat->second != st.playerId) return;
+      boatRiders_.erase(seat);
+    }
     boat->data.rider = false;
+    boat->data.remoteRider = false;
+  }
+}
+
+// Where the boats somebody else is steering have got to.
+//
+// A ridden boat is simulated by whoever is in it, for the same reason their body
+// is: it moves where they move and only their keyboard turns it. So the host does
+// not run its update hook (boat.cpp returns early on remoteRider) and instead
+// reads its position back out of the one thing the rider already sends twenty
+// times a second — their pose. The seat offset is the whole conversion, which is
+// why this needs no message of its own and no trust the pose did not already have.
+void Host::syncRiddenBoats() {
+  if (!game_.entities || boatRiders_.empty()) return;
+  for (game::Entity& e : game_.entities->all()) {
+    if (e.dead || e.ghost || e.type != game::EntityType::Boat || !e.data.remoteRider) continue;
+    const auto seat = boatRiders_.find(e.id);
+    if (seat == boatRiders_.end()) continue;
+    const PeerState* st = peerForPlayer(seat->second);
+    if (!st || !st->active || !st->havePose) continue;
+    e.pos = Vec3{st->lastPose.x, st->lastPose.y - game::kBoatSeatY, st->lastPose.z};
+    // Zeroed rather than left alone: the manager still sweeps this entity every
+    // tick, and a stale velocity would drag the hull away from the seat it is
+    // being placed under before the next pose put it back.
+    e.vel = Vec3{};
+    e.yaw = st->lastYaw;
+  }
+}
+
+void Host::releaseBoats(const std::string& playerId) {
+  if (!game_.entities) return;
+  for (auto it = boatRiders_.begin(); it != boatRiders_.end();) {
+    if (it->second != playerId) {
+      ++it;
+      continue;
+    }
+    if (game::Entity* boat = game_.entities->byId(it->first)) {
+      boat->data.rider = false;
+      boat->data.remoteRider = false;
+    }
+    it = boatRiders_.erase(it);
   }
 }
 
@@ -917,7 +1023,23 @@ void Host::onBeRequest(PeerState& st, const BeRequestMsg& m, double now) {
     sendTo(st.peer, MsgType::BeDeny, deny);
     return;
   }
-  game::BlockEntity* be = game_.world->getBlockEntity(m.x, m.y, m.z);
+  // The block decides, not the guest and not what happens to be in the map. A
+  // station block with no container behind it is a container that has not been
+  // made yet, which is exactly how the local path treats one — tryPlace and this
+  // both go through getOrCreate for the same reason.
+  //
+  // It also repairs a world rather than only stopping the damage. Every chest a
+  // guest placed before onEdit learned to make one is sitting in somebody's save
+  // right now as a block with nothing behind it, and would go on answering
+  // "Nothing there" forever however many times they reloaded. Opening it makes it
+  // real. The allocation is not something a peer can abuse into anything: it
+  // happens only where the world already holds a station block, so the ceiling is
+  // the number of stations in the world.
+  const game::BlockEntityKind kind =
+      game::entityKindFor(world::blocks().def(game_.world->getBlock(m.x, m.y, m.z)).key);
+  game::BlockEntity* be = kind == game::BlockEntityKind::None
+                              ? nullptr
+                              : game_.world->getOrCreateBlockEntity(m.x, m.y, m.z, kind);
   if (!be) {
     BeDenyMsg deny;
     deny.x = m.x;
@@ -1050,13 +1172,56 @@ void Host::flushEdits() {
 
 void Host::sendSnapshot() {
   if (!game_.entities || peers_.empty()) return;
-  SnapshotMsg snap;
-  snap.time = game_.sky ? game_.sky->time : 0.32f;
-  snap.seq = ++snapSeq_;
+  const float now = game_.sky ? game_.sky->time : 0.32f;
+  // One number for the whole round. Each peer still sees it strictly increasing,
+  // which is all newerSeq asks of it, and a shared counter means two guests cannot
+  // be told contradictory things about which snapshot is the newer one.
+  const std::uint32_t seq = ++snapSeq_;
 
+  // Everyone in the world, built once: the player list is the same for all of them
+  // and is never the part that has to be cut. Seven guests plus the host is a
+  // couple of hundred bytes, and a player dropped from a snapshot is a person who
+  // vanishes — which is exactly the failure this whole pass exists to stop.
+  std::vector<SnapPlayer> everyone;
+  if (game_.player) {
+    SnapPlayer self;
+    self.playerId = playerId_;
+    self.pos = game_.player->pos();
+    self.yaw = game_.player->yaw();
+    self.pitch = game_.player->pitch();
+    self.flags = static_cast<std::uint8_t>((game_.player->swimming() ? 1 : 0) |
+                                           (game_.player->sneaking() ? 2 : 0) |
+                                           (game_.player->flying() ? 4 : 0) |
+                                           (game_.player->sprinting() ? 8 : 0));
+    self.health = game_.player->health();
+    everyone.push_back(std::move(self));
+  }
+  for (const PeerState& st : peers_) {
+    if (!st.active || !st.havePose) continue;
+    SnapPlayer p;
+    p.playerId = st.playerId;
+    p.pos = st.lastPose;
+    // Relayed the same way the position is. These were left at their defaults,
+    // which the host never noticed because it draws guests from their poses
+    // directly — but a guest only ever learns about another guest through this
+    // snapshot, so with three people in a world the other two faced north and
+    // never moved their heads.
+    p.yaw = st.lastYaw;
+    p.pitch = st.lastPitch;
+    p.flags = st.flags;
+    p.health = st.health;
+    everyone.push_back(std::move(p));
+  }
+  std::size_t playerBytes = 0;
+  for (const SnapPlayer& p : everyone) playerBytes += wireSize(p);
+
+  // Every entity that could be sent to anyone, encoded once. Which of them each
+  // guest is actually told about is decided below and differs per guest; what an
+  // entity looks like does not.
+  std::vector<SnapEntity> pool;
+  pool.reserve(game_.entities->all().size());
   for (const game::Entity& e : game_.entities->all()) {
     if (e.dead || e.ghost) continue;
-    if (snap.entities.size() >= 512) break;
     SnapEntity out;
     out.id = e.id;
     out.type = static_cast<std::uint8_t>(e.type);
@@ -1084,42 +1249,52 @@ void Host::sendSnapshot() {
         out.b = e.data.hurtFlash;
         break;
     }
-    snap.entities.push_back(std::move(out));
+    pool.push_back(std::move(out));
   }
 
-  // The host's own player is in the snapshot like any other, so a guest draws it
-  // through exactly the same path as another guest.
-  if (game_.player) {
-    SnapPlayer self;
-    self.playerId = playerId_;
-    self.pos = game_.player->pos();
-    self.yaw = game_.player->yaw();
-    self.pitch = game_.player->pitch();
-    self.flags = static_cast<std::uint8_t>((game_.player->swimming() ? 1 : 0) |
-                                           (game_.player->sneaking() ? 2 : 0) |
-                                           (game_.player->flying() ? 4 : 0) |
-                                           (game_.player->sprinting() ? 8 : 0));
-    self.health = game_.player->health();
-    snap.players.push_back(std::move(self));
-  }
+  // Where each guest is standing, so "near me" means near them. One that has not
+  // sent a pose yet is still arriving; the host's own position is the best guess
+  // available and is where they are about to appear anyway.
+  const Vec3 fallback = game_.player ? game_.player->pos() : Vec3{};
+
+  std::vector<std::pair<float, std::size_t>> near;
   for (const PeerState& st : peers_) {
-    if (!st.active || !st.havePose) continue;
-    SnapPlayer p;
-    p.playerId = st.playerId;
-    p.pos = st.lastPose;
-    // Relayed the same way the position is. These were left at their defaults,
-    // which the host never noticed because it draws guests from their poses
-    // directly — but a guest only ever learns about another guest through this
-    // snapshot, so with three people in a world the other two faced north and
-    // never moved their heads.
-    p.yaw = st.lastYaw;
-    p.pitch = st.lastPitch;
-    p.flags = st.flags;
-    p.health = st.health;
-    snap.players.push_back(std::move(p));
-  }
+    if (!st.active) continue;
+    const Vec3 eye = st.havePose ? st.lastPose : fallback;
 
-  broadcast(MsgType::Snapshot, snap, kNoPeer, Channel::Fast);
+    near.clear();
+    for (std::size_t i = 0; i < pool.size(); ++i) {
+      const float d = dist3(eye, pool[i].pos);
+      if (d > kSnapRange) continue;
+      near.emplace_back(d, i);
+    }
+    // Nearest first, so what survives the budget is what this guest can see, reach
+    // and be hurt by. The old census took whatever came first in the entity
+    // vector, which is oldest first — and a drop in an unloaded chunk never ages,
+    // so a long session accumulated a queue of frozen items that filled the
+    // allowance and left the mob standing next to you out of the message
+    // altogether. A guest treats anything a snapshot does not mention as gone, so
+    // it did not merely fail to update that mob: it deleted it.
+    std::sort(near.begin(), near.end(),
+              [](const std::pair<float, std::size_t>& a,
+                 const std::pair<float, std::size_t>& b) { return a.first < b.first; });
+
+    SnapshotMsg snap;
+    snap.time = now;
+    snap.seq = seq;
+    snap.players = everyone;
+    std::size_t used = snapshotOverhead() + playerBytes;
+    for (const auto& [d, i] : near) {
+      const std::size_t cost = wireSize(pool[i]);
+      if (used + cost > kSnapBudget) break;
+      used += cost;
+      snap.entities.push_back(pool[i]);
+      // The protocol's own ceiling, which the budget reaches long before in any
+      // world worth the check. Kept so the encoder and the decoder cannot disagree.
+      if (snap.entities.size() >= 512) break;
+    }
+    sendTo(st.peer, MsgType::Snapshot, snap, Channel::Fast);
+  }
 }
 
 std::vector<RosterEntry> Host::roster() const {

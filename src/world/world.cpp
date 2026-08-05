@@ -627,6 +627,19 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   // thousands of times a tick, never touches the map at all.
   if (previous == wk().canvas && id != wk().canvas) removePainting(wx, wy, wz);
 
+  // A container's contents belong to the container, so they go when it does — for
+  // the same reason and in the same place as the painting above. Both callers that
+  // break a station deliberately spill it first (Interact::complete, then this;
+  // Host::spillBlockEntity, then applyRemoteEdit), so this only ever catches what
+  // they did not: a flood washing a chest away, a falling block landing on one,
+  // and — the one that was actually costing people their things — a guest, which
+  // learns that a station was destroyed only as a relayed edit and had no path
+  // that cleaned up after it at all. The stale entry sat at that position for the
+  // rest of the session and handed its old contents to the next block placed there.
+  if (previous != id && blocks().def(previous).station != Station::None) {
+    removeBlockEntity(wx, wy, wz);
+  }
+
   // Carries the change outward cell by cell, over chunk borders where it has to
   // go, and marks whatever meshes it actually touched. This used to relight the
   // whole 3x3 — nine chunks, 49152 cells each, twice over — for one torch, and

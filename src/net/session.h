@@ -54,6 +54,15 @@ struct SessionHooks {
   std::function<void()> onRosterChange;
   // A positional one-shot named by the host.
   std::function<void(const std::string& kind, const Vec3& pos)> playSfx;
+  // Guest: the host will not let us have that container — it is not there, or
+  // somebody else is already in it. A screen showing one is showing a copy the
+  // host will never accept a word of, so it has to close rather than let the
+  // player spend a minute sorting something that will not be saved.
+  std::function<void(int x, int y, int z, const std::string& reason)> onContainerDenied;
+  // Guest: the host refused the boat we already climbed into. The argument is the
+  // host's entity id for it, so a stale refusal for a boat we have since got out
+  // of cannot throw us out of the one we are in now.
+  std::function<void(int netId)> onMountDenied;
 };
 
 // One entry in the player list, for the interface.

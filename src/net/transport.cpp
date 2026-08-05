@@ -244,9 +244,36 @@ void Transport::send(PeerId peer, Channel channel, const std::vector<std::uint8_
   if (!host_ || bytes.empty()) return;
   PeerSlot* slot = slotFor(peer);
   if (!slot || !slot->peer) return;
+  // UNRELIABLE_FRAGMENT is not an alternative to UNSEQUENCED, it is the answer to
+  // a different question: what to do when the packet does not fit in one datagram.
+  //
+  // enet_peer_send (peer.c:136) decides that with
+  //
+  //     (flags & (RELIABLE | UNRELIABLE_FRAGMENT)) == UNRELIABLE_FRAGMENT
+  //
+  // and note which flag is NOT in that test. UNSEQUENCED alone fails it, so an
+  // oversized "unsequenced" packet falls into the else branch and is sent as
+  // SEND_FRAGMENT | FLAG_ACKNOWLEDGE — reliable, ordered, acknowledged and
+  // retransmitted, on the channel chosen precisely because it must be none of
+  // those things. Nothing reports this; the call returns 0 like any other.
+  //
+  // The threshold is mtu - sizeof(ENetProtocolHeader) - sizeof(ENetProtocolSendFragment),
+  // which is 1364 bytes on the default 1392 MTU. A snapshot entity costs about 33,
+  // so a world with roughly forty things in it crosses it and stays across it. From
+  // there the fast channel carried twenty multi-fragment reliable packets a second:
+  // reliableDataInTransit climbs into the throttled window, the reliable send stalls
+  // (protocol.c:1472), and because the next snapshot is already queued behind it the
+  // backlog only grows. It does not recover. Channel 0 has its own window, which is
+  // why the world kept being edited while everything alive in it stopped — mobs and
+  // the other players froze together, because both of them travel in the snapshot.
+  //
+  // The flag is the fix for the channel; keeping a snapshot inside one datagram is
+  // the fix for the game, and Host::sendSnapshot now does that. Both, because the
+  // budget bounds the common case and this bounds the day something exceeds it.
   const enet_uint32 flags = channel == Channel::Reliable
                                 ? ENET_PACKET_FLAG_RELIABLE
-                                : ENET_PACKET_FLAG_UNSEQUENCED;
+                                : (ENET_PACKET_FLAG_UNSEQUENCED |
+                                   ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
   ENetPacket* packet = enet_packet_create(bytes.data(), bytes.size(), flags);
   if (!packet) return;
   if (enet_peer_send(static_cast<ENetPeer*>(slot->peer), static_cast<enet_uint8>(channel),

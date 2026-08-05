@@ -103,6 +103,14 @@ struct EntityData {
 
   // --- boat ---
   bool rider = false;
+  // Whether the person aboard is somebody else. `rider` says a boat is occupied,
+  // which is all the renderer and the "you cannot break it out from under them"
+  // rule need; this says the occupant is not the player on THIS machine, and it
+  // exists because the update hook steers the hull from ctx.input and drops
+  // ctx.player into the seat. Without it a host whose guest climbed into a boat
+  // had their own body teleported into it and driven around by their own WASD.
+  // Never saved: boatLoad stands everybody up.
+  bool remoteRider = false;
 
   // State-machine records, one per machine slot. Empty for every shipped mob — the
   // sheep, pig, cow and zombie still run their ad-hoc brains — and empty is the

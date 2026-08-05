@@ -162,6 +162,10 @@ class Host {
   // drop to notice, and until this existed a guest could not pick up so much as
   // its own death scatter.
   void collectDrops();
+  // Places each boat somebody else is steering under its rider's latest pose, and
+  // gives one back to the world when its rider leaves. See the definitions.
+  void syncRiddenBoats();
+  void releaseBoats(const std::string& playerId);
 
   template <typename T>
   void sendTo(PeerId peer, MsgType type, const T& msg, Channel channel = Channel::Reliable);
@@ -191,6 +195,11 @@ class Host {
 
   // Containers a guest has open, so two people cannot stir the same forge.
   std::unordered_map<std::uint64_t, std::string> beLocks_;
+  // Who is sitting in which boat, by entity id. Held here rather than on the
+  // entity because EntityData has no room for a player id and no business knowing
+  // what one is: the entity layer only needs to know that SOMEBODY else is aboard,
+  // which is what `remoteRider` says. This is the network's half of that answer.
+  std::unordered_map<int, std::string> boatRiders_;
   std::unordered_map<std::string, StoredGuest> stored_;
   // Who currently wants to sleep, by player id, including the host — and the hour
   // the first of them asked for, which is what the rest are voting on. Cleared

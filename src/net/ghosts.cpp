@@ -189,7 +189,7 @@ bool Ghosts::playerPos(const std::string& playerId, Vec3& out) const {
   return true;
 }
 
-void Ghosts::update(double now) {
+void Ghosts::update(double now, int localMount) {
   nameplates_.clear();
   if (!entities_) return;
   rebuildIndex();
@@ -266,8 +266,16 @@ void Ghosts::update(double now) {
       body = spawnInto(id, type, pos);
       if (!body) continue;
     }
-    body->pos = pos;
-    body->yaw = yaw;
+    // The hull we are sitting in is ours to move; everything else about it is
+    // still the host's. Its position and heading are left alone here so the local
+    // simulation can steer it, and the rider flag below is skipped too — the host
+    // says "occupied" about the very boat we are occupying, and letting that round
+    // trip back in would be a boat that reports itself full to its own passenger.
+    const bool mine = localMount != 0 && body->id == localMount;
+    if (!mine) {
+      body->pos = pos;
+      body->yaw = yaw;
+    }
     // The two per-type extras, unpacked the way the host packed them: a drop's
     // stack count, a mob's health and hurt flash, a boat's rider flag.
     switch (body->type) {
@@ -283,7 +291,7 @@ void Ghosts::update(double now) {
         body->data.key = g.key;
         break;
       case game::EntityType::Boat:
-        body->data.rider = g.a > 0.5f;
+        if (!mine) body->data.rider = g.a > 0.5f;
         break;
       default:
         body->data.health = g.a;

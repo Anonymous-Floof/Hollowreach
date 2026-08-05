@@ -559,8 +559,21 @@ game::InteractHooks App::makeInteractHooks() {
   hooks.relayEntity = [this](const game::Entity& e, game::InteractButton button) {
     if (!netGuest()) return false;
     if (e.type == game::EntityType::Boat && button == game::InteractButton::Right) {
-      netClient_.sendBoatMount(e.id, !e.data.rider);
-      return true;
+      // `netId`, not `id`. A ghost's id is -netId - 1, so the host was being asked
+      // about an entity that could not exist and answered BoatDeny every single
+      // time — which is the whole of "boats do not work for the guest". Every
+      // other relay below already got this right, which is exactly why it went
+      // unnoticed: the mistake was in the one line that did not look like the
+      // others.
+      netClient_.sendBoatMount(e.netId, !e.data.rider);
+      mountedNetId_ = e.netId;
+      // Deliberately NOT handled — the local hook runs too, and seats us. Waiting
+      // a round trip to sit down in a boat you are standing against feels like the
+      // click was ignored, so the guest climbs in immediately and a BoatDeny is
+      // what stands it back up. The hull is then simulated here, because a boat
+      // you are riding is part of your body; the host is told where it went by
+      // your pose and mirrors it for everyone else.
+      return false;
     }
     if (e.type == game::EntityType::RemotePlayer) {
       // PvP. The ghost carries the network id, not the player id, so the target
@@ -1209,6 +1222,27 @@ net::SessionHooks App::makeSessionHooks() {
   hooks.playSfx = [](const std::string& kind, const Vec3& pos) {
     audio::sfx::playNamed(kind, pos);
   };
+  // The host will not give us that container. Only close the screen if it is the
+  // one being shown — a denial can arrive for a chest we asked about, changed our
+  // mind on, and walked away from, and shutting the player's inventory for that
+  // would be a worse surprise than the one it is fixing.
+  hooks.onMountDenied = [this](int netId) {
+    if (!player_ || mountedNetId_ != netId) return;
+    mountedNetId_ = 0;
+    if (game::Entity* boat = entities_.byId(player_->mount())) {
+      boat->data.rider = false;
+    }
+    player_->setMount(0);
+    interface_.notify().push("That boat is taken");
+  };
+  hooks.onContainerDenied = [this](int x, int y, int z, const std::string&) {
+    if (!stationOpen_ || x != stationX_ || y != stationY_ || z != stationZ_) return;
+    // Straight to false rather than through closeStation, whose whole job is to
+    // send the host what we did with the container. There is nothing to send: the
+    // host just told us we never had it.
+    stationOpen_ = false;
+    if (state_ == AppState::Inventory || state_ == AppState::RecipeBook) resumePlaying();
+  };
   return hooks;
 }
 
@@ -1299,6 +1333,9 @@ void App::leaveNetwork(const std::string& reason) {
   advertiser_.stop();
   netHost_.stop();
   netClient_.stop(false);
+  // Nothing on the far side to tell any more, and a stale id here would be
+  // answered by whichever boat happened to hold it in the next world joined.
+  mountedNetId_ = 0;
   if (world_) world_->setEditSink(nullptr);
   if (!reason.empty()) interface_.notify().push(reason);
 }
@@ -1693,6 +1730,17 @@ void App::stepWorld(double dt) {
   {
     render::CpuScope cs(renderer_.profiler(), render::CpuPhase::Entities);
     entities_.tick(fdt, entityContext_);
+  }
+
+  // Getting out of a boat is decided inside the boat's own update hook, which
+  // knows nothing about the network and should not: it is Shift, and it is the
+  // same key whoever presses it. So the standing-up is noticed here instead, by
+  // watching the one thing it changes. Without this the host keeps the hull
+  // reserved for a guest who walked off it — unbreakable, unmountable by anyone
+  // else, and pinned to a pose that is no longer sitting in it.
+  if (netGuest() && mountedNetId_ != 0 && player_->mount() == 0) {
+    netClient_.sendBoatMount(mountedNetId_, false);
+    mountedNetId_ = 0;
   }
 
   // Passive grazers on nearby grass in daylight, zombies anywhere dark enough,

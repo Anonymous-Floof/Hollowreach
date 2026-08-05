@@ -15,6 +15,56 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Multiplayer needs both machines on this version.** Boats now belong to
+> whoever is sitting in them, which is a different answer to the same question an
+> older build asks — so the two are refused at the join screen rather than allowed
+> to disagree about it. **Saves are fine in both directions.**
+
+### Fixed
+- **A guest no longer loses the world after half an hour.** Mobs would stop dead,
+  the host would stop moving, and nothing brought them back — while blocks kept
+  working perfectly, which is what made it so hard to place. Position updates go
+  on a channel that is meant to drop packets rather than resend them, but any
+  update too big for a single message was quietly being sent the careful way
+  instead: acknowledged, retransmitted and kept in order. Twenty of those a second
+  is more than the connection can carry, and once it fell behind it stayed behind.
+  A busy world crossed that size in about forty entities, so every session got
+  there eventually.
+- **The world a guest is shown is the world around them.** The host used to send
+  every entity it owned to everybody, oldest first, and stop at five hundred. A
+  dropped item in an unloaded chunk never ages away, so a long session built up a
+  queue of frozen items that used up the whole message before it reached the animal
+  standing next to you — and anything left out of the message is understood to have
+  died. That is the other half of mobs vanishing, and it got worse the longer you
+  played. Each person is now told about what is near them, nearest first.
+- **A chest a guest puts down is a real chest.** It reached the host as a block but
+  never as a container, so opening it was refused with "Nothing there", everything
+  put in it was quietly discarded, and breaking it dropped nothing. The guest's own
+  screen showed the contents the whole time — it was reading its own copy — which
+  is why it looked like a chest that worked and then stopped. Chests already
+  standing in a world this happened to are repaired the next time somebody opens
+  one, rather than being left broken forever.
+- **A container the host destroys stops existing for the guest too.** It used to be
+  left behind at that position, invisible and still holding things, and hand them
+  to the next block placed there.
+- **Boats work for a guest.** They were asked for by an id no host could match, so
+  every attempt to get in one was refused. A boat is now steered by whoever is
+  sitting in it and everyone else is shown where it went — including the host, who
+  previously would have been dragged into the seat and made to drive.
+- **A chest is not locked shut by somebody who has left.** If a guest disconnected
+  with one open, it stayed reserved for them forever and told everybody else that
+  somebody else had it open.
+- **A container screen a guest is not allowed closes** instead of letting them
+  spend a minute sorting something the host will never keep.
+- **A world stops collecting dropped items forever.** Items left in ground you have
+  walked away from wait for you rather than ageing away, which is on purpose and has
+  not changed — but nothing ever bounded the pile, and it was saved with the world,
+  so every session began with the last one's leftovers and added to it. That growing
+  pile is what made the problem above outlive quitting and rejoining. A world now
+  keeps at most a thousand of them and forgets the very oldest first. You would have
+  to abandon a thousand stacks in places you never return to before it takes
+  anything, and walking back for your things still works however long you take.
+
 ## [2.7.0] - 2026-08-05
 
 > **Multiplayer needs both machines on this version.** A guest is now told what a

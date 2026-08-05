@@ -92,7 +92,13 @@ class Ghosts {
   void removePlayer(const std::string& playerId);
 
   // Interpolates every ghost and writes it into the entity manager.
-  void update(double now);
+  //
+  // `localMount` is the entity id of whatever the local player is sitting in, or 0.
+  // That one body is simulated here rather than mirrored — see EntityManager::tick
+  // — so writing an interpolated position into it would drag the rider back to
+  // where the host last saw them, twenty times a second, which is a boat that
+  // shudders on the spot and never leaves the shore.
+  void update(double now, int localMount = 0);
 
   // For nameplates: every remote player currently known, with where it is drawn.
   struct Nameplate {

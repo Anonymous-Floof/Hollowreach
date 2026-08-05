@@ -163,6 +163,19 @@ bool decode(ByteReader& r, PoseMsg& m) {
          okF(m.pitch, -4, 4) && okF(m.health, 0, 40) && m.flags <= 15;
 }
 
+// The type tag, the clock, the sequence, and the two list lengths.
+std::size_t snapshotOverhead() { return 1 + 4 + 4 + 4 + 4; }
+
+std::size_t wireSize(const SnapEntity& e) {
+  //     id   type  pos  yaw   a    b   key length + bytes
+  return 4 + 1 + 12 + 4 + 4 + 4 + 2 + e.key.size();
+}
+
+std::size_t wireSize(const SnapPlayer& p) {
+  //     id length + bytes    pos  yaw  pitch flags health hurt
+  return 2 + p.playerId.size() + 12 + 4 + 4 + 1 + 4 + 1;
+}
+
 void encode(ByteWriter& w, const SnapshotMsg& m) {
   w.f32(m.time);
   w.u32(m.seq);
