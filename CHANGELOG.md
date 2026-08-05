@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.8.0] - 2026-08-05
+
 > **Multiplayer needs both machines on this version.** Boats now belong to
 > whoever is sitting in them, which is a different answer to the same question an
 > older build asks — so the two are refused at the join screen rather than allowed
@@ -699,7 +701,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.7.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.8.0
 [2.7.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.7.0
 [2.6.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.6.0
 [2.5.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.1
