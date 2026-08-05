@@ -58,6 +58,14 @@ version heading when it's time to ship.
   somebody else had it open.
 - **A container screen a guest is not allowed closes** instead of letting them
   spend a minute sorting something the host will never keep.
+- **Opening a chest no longer grabs half a stack on the way in.** Right clicking a
+  container opened it and, in the same instant, split whatever stack sat under the
+  pointer — so you arrived at the chest already holding something you never picked
+  up. The pointer is hidden while you are playing but it does not move, so the
+  click went to wherever you had last left it in a menu, which is why it always
+  seemed to pick the same slot. Screens now take a moment to become clickable, and
+  a button you were already holding when one opened has to be let go before it
+  counts. Present since the first inventory screen.
 - **A world stops collecting dropped items forever.** Items left in ground you have
   walked away from wait for you rather than ageing away, which is on purpose and has
   not changed — but nothing ever bounded the pile, and it was saved with the world,

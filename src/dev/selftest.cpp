@@ -1952,6 +1952,45 @@ void testEntities() {
     check(sheep == 1, "and an animal you left somewhere stays there");
   }
 
+  // --- the click that opens a screen stays outside it ---------------------------
+  // Right clicking a chest opened the inventory and split a stack in the same
+  // breath, because the pointer was still resting where it was left the last time
+  // a screen was up. Sixty frames a second, so a frame is about 16 ms.
+  {
+    constexpr double kFrame = 1.0 / 60.0;
+    ui::MouseGuard g;
+    check(!g.guarding(), "nothing is guarded before a screen opens");
+    check(!g.update(kFrame, true), "and a held button on an ordinary frame is heard");
+
+    // Right click, held: the frame the screen opens on, and the ones just after.
+    g.arm();
+    check(g.update(kFrame, true), "the click that opens a screen does not reach it");
+    check(g.update(kFrame, true), "nor does the frame after");
+
+    // Held well past the timer. This is the case a bare timer misses.
+    for (int i = 0; i < 60; ++i) g.update(kFrame, true);
+    check(g.guarding(), "a button still held keeps the screen deaf however long");
+    check(!g.update(kFrame, false), "and letting go is what finally opens it up");
+
+    // The very next click is a real one and must land.
+    check(!g.update(kFrame, true), "so the next click is the player's, and is heard");
+
+    // Released quickly instead: the timer alone has to carry it.
+    ui::MouseGuard q;
+    q.arm();
+    check(q.update(kFrame, true), "a quick click is caught by the timer");
+    check(q.update(kFrame, false), "and stays caught after the button comes up");
+    int frames = 2;
+    while (q.guarding() && frames < 600) {
+      q.update(kFrame, false);
+      ++frames;
+    }
+    checkf(frames < 600, "and the guard always lifts on its own (%d frames)", frames);
+    const double waited = frames * kFrame;
+    checkf(waited >= ui::MouseGuard::kWindow - kFrame && waited < 0.25,
+           "after about the window it promises, not longer (%.0f ms)", waited * 1000.0);
+  }
+
   // --- the drop pile has a ceiling ---------------------------------------------
   // Drops in unloaded chunks never age, and the pile went into the save, so a
   // world only ever gained them. Far enough out that every one of these is frozen

@@ -124,6 +124,12 @@ class Interface {
 
   Screen screen() const { return screen_; }
   void setScreen(Screen s);
+
+  // Makes the interface deaf to the mouse for a moment, so the click that opened
+  // a screen is not also spent inside it. Armed on every screen change; see
+  // MouseGuard for why it is not simply a timer. Public because anything that
+  // puts a screen up out of band should be able to say so.
+  void guardMouse() { mouseGuard_.arm(); }
   // The Gallery, opened to choose a picture for a painting rather than to browse.
   // Not a Screen of its own because it IS the gallery — same scan, same thumbnails,
   // same grid — with its cards wired to a different action.
@@ -183,7 +189,7 @@ class Interface {
   bool hudVisible() const { return hudEnabled_; }
 
  private:
-  UiEvent gatherEvent(const Window& window, const Input& input, double dt) const;
+  UiEvent gatherEvent(const Window& window, const Input& input, double dt);
 
   Ui2D ui_;
   Text text_;
@@ -202,6 +208,7 @@ class Interface {
   const render::IconAtlas* icons_ = nullptr;
 
   Screen screen_ = Screen::None;
+  MouseGuard mouseGuard_;
   float scale_ = 1.0f;
   bool hudEnabled_ = true;
   double dt_ = 0;

@@ -71,6 +71,16 @@ void Interface::setScreen(Screen s) {
   if (screen_ == s) return;
   const Screen previous = screen_;
   screen_ = s;
+  // The click that opened this screen must not also be spent inside it. Right
+  // clicking a chest opens the inventory and, on that very frame, the same right
+  // click reaches the slot grid and splits whatever stack the pointer happens to
+  // be resting on — which, the pointer having been captured until a moment ago, is
+  // wherever it was left the last time a screen was up. So you open a chest and
+  // find half a stack stuck to the cursor that you never picked up.
+  //
+  // Guarding here rather than at the eight call sites that open screens: they all
+  // come through setScreen, and it already knows a change from a repeat.
+  guardMouse();
   if (s == Screen::Menu) menu_.onShow();
   if (s == Screen::Settings) settingsScreen_.onShow();
   if (s == Screen::RecipeBook) recipeBook_.open();
@@ -125,11 +135,30 @@ void Interface::update(double dt, const UiFrame& frame) {
   }
 }
 
-UiEvent Interface::gatherEvent(const Window& window, const Input& input, double dt) const {
+UiEvent Interface::gatherEvent(const Window& window, const Input& input, double dt) {
   UiEvent e;
   // Node rects are in layout pixels; the OS reports the cursor in device pixels.
   e.mouseX = static_cast<float>(input.mouseX()) / scale_;
   e.mouseY = static_cast<float>(input.mouseY()) / scale_;
+
+  // A freshly opened screen ignores the mouse until the guard lifts; MouseGuard
+  // says why, and setScreen is what arms it.
+  const bool held = input.buttonDown(MouseButton::Left) ||
+                    input.buttonDown(MouseButton::Right) ||
+                    input.buttonDown(MouseButton::Middle);
+  if (mouseGuard_.update(dt, held)) {
+    // Position and the keyboard still come through. Hover has to keep working or
+    // the screen appears with nothing highlighted, and Escape has to keep closing
+    // it; it is only the buttons that are deaf, and only for a moment.
+    e.shift = input.shift();
+    e.ctrl = input.ctrl();
+    e.alt = input.alt();
+    e.input = &input;
+    e.dt = dt;
+    (void)window;
+    return e;
+  }
+
   e.leftClick = input.clicked(MouseButton::Left);
   e.rightClick = input.clicked(MouseButton::Right);
   e.leftDown = input.buttonDown(MouseButton::Left);
@@ -179,7 +208,9 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
   UiEvent event = gatherEvent(window, input, dt_);
   // The wheel is consumed by whichever screen is up; the hotbar only sees it while
   // nothing is open, which App enforces by checking blocksGameplay().
-  if (screen_ != Screen::None) event.wheel = static_cast<float>(input.wheelPeek());
+  if (screen_ != Screen::None && !mouseGuard_.guarding()) {
+    event.wheel = static_cast<float>(input.wheelPeek());
+  }
 
   // The same remote bodies the nameplates are drawn from, handed to the Atlas so
   // the map and the minimap can show where everyone is. Refreshed before either

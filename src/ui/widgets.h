@@ -37,6 +37,50 @@ struct UiEvent {
   double dt = 0;
 };
 
+// Makes a freshly opened screen deaf to the mouse for a moment.
+//
+// The click that opens a screen would otherwise be spent inside it on the same
+// frame: right clicking a chest opens the inventory, and that same right click
+// reaches the slot grid and splits whatever stack the pointer is resting on —
+// which, the pointer having been captured until a moment ago, is wherever it was
+// left the last time a screen was up. You open a chest and find half a stack on
+// the cursor you never picked up.
+//
+// Two conditions, and both are load-bearing. The timer gives the screen a moment
+// to be up before anything can land in it. The latch then holds until every
+// button is up, so a button still held from before cannot simply fall into the
+// first frame after the timer expires — opening a chest with the button held and
+// letting go a second later is exactly the case a timer alone misses.
+//
+// Lives here, apart from Interface, because Interface needs a GL context and this
+// needs to be testable without one.
+class MouseGuard {
+ public:
+  void arm() {
+    remaining_ = kWindow;
+    latched_ = true;
+  }
+
+  // Advances the guard and reports whether the mouse should still be ignored.
+  // Call once per frame, before reading any button.
+  bool update(double dt, bool anyButtonDown) {
+    if (remaining_ > 0.0) remaining_ = std::max(0.0, remaining_ - dt);
+    if (latched_ && remaining_ <= 0.0 && !anyButtonDown) latched_ = false;
+    return latched_;
+  }
+
+  bool guarding() const { return latched_; }
+
+  // Long enough that a screen is up and settled before it can be clicked, short
+  // enough to stay well inside the gap between the click that opens a chest and
+  // the earliest one that could be meant for what is in it.
+  static constexpr double kWindow = 0.12;
+
+ private:
+  double remaining_ = 0.0;
+  bool latched_ = false;
+};
+
 // CSS transitions and keyframes. There is no cascade to hang a transition off, so
 // each animated property asks for its progress by key once per frame.
 //
