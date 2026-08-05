@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.7.0] - 2026-08-05
+
 > **Multiplayer needs both machines on this version.** A guest is now told what a
 > dropped item actually is, and both ends stamp their position updates so a packet
 > that arrives late can be recognised as late — neither of which an older build can
@@ -647,7 +649,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.6.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.7.0
 [2.6.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.6.0
 [2.5.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.1
 [2.5.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.5.0
