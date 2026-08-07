@@ -236,6 +236,18 @@ class World {
   // ordinary edits or the two worlds diverge the first time a bucket is poured.
   using EditSink = std::function<void(int x, int y, int z, BlockId id, int meta)>;
   void setEditSink(EditSink sink) { editSink_ = std::move(sink); }
+
+  // A container a generated structure has just put into the world, offered once as
+  // the chunk holding it lands. A sink rather than a call into the loot tables so
+  // that World never learns what loot is — the same reason drops and edits leave
+  // through one of these instead of World reaching into the game layer.
+  //
+  // Whoever takes it is responsible for two things this class cannot judge:
+  // whether the container has already been filled (chunks regenerate every time the
+  // player walks back), and whether this machine is the one entitled to decide what
+  // is inside it (in multiplayer that is the host, and only the host).
+  using LootSink = std::function<void(int x, int y, int z, bool rich)>;
+  void setLootSink(LootSink sink) { lootSink_ = std::move(sink); }
   // Applies an edit that came from the network without echoing it back out.
   void applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta);
   void spawnDrop(float wx, float wy, float wz, const std::string& key, int count = 1,
@@ -383,6 +395,10 @@ class World {
   std::uint32_t paintingRevision_ = 0;
   DropSink dropSink_;
   EditSink editSink_;
+  LootSink lootSink_;
+  // Reused across chunk installs rather than allocated per chunk: this runs for
+  // every chunk that lands, and almost every call finds nothing.
+  std::vector<DungeonChest> lootScratch_;
   // Set while a remote edit is being applied, so the sink does not send it back to
   // the peer it came from.
   bool applyingRemote_ = false;

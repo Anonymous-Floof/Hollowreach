@@ -25,7 +25,7 @@ namespace hr::ui {
 
 // Which page of the menu card is showing. The JS swapped innerHTML on #menu-root; the
 // page is the state that survives a rebuild.
-enum class MenuPage { Main, Worlds, NewWorld, About, Join };
+enum class MenuPage { Main, Worlds, NewWorld, About, Join, WorldUpgrade };
 
 // One row of the world list, filled from the save layer's listing.
 struct WorldEntry {
@@ -34,6 +34,12 @@ struct WorldEntry {
   std::uint32_t seed = 0;
   // Seconds since the save, for the "saved 3m ago" line.
   double ageSeconds = 0;
+  // Which generator made this world's ground, and the current one to measure it
+  // against. The menu is handed both rather than including worldgen, which it
+  // otherwise has no reason to know about.
+  int genVersion = 0;
+  int currentGenVersion = 0;
+  bool outdated() const { return genVersion > 0 && genVersion < currentGenVersion; }
 };
 
 // One game heard on the local network. Filled from net::Beacon; the interface
@@ -53,6 +59,11 @@ struct MenuActions {
   std::function<void(const std::string& name, std::uint32_t seed)> createWorld;
   std::function<void(const std::string& id)> loadWorld;
   std::function<void(const std::string& id)> deleteWorld;
+  // Moves a world onto the current terrain generator, taking a copy first. One
+  // action rather than two, because the copy is not optional — see the upgrade page.
+  std::function<void(const std::string& id)> upgradeWorld;
+  // Just the copy, for someone who wants one before deciding anything.
+  std::function<void(const std::string& id)> backupWorld;
   // Writes a shareable copy to data/exports. The row's button has existed since the
   // screens landed; the save layer is what it was waiting for.
   std::function<void(const std::string& id)> exportWorld;
@@ -136,6 +147,7 @@ class Menu {
   void buildPageNewWorld(const UiEvent& event, TweenStore& tweens);
   void buildPageAbout(const UiEvent& event, TweenStore& tweens);
   void buildPageJoin(const UiEvent& event, TweenStore& tweens);
+  void buildPageWorldUpgrade(const UiEvent& event, TweenStore& tweens);
   void handleMain(const UiEvent& event, Text& text);
   void handlePause(const UiEvent& event);
 
@@ -155,6 +167,12 @@ class Menu {
 
   std::vector<WorldEntry> worlds_;
   bool worldsLoaded_ = false;
+  // Which world the upgrade page is asking about. A field of its own because
+  // hoveredIndex_ is recomputed from the hit test every frame and so does not
+  // survive the page change that opens the question.
+  std::string pendingWorldId_;
+  std::string pendingWorldName_;
+  int pendingWorldGen_ = 0;
 
   TextField nameField_;
   TextField seedField_;

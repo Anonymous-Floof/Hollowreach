@@ -19,6 +19,7 @@
 #include "net/doctor.h"
 #include "platform/paths.h"
 #include "platform/update.h"
+#include "world/worldgen.h"
 
 namespace {
 
@@ -30,6 +31,8 @@ void printUsage() {
       "  --sections <list>     limit --dump-golden to prng,noise,fields,worldgen,chunks\n"
       "  --dump-atlas <png>    build the texture atlas headlessly and write it\n"
       "  --dump-recipes <file> write the crafting, smelting and fuel tables and exit\n"
+      "  --dump-loot <file>    write the loot tables and exit (\"-\" for stdout)\n"
+      "  --find-dungeon        print the nearest dungeon to spawn and exit\n"
       "  --dump-audio <event> <path>  render one sound event to a wav and exit\n"
       "                        (\"all\" writes every event into a directory;\n"
       "                         \"list\" prints the event names)\n"
@@ -96,6 +99,8 @@ int main(int argc, char** argv) {
   std::string goldenSections;
   std::string atlasPath;
   std::string recipesPath;
+  std::string lootPath;
+  bool findDungeon = false;
   int atlasTileRes = 128;
   bool atlasMipmaps = false;
   bool runSelfTest = false;
@@ -143,6 +148,10 @@ int main(int argc, char** argv) {
       if (!takeValue(argc, argv, i, arg, atlasPath)) return 2;
     } else if (std::strcmp(arg, "--dump-recipes") == 0) {
       if (!takeValue(argc, argv, i, arg, recipesPath)) return 2;
+    } else if (std::strcmp(arg, "--dump-loot") == 0) {
+      if (!takeValue(argc, argv, i, arg, lootPath)) return 2;
+    } else if (std::strcmp(arg, "--find-dungeon") == 0) {
+      findDungeon = true;
     } else if (std::strcmp(arg, "--dump-audio") == 0) {
       if (!takeValue(argc, argv, i, arg, audioEvent)) return 2;
       if (audioEvent != "list" && !takeValue(argc, argv, i, arg, audioPath)) return 2;
@@ -340,6 +349,14 @@ int main(int argc, char** argv) {
   }
   if (!recipesPath.empty()) {
     return hr::dev::dumpRecipes(recipesPath) ? 0 : 1;
+  }
+  if (!lootPath.empty()) {
+    return hr::dev::dumpLoot(lootPath) ? 0 : 1;
+  }
+  if (findDungeon) {
+    // Uses --seed, so a specific world can be asked about. Headless like the dumps
+    // above: it is arithmetic on the seed and generation, and needs no window.
+    return hr::dev::dungeonInfo(options.seed);
   }
   if (!audioEvent.empty()) {
     if (audioEvent == "list") {

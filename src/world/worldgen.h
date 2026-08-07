@@ -70,7 +70,12 @@ inline constexpr double kPocketThreshold = 0.10;  // below this the column is dr
 inline constexpr double kPocketSpan = 0.22;       // rise over which a lake fills up
 inline constexpr int pocketCeiling(int ver) { return seaLevel(ver) - kPocketCeilingDrop; }
 
-inline constexpr int kGenVersion = 4;
+// v5 adds dungeons, and adds nothing else. Every terrain branch below is untouched,
+// so a chunk generated at v4 comes out identical to what v4 always produced — which
+// is the property that lets an existing world be moved forward without its landscape
+// shifting under what the player built on it. The golden vectors hash every version
+// from 1 up, so that claim is checked rather than asserted.
+inline constexpr int kGenVersion = 5;
 
 enum class Biome : std::uint8_t { Meadow = 0, Forest = 1, Birch = 2, Desert = 3, Snow = 4 };
 inline constexpr int kBiomeCount = 5;
@@ -134,5 +139,33 @@ struct SurfacePreview {
   int h = 0;
 };
 SurfacePreview surfacePreview(const NoiseSet& n, int wx, int wz, int ver = kGenVersion);
+
+// A container a dungeon put down, in world coordinates.
+struct DungeonChest {
+  int x = 0, y = 0, z = 0;
+  // True for the chest in the room holding the altar, which draws from a richer
+  // table. The one thing that makes walking to the far room worth doing.
+  bool altarRoom = false;
+};
+
+// Every dungeon chest standing inside one chunk.
+//
+// Re-derived rather than remembered. `generate` writes voxels and nothing else — it
+// runs on a worker and only the ChunkData comes back — so there is nowhere to put a
+// list of chest positions even if we wanted one. But placement is a pure function of
+// the seed and the coordinate, so asking again is exact and costs a handful of
+// hashes. World calls this as a chunk lands and fills what it finds.
+void dungeonChestsIn(int cx, int cz, const NoiseSet& n, std::uint32_t seed, int ver,
+                     std::vector<DungeonChest>& out);
+
+// The altar of the nearest dungeon to a point, searching a square of lattice cells
+// around it. For `--find-dungeon`: a structure that can only be found by luck is one
+// that cannot be checked, screenshotted, or shown to anybody.
+struct DungeonSite {
+  int x = 0, y = 0, z = 0;
+  int rooms = 0;
+};
+bool findDungeon(const NoiseSet& n, std::uint32_t seed, int ver, int nearX, int nearZ,
+                 int searchCells, DungeonSite& out);
 
 }  // namespace hr::world

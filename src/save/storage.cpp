@@ -154,6 +154,7 @@ std::vector<WorldListing> list() {
     row.seed = meta.seed;
     row.savedAt = meta.savedAt;
     row.createdAt = meta.createdAt;
+    row.genVersion = meta.genVersion;
     out.push_back(std::move(row));
   }
 
@@ -193,6 +194,33 @@ bool erase(const std::string& id) {
   if (!validId(id)) return false;
   std::error_code ec;
   return fs::remove(pathFor(id), ec);
+}
+
+bool backup(const std::string& id, std::string* newIdOut, std::string* error) {
+  WorldSave save;
+  if (!read(id, save, error)) return false;
+
+  const std::string copyId = newId();
+  save.meta.id = copyId;
+  // Trimmed, because a backup of a backup of a backup would otherwise grow a name
+  // no row in the list is wide enough to show.
+  if (save.meta.name.size() > 40) save.meta.name.resize(40);
+  save.meta.name += " (backup)";
+  // Deliberately NOT restamped: savedAt is what the list sorts by and what "saved 3m
+  // ago" reads, and a copy has not been played. Leaving it means the backup sits
+  // beside the world it came from rather than jumping to the top as if it were the
+  // newer of the two.
+  if (!write(save, error)) return false;
+  if (newIdOut) *newIdOut = copyId;
+  return true;
+}
+
+bool setGenVersion(const std::string& id, std::int32_t version, std::string* error) {
+  WorldSave save;
+  if (!read(id, save, error)) return false;
+  if (save.meta.genVersion == version) return true;
+  save.meta.genVersion = version;
+  return write(save, error);
 }
 
 }  // namespace hr::save

@@ -30,6 +30,10 @@ enum : int {
   kTagWorldPlay,
   kTagWorldExport,
   kTagWorldDelete,
+  kTagWorldUpdate,   // only on a world left on an older generator
+  kTagUpgradeGo,     // back it up, then move it forward
+  kTagUpgradePlay,   // leave it exactly as it is
+  kTagUpgradeBackup, // take a copy and change nothing
   kTagCreate,
   kTagCancel,
   kTagNameField,
@@ -330,7 +334,22 @@ void Menu::buildPageWorlds(const UiEvent& event, TweenStore& tweens) {
     main_.begin(row, kTagWorldRow, static_cast<int>(i));
 
     main_.begin(Doc::column(0, Align::Start));
+    // The name and, for a world left behind by a newer generator, a marker beside
+    // it. A row rather than a bare label so the two sit on one line.
+    main_.begin(Doc::row(6, Justify::Start, Align::Center));
     main_.label(w.name.empty() ? "Unnamed" : w.name, widget::worldName());
+    if (w.outdated()) {
+      Style pill = Doc::row(0, Justify::Center, Align::Center);
+      pill.bg = fade(color::danger, 0.18);
+      pill.border = color::dangerEdge;
+      pill.borderWidth = 1;
+      pill.radius = 5;
+      pill.padding = Edges(1, 6, 2, 6);
+      main_.begin(pill);
+      main_.label("OLD TERRAIN", widget::worldBadge());
+      main_.end();
+    }
+    main_.end();
     char meta[96];
     std::snprintf(meta, sizeof(meta), "seed %u \xC2\xB7 saved %s", w.seed,
                   timeAgo(w.ageSeconds).c_str());
@@ -343,10 +362,13 @@ void Menu::buildPageWorlds(const UiEvent& event, TweenStore& tweens) {
       const char* label;
       widget::ButtonKind kind;
     };
-    for (const RowButton& b : {RowButton {kTagWorldPlay, "Play", widget::ButtonKind::Normal},
-                               RowButton {kTagWorldExport, "Export", widget::ButtonKind::Normal},
-                               RowButton {kTagWorldDelete, "Delete",
-                                          widget::ButtonKind::Danger}}) {
+    // Update only appears where there is something to update to, so an up-to-date
+    // world's row is exactly what it was.
+    std::vector<RowButton> buttons {{kTagWorldPlay, "Play", widget::ButtonKind::Normal}};
+    if (w.outdated()) buttons.push_back({kTagWorldUpdate, "Update", widget::ButtonKind::Primary});
+    buttons.push_back({kTagWorldExport, "Export", widget::ButtonKind::Normal});
+    buttons.push_back({kTagWorldDelete, "Delete", widget::ButtonKind::Danger});
+    for (const RowButton& b : buttons) {
       const bool hovered = hoveredTag_ == b.tag && hoveredIndex_ == static_cast<int>(i);
       Style s = widget::btnSmall(hovered, false, b.kind);
       s.width = kAuto;
@@ -400,6 +422,65 @@ void Menu::buildPageNewWorld(const UiEvent& event, TweenStore& tweens) {
   };
   for (const Action& a : {Action {kTagCancel, "Cancel", widget::ButtonKind::Normal},
                           Action {kTagCreate, "Create", widget::ButtonKind::Primary}}) {
+    const bool hovered = hoveredTag_ == a.tag;
+    Style s = widget::btnSmall(hovered, false, a.kind);
+    s.width = kAuto;
+    main_.begin(s, a.tag);
+    main_.label(a.label, widget::btnSmallText(hovered, a.kind));
+    main_.end();
+  }
+  main_.end();
+  (void)event;
+  (void)tweens;
+}
+
+// The question asked about a world whose ground an older generator made.
+//
+// A page rather than an overlay because the menu has no modal of any kind — Delete
+// has never asked either — and a page is the one multi-choice shape the node tree
+// already knows how to build. It is also the honest shape for this: there are four
+// answers here, not two, and three of them are perfectly reasonable.
+void Menu::buildPageWorldUpgrade(const UiEvent& event, TweenStore& tweens) {
+  Style heading;
+  heading.margin = Edges(2, 0, 8, 0);
+  main_.label(pendingWorldName_.empty() ? "This world" : pendingWorldName_,
+              widget::worldName(), heading);
+
+  // Said plainly and without euphemism. Hollowreach does not store terrain — it
+  // keeps your edits and regrows the ground from the seed every time you load — so
+  // moving a world forward is not a flag, it is the landscape being made again by a
+  // newer set of rules. The player deserves to know that before choosing.
+  Style body;
+  body.margin = Edges(0, 0, 4, 0);
+  body.maxWidth = 460;
+  main_.label("The ground here was made by an older version of the world generator, "
+              "so anything added since has never had a chance to appear in it.",
+              widget::worldMeta(), body);
+  main_.label("Updating regrows the terrain from this world's seed using the current "
+              "generator. Everything you have built, mined or placed is kept and put "
+              "back exactly where it was \xE2\x80\x94 but the ground around it is made "
+              "again, and new things can turn up underneath it.",
+              widget::worldMeta(), body);
+  main_.label("A copy of the world as it is now is saved first, automatically. "
+              "Nothing here can lose it.",
+              widget::worldMeta(), body);
+
+  Style row = Doc::row(10, Justify::End, Align::Center);
+  row.margin = Edges(16, 0, 0, 0);
+  row.wrap = true;
+  main_.begin(row);
+  struct Action {
+    int tag;
+    const char* label;
+    widget::ButtonKind kind;
+  };
+  for (const Action& a : {Action {kTagCancel, "Cancel", widget::ButtonKind::Normal},
+                          Action {kTagUpgradeBackup, "Back up only",
+                                  widget::ButtonKind::Normal},
+                          Action {kTagUpgradePlay, "Play as it is",
+                                  widget::ButtonKind::Normal},
+                          Action {kTagUpgradeGo, "Back up and update",
+                                  widget::ButtonKind::Primary}}) {
     const bool hovered = hoveredTag_ == a.tag;
     Style s = widget::btnSmall(hovered, false, a.kind);
     s.width = kAuto;
@@ -630,6 +711,7 @@ void Menu::buildMainCard(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
     case MenuPage::NewWorld: buildPageNewWorld(event, tweens); break;
     case MenuPage::About: buildPageAbout(event, tweens); break;
     case MenuPage::Join: buildPageJoin(event, tweens); break;
+    case MenuPage::WorldUpgrade: buildPageWorldUpgrade(event, tweens); break;
   }
 
   main_.end();
@@ -747,7 +829,9 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
       break;
     case kTagBack:
     case kTagCancel:
-      setPage(page_ == MenuPage::NewWorld ? MenuPage::Worlds : MenuPage::Main);
+      setPage(page_ == MenuPage::NewWorld || page_ == MenuPage::WorldUpgrade
+                  ? MenuPage::Worlds
+                  : MenuPage::Main);
       break;
     case kTagNewWorld: setPage(MenuPage::NewWorld); break;
     case kTagSettings:
@@ -788,6 +872,33 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
       if (actions.exportWorld && hoveredIndex_ < static_cast<int>(worlds_.size())) {
         actions.exportWorld(worlds_[static_cast<std::size_t>(hoveredIndex_)].id);
       }
+      break;
+    // Which world is being asked about has to be copied out here rather than read
+    // back later: hoveredIndex_ is recomputed from the hit test every frame, and the
+    // page swap below is the last frame it means anything.
+    case kTagWorldUpdate:
+      if (hoveredIndex_ < static_cast<int>(worlds_.size())) {
+        const WorldEntry& w = worlds_[static_cast<std::size_t>(hoveredIndex_)];
+        pendingWorldId_ = w.id;
+        pendingWorldName_ = w.name;
+        pendingWorldGen_ = w.genVersion;
+        setPage(MenuPage::WorldUpgrade);
+      }
+      break;
+    case kTagUpgradeGo:
+      if (actions.upgradeWorld && !pendingWorldId_.empty()) {
+        actions.upgradeWorld(pendingWorldId_);
+        setPage(MenuPage::Worlds);
+      }
+      break;
+    case kTagUpgradeBackup:
+      if (actions.backupWorld && !pendingWorldId_.empty()) {
+        actions.backupWorld(pendingWorldId_);
+        setPage(MenuPage::Worlds);
+      }
+      break;
+    case kTagUpgradePlay:
+      if (actions.loadWorld && !pendingWorldId_.empty()) actions.loadWorld(pendingWorldId_);
       break;
     case kTagWorldDelete:
       if (actions.deleteWorld && hoveredIndex_ < static_cast<int>(worlds_.size())) {

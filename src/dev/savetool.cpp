@@ -8,6 +8,10 @@
 #include "save/format.h"
 #include "save/storage.h"
 #include "save/transfer.h"
+#include "world/blocks.h"
+#include "world/chunk.h"
+#include "world/world.h"
+#include "world/worldgen.h"
 
 namespace hr::dev {
 namespace {
@@ -116,6 +120,87 @@ int importWorld(const std::string& sourcePath) {
     return 1;
   }
   std::printf("imported %s -> %s\n", sourcePath.c_str(), id.c_str());
+  return 0;
+}
+
+int dungeonInfo(std::uint32_t seed) {
+  const world::NoiseSet noise(seed);
+  world::DungeonSite site;
+  if (!world::findDungeon(noise, seed, world::kGenVersion, 0, 0, 6, site)) {
+    std::printf("no dungeon within 6 cells of the origin for seed %u\n", seed);
+    return 1;
+  }
+
+  std::printf("seed %u: nearest dungeon altar at %d %d %d (%d rooms)\n", seed, site.x, site.y,
+              site.z, site.rooms);
+  std::printf("  --at %d,%d,%d,0,0\n\n", site.x, site.y + 2, site.z - 6);
+
+  // Generate the chunks the plan could touch and read them back, rather than asking
+  // the planner to describe itself. The point is to check what actually landed in
+  // the voxels, which is the only thing a player ever meets.
+  constexpr int kReach = 40;
+  const int cx0 = world::World::floorDiv16(site.x - kReach);
+  const int cx1 = world::World::floorDiv16(site.x + kReach);
+  const int cz0 = world::World::floorDiv16(site.z - kReach);
+  const int cz1 = world::World::floorDiv16(site.z + kReach);
+
+  std::vector<world::Chunk> chunks;
+  for (int cx = cx0; cx <= cx1; ++cx) {
+    for (int cz = cz0; cz <= cz1; ++cz) {
+      world::Chunk c;
+      c.cx = cx;
+      c.cz = cz;
+      c.data = std::make_shared<world::ChunkData>();
+      world::generate(c, noise, world::kGenVersion);
+      chunks.push_back(std::move(c));
+    }
+  }
+  const auto blockAt = [&](int wx, int wy, int wz) -> world::BlockId {
+    const int cx = world::World::floorDiv16(wx), cz = world::World::floorDiv16(wz);
+    for (const world::Chunk& c : chunks) {
+      if (c.cx != cx || c.cz != cz) continue;
+      return c.data->voxels.get(world::localIdx(wx & 15, wy, wz & 15));
+    }
+    return world::kAir;
+  };
+
+  const world::BlockId altar = world::blocks().idOf("evil_altar");
+  const world::BlockId chest = world::blocks().idOf("chest");
+  const world::BlockId bricks = world::blocks().idOf("bricks");
+  const world::BlockId cobbled = world::blocks().idOf("cobbled");
+
+  std::printf("floor plan at y=%d  ( . air  # bricks  , floor  A altar  C chest  ~ rock )\n",
+              site.y);
+  for (int wz = site.z - kReach; wz <= site.z + kReach; ++wz) {
+    std::string row;
+    for (int wx = site.x - kReach; wx <= site.x + kReach; ++wx) {
+      const world::BlockId id = blockAt(wx, site.y, wz);
+      if (id == altar) row += 'A';
+      else if (id == chest) row += 'C';
+      else if (id == bricks) row += '#';
+      else if (id == cobbled) row += ',';
+      else if (id == world::kAir) row += '.';
+      else row += '~';
+    }
+    std::printf("  %s\n", row.c_str());
+  }
+
+  // A vertical slice through the altar, which is what shows the ceiling is closed
+  // and the floor is laid.
+  std::printf("\nside view through z=%d\n", site.z);
+  for (int wy = site.y + 8; wy >= site.y - 3; --wy) {
+    std::string row;
+    for (int wx = site.x - kReach; wx <= site.x + kReach; ++wx) {
+      const world::BlockId id = blockAt(wx, wy, site.z);
+      if (id == altar) row += 'A';
+      else if (id == chest) row += 'C';
+      else if (id == bricks) row += '#';
+      else if (id == cobbled) row += ',';
+      else if (id == world::kAir) row += '.';
+      else row += '~';
+    }
+    std::printf("  y%3d %s\n", wy, row.c_str());
+  }
   return 0;
 }
 

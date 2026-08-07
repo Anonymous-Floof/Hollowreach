@@ -477,6 +477,280 @@ void stampPapyrus(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dungeons (v5)
+// ---------------------------------------------------------------------------
+//
+// The first structure in the game, and the first thing here that is an *object*
+// rather than a field. Caves and ravines are thresholds on noise, evaluated per
+// cell and continuous across a border because both sides ask the same question at
+// the same coordinate. A dungeon cannot work that way: it has a centre, a count of
+// rooms, and a chest in a particular corner.
+//
+// So it follows the pattern trees established instead — the margin scan. Every
+// chunk independently re-derives any dungeon whose footprint could reach it, stamps
+// the whole thing, and throws away the writes that fall outside its own bounds. No
+// chunk ever writes to another and no chunk depends on another having been
+// generated first, which is what keeps generation safe to run on any worker in any
+// order.
+//
+// The difference from trees is what gets scanned. A tree is one column, so trees
+// scan columns. A dungeon is tens of blocks across, and scanning every column in a
+// margin that wide would be thousands of hash calls per chunk. Dungeons sit on a
+// LATTICE instead: one candidate per kDungeonCell square, so a chunk tests a
+// handful of cells and rejects almost all of them on a single hash.
+//
+// The jitter and the footprint are both sized so a dungeon is always contained
+// entirely within its own lattice cell (16 + 48 + 31 < 96). That is what makes the
+// scan below exact rather than approximate, and it is worth preserving: widen the
+// footprint past the cell and chunks on the far side stop seeing the half that
+// reaches them.
+
+constexpr int kDungeonCell = 96;      // lattice pitch
+constexpr int kDungeonJitter = 48;    // how far the origin wanders inside its cell
+constexpr int kDungeonInset = 16;     // and how far it stays off the cell's edge
+constexpr double kDungeonChance = 0.55;
+constexpr int kRoomSlot = 20;         // pitch of the 2x2 grid rooms are placed on
+constexpr int kRoomMin = 7, kRoomMax = 11;
+constexpr int kRoomHeight = 4;        // interior, floor to ceiling
+constexpr int kDungeonSpan = kRoomSlot + kRoomMax;  // 31: the widest a dungeon gets
+constexpr int kRockAbove = 8;         // rock that must remain over the ceiling
+constexpr int kDungeonYMin = 16, kDungeonYMax = 42;
+constexpr int kMaxRooms = 4;
+
+// Salts and coordinate steps. Distinct steps rather than distinct salts alone,
+// because hash2i barely avalanches one flipped seed bit — see core/prng.h. Rolling
+// everything at (cellX, cellZ) with only the salt changed would correlate the room
+// count with the depth with the layout.
+constexpr std::uint32_t kSaltDunExists = 0xd0e0u;
+constexpr std::uint32_t kSaltDunX = 0xd0e1u;
+constexpr std::uint32_t kSaltDunZ = 0xd0e2u;
+constexpr std::uint32_t kSaltDunY = 0xd0e3u;
+constexpr std::uint32_t kSaltDunRooms = 0xd0e4u;
+constexpr std::uint32_t kSaltDunSize = 0xd0e5u;
+
+struct DungeonRoom {
+  int x = 0, z = 0;  // min corner of the interior floor
+  int w = 0, d = 0;  // interior extent
+};
+
+struct DungeonPlan {
+  bool exists = false;
+  int floorY = 0;
+  int roomCount = 0;
+  DungeonRoom rooms[kMaxRooms];
+  int altarRoom = 0;  // which room holds the altar; the rest hold chests
+};
+
+const struct DungeonBlocks {
+  BlockId wall = 0, floor = 0, chest = 0, altar = 0;
+  DungeonBlocks() {
+    wall = blocks().idOf("bricks");
+    floor = blocks().idOf("cobbled");
+    chest = blocks().idOf("chest");
+    altar = blocks().idOf("evil_altar");
+  }
+} & dungeonBlocks() {
+  static const DungeonBlocks b;
+  return b;
+}
+
+// The four slots a room may occupy, as offsets in kRoomSlot units. Room 0 always
+// takes the first, so a dungeon is never empty and the corridors below always have
+// a hub to run from.
+constexpr int kSlotX[kMaxRooms] = {0, 1, 0, 1};
+constexpr int kSlotZ[kMaxRooms] = {0, 0, 1, 1};
+
+// Everything about the dungeon in one lattice cell, or `exists = false`. Pure: the
+// same cell always yields the same plan, on any machine and any thread, which is
+// what lets the chest positions be re-derived later instead of stored.
+DungeonPlan dungeonPlan(const NoiseSet& n, std::uint32_t seed, int cellX, int cellZ, int ver) {
+  DungeonPlan plan;
+  if (ver < 5) return plan;
+  if (hash2i(seed ^ kSaltDunExists, cellX, cellZ) >= kDungeonChance) return plan;
+
+  const int ox = cellX * kDungeonCell + kDungeonInset +
+                 truncToInt(hash2i(seed ^ kSaltDunX, cellX + 31, cellZ + 7) * kDungeonJitter);
+  const int oz = cellZ * kDungeonCell + kDungeonInset +
+                 truncToInt(hash2i(seed ^ kSaltDunZ, cellX + 101, cellZ + 59) * kDungeonJitter);
+
+  plan.roomCount =
+      2 + truncToInt(hash2i(seed ^ kSaltDunRooms, cellX + 13, cellZ + 191) * (kMaxRooms - 1));
+  if (plan.roomCount > kMaxRooms) plan.roomCount = kMaxRooms;
+
+  for (int i = 0; i < plan.roomCount; ++i) {
+    DungeonRoom& r = plan.rooms[i];
+    const double rs = hash2i(seed ^ kSaltDunSize, ox + i * 37, oz + i * 149);
+    const int size = kRoomMin + truncToInt(rs * (kRoomMax - kRoomMin + 1));
+    r.w = size;
+    r.d = size;
+    r.x = ox + kSlotX[i] * kRoomSlot;
+    r.z = oz + kSlotZ[i] * kRoomSlot;
+  }
+
+  // The altar goes in the largest room, ties going to the earliest. A rule rather
+  // than a roll, so the room worth walking to is the one that looks worth it.
+  for (int i = 1; i < plan.roomCount; ++i) {
+    if (plan.rooms[i].w * plan.rooms[i].d >
+        plan.rooms[plan.altarRoom].w * plan.rooms[plan.altarRoom].d) {
+      plan.altarRoom = i;
+    }
+  }
+
+  const int band = kDungeonYMax - kDungeonYMin + 1;
+  plan.floorY =
+      kDungeonYMin + truncToInt(hash2i(seed ^ kSaltDunY, ox + 5, oz + 23) * band);
+
+  // Never break the surface. The heightmap is sampled across the footprint rather
+  // than at the centre, because a dungeon under a hillside would otherwise poke out
+  // of the low side — and a chamber open to the sky is lit, which switches its
+  // altar off and makes the whole thing pointless.
+  //
+  // heightAt does not know about ravines, so one can still slice a dungeon open.
+  // That is left alone deliberately: it is a rare and good way to find one.
+  const int ceiling = plan.floorY + kRoomHeight + 1;
+  int lowest = WH;
+  for (int sx = 0; sx <= kDungeonSpan; sx += 8) {
+    for (int sz = 0; sz <= kDungeonSpan; sz += 8) {
+      const int h = heightAt(n, ox + sx, oz + sz, ver);
+      if (h < lowest) lowest = h;
+    }
+  }
+  if (ceiling + kRockAbove > lowest) return plan;  // still exists = false
+
+  plan.exists = true;
+  return plan;
+}
+
+// A space in the dungeon, given by its INTERIOR extent. The shell sits one block
+// outside it on every face.
+struct DungeonBox {
+  int x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+};
+
+// Masonry: the shell around a box, and the floor under it.
+//
+// Every shell in the dungeon is laid before any interior is hollowed, and that
+// ordering is the whole reason this is split in two. Doing a box at a time — shell
+// and interior together — means the second box's walls are stamped through the first
+// box's air, which walls a corridor across the room it was supposed to open into and
+// leaves the altar standing in a one-block slot. Which is exactly what it did.
+void stampShell(Chunk& chunk, const DungeonBox& b) {
+  const DungeonBlocks& blk = dungeonBlocks();
+  for (int x = b.x0 - 1; x <= b.x1 + 1; ++x) {
+    for (int z = b.z0 - 1; z <= b.z1 + 1; ++z) {
+      for (int y = b.y0 - 1; y <= b.y1 + 1; ++y) {
+        if (y < 3 || y >= WH) continue;  // never disturb bedrock
+        const bool inside =
+            x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && y >= b.y0 && y <= b.y1;
+        if (inside) continue;
+        setIfInChunk(chunk, x, y, z, y == b.y0 - 1 ? blk.floor : blk.wall, true);
+      }
+    }
+  }
+}
+
+// And the air inside it, cut afterwards so it opens through anything laid above.
+void stampHollow(Chunk& chunk, const DungeonBox& b) {
+  for (int x = b.x0; x <= b.x1; ++x) {
+    for (int z = b.z0; z <= b.z1; ++z) {
+      for (int y = b.y0; y <= b.y1; ++y) {
+        if (y < 3 || y >= WH) continue;
+        setIfInChunk(chunk, x, y, z, kAir, true);
+      }
+    }
+  }
+}
+
+// Where a room's chest stands: one in from the corner furthest from the hub, so it
+// is visible on the way in rather than behind you.
+void roomChest(const DungeonRoom& r, int floorY, int& cx, int& cy, int& cz) {
+  cx = r.x + r.w - 1;
+  cy = floorY;
+  cz = r.z + r.d - 1;
+}
+
+// Every space in a dungeon, rooms then the corridors joining them. Collected first
+// so the two masonry passes below can each run over the whole set.
+int dungeonBoxes(const DungeonPlan& plan, DungeonBox* out) {
+  const int y0 = plan.floorY;
+  const int y1 = plan.floorY + kRoomHeight - 1;
+  int n = 0;
+
+  for (int i = 0; i < plan.roomCount; ++i) {
+    const DungeonRoom& r = plan.rooms[i];
+    out[n++] = DungeonBox{r.x, y0, r.z, r.x + r.w - 1, y1, r.z + r.d - 1};
+  }
+
+  // An L from the hub to each other room: along x at the hub's centre line, then
+  // along z at the target's. Centre to centre, so it always lands inside both rooms
+  // and can never miss — the overlap costs nothing once the interior pass runs last.
+  // Corridors are lower than the rooms, which is what makes a doorway read as a
+  // doorway from inside.
+  const DungeonRoom& hub = plan.rooms[0];
+  const int hx = hub.x + hub.w / 2, hz = hub.z + hub.d / 2;
+  for (int i = 1; i < plan.roomCount; ++i) {
+    const DungeonRoom& r = plan.rooms[i];
+    const int tx = r.x + r.w / 2, tz = r.z + r.d / 2;
+    const int lox = hx < tx ? hx : tx, hix = hx < tx ? tx : hx;
+    const int loz = hz < tz ? hz : tz, hiz = hz < tz ? tz : hz;
+    out[n++] = DungeonBox{lox, y0, hz, hix, y0 + 2, hz};
+    out[n++] = DungeonBox{tx, y0, loz, tx, y0 + 2, hiz};
+  }
+  return n;
+}
+
+void stampDungeon(Chunk& chunk, const DungeonPlan& plan) {
+  if (!plan.exists) return;
+  const DungeonBlocks& b = dungeonBlocks();
+  const int y0 = plan.floorY;
+
+  DungeonBox boxes[kMaxRooms + (kMaxRooms - 1) * 2];
+  const int count = dungeonBoxes(plan, boxes);
+
+  // Masonry, then air, then furniture. Three passes over the whole dungeon rather
+  // than one pass per box: see stampShell.
+  for (int i = 0; i < count; ++i) stampShell(chunk, boxes[i]);
+  for (int i = 0; i < count; ++i) stampHollow(chunk, boxes[i]);
+
+  for (int i = 0; i < plan.roomCount; ++i) {
+    const DungeonRoom& r = plan.rooms[i];
+    if (i == plan.altarRoom) {
+      // Dead centre, on the floor. No light anywhere in here: the altar only
+      // breeds in pitch dark, so a torch would be the one decoration that turns
+      // the dungeon off.
+      setIfInChunk(chunk, r.x + r.w / 2, y0, r.z + r.d / 2, b.altar, true);
+    }
+    int cx = 0, cy = 0, cz = 0;
+    roomChest(r, y0, cx, cy, cz);
+    setIfInChunk(chunk, cx, cy, cz, b.chest, true);
+  }
+}
+
+// Which lattice cells a chunk has to consider. A dungeon is contained inside its
+// own cell by construction, so this only has to cover the cells the chunk overlaps
+// — the extra ring is cheap insurance against that invariant being edited away.
+void dungeonCellRange(int cx, int cz, int& x0, int& x1, int& z0, int& z1) {
+  const auto cellOf = [](int world) {
+    return world >= 0 ? world / kDungeonCell : -(((-world) + kDungeonCell - 1) / kDungeonCell);
+  };
+  x0 = cellOf(cx * CX) - 1;
+  x1 = cellOf(cx * CX + CX - 1) + 1;
+  z0 = cellOf(cz * CZ) - 1;
+  z1 = cellOf(cz * CZ + CZ - 1) + 1;
+}
+
+void stampDungeons(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
+  if (ver < 5) return;
+  int x0 = 0, x1 = 0, z0 = 0, z1 = 0;
+  dungeonCellRange(chunk.cx, chunk.cz, x0, x1, z0, z1);
+  for (int cellX = x0; cellX <= x1; ++cellX) {
+    for (int cellZ = z0; cellZ <= z1; ++cellZ) {
+      stampDungeon(chunk, dungeonPlan(n, seed, cellX, cellZ, ver));
+    }
+  }
+}
+
 }  // namespace
 
 // --- NoiseSet ---------------------------------------------------------------
@@ -631,7 +905,63 @@ void generate(Chunk& chunk, const NoiseSet& n, int ver) {
   stampTrees(chunk, n, seed, ver);
   stampFoliage(chunk, n, seed, ver);
   if (ver >= 2) stampPapyrus(chunk, n, seed, ver);
+  // Last, and unconditionally on top: a dungeon is masonry, so it overwrites
+  // whatever the terrain passes decided was there rather than negotiating with it.
+  // Gated at v5, and purely additive — every branch above is untouched, so a world
+  // on v4 comes out of this function byte for byte what it always did.
+  if (ver >= 5) stampDungeons(chunk, n, seed, ver);
   chunk.generated = true;
+}
+
+void dungeonChestsIn(int cx, int cz, const NoiseSet& n, std::uint32_t seed, int ver,
+                     std::vector<DungeonChest>& out) {
+  out.clear();
+  if (ver < 5) return;
+  int x0 = 0, x1 = 0, z0 = 0, z1 = 0;
+  dungeonCellRange(cx, cz, x0, x1, z0, z1);
+  const int minX = cx * CX, maxX = minX + CX - 1;
+  const int minZ = cz * CZ, maxZ = minZ + CZ - 1;
+  for (int cellX = x0; cellX <= x1; ++cellX) {
+    for (int cellZ = z0; cellZ <= z1; ++cellZ) {
+      const DungeonPlan plan = dungeonPlan(n, seed, cellX, cellZ, ver);
+      if (!plan.exists) continue;
+      for (int i = 0; i < plan.roomCount; ++i) {
+        int wx = 0, wy = 0, wz = 0;
+        roomChest(plan.rooms[i], plan.floorY, wx, wy, wz);
+        if (wx < minX || wx > maxX || wz < minZ || wz > maxZ) continue;
+        out.push_back(DungeonChest{wx, wy, wz, i == plan.altarRoom});
+      }
+    }
+  }
+}
+
+bool findDungeon(const NoiseSet& n, std::uint32_t seed, int ver, int nearX, int nearZ,
+                 int searchCells, DungeonSite& out) {
+  if (ver < 5) return false;
+  const auto cellOf = [](int world) {
+    return world >= 0 ? world / kDungeonCell : -(((-world) + kDungeonCell - 1) / kDungeonCell);
+  };
+  const int homeX = cellOf(nearX), homeZ = cellOf(nearZ);
+  bool found = false;
+  long long best = 0;
+  for (int dx = -searchCells; dx <= searchCells; ++dx) {
+    for (int dz = -searchCells; dz <= searchCells; ++dz) {
+      const DungeonPlan plan = dungeonPlan(n, seed, homeX + dx, homeZ + dz, ver);
+      if (!plan.exists) continue;
+      const DungeonRoom& hub = plan.rooms[plan.altarRoom];
+      const int ax = hub.x + hub.w / 2, az = hub.z + hub.d / 2;
+      const long long ddx = ax - nearX, ddz = az - nearZ;
+      const long long d2 = ddx * ddx + ddz * ddz;
+      if (found && d2 >= best) continue;
+      best = d2;
+      found = true;
+      out.x = ax;
+      out.y = plan.floorY;
+      out.z = az;
+      out.rooms = plan.roomCount;
+    }
+  }
+  return found;
 }
 
 SurfacePreview surfacePreview(const NoiseSet& n, int wx, int wz, int ver) {

@@ -521,6 +521,18 @@ TextStyle worldMeta() {
   return t;
 }
 
+// .world-row .badge — the marker on a world whose ground an older generator made.
+// Small caps in the danger colour: loud enough to be seen without turning a row the
+// player is perfectly entitled to leave alone into an error message.
+TextStyle worldBadge() {
+  TextStyle t;
+  t.font = FontId::SansBlack;
+  t.size = 9.5f;
+  t.letterSpacing = 0.5f;
+  t.color = color::danger;
+  return t;
+}
+
 TextStyle versionTag() {
   TextStyle t;
   t.size = 12;

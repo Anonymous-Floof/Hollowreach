@@ -345,6 +345,66 @@ new message on that channel needs the same treatment or it inherits the same bug
 
 ---
 
+## Structures, and what the first one settled
+
+Dungeons landed at `kGenVersion = 5`. Three things about that are worth keeping.
+
+**A structure is an object, and fields do not describe objects.** Caves and
+ravines are thresholds on noise: continuous across a chunk border because both
+sides ask the same question at the same coordinate, with nothing anywhere that
+knows a cave exists. A dungeon has a centre, a room count and a chest in a
+particular corner. The pattern that works for it is the one trees already used —
+the **margin scan**: every chunk independently re-derives anything whose footprint
+could reach it, stamps the whole thing, and discards the writes outside its own
+bounds. No chunk writes to another; no chunk depends on another.
+
+What changed is *what* gets scanned. A tree is one column, so trees scan columns.
+Scanning columns for something thirty blocks wide would be thousands of hashes a
+chunk, so dungeons sit on a **96-block lattice** and a chunk tests the handful of
+cells that could reach it. The jitter and footprint are deliberately sized so a
+dungeon is always contained inside its own lattice cell (16 + 48 + 31 < 96) —
+widen the footprint past that and chunks on the far side stop seeing the half that
+reaches them.
+
+**Nothing needed storing.** `generate` writes voxels and nothing else, and
+`GenResult` carries only a `ChunkData`, so there is nowhere to leave a note saying
+"chest here". There did not need to be: placement is a pure function of the seed
+and the coordinate, so `dungeonChestsIn` simply asks again as the chunk lands.
+Re-derivation beats a side channel whenever the thing is deterministic — it costs
+a few hashes and cannot go stale.
+
+**Chunks regenerate, so anything that fills a container must be idempotent.**
+`unloadFar` erases chunks outright and walking back regenerates them, which fires
+the loot sink again for a chest the player emptied an hour ago. What stops a
+refill is that `blockEntities_` is *not* pruned on unload and is saved with the
+world — so an existing entity is a reliable record that this chest has been met.
+Guests fill nothing at all; contents are the host's, and arrive on request.
+
+### The loot tables are keyed by name, on purpose
+
+Recipes are addressed by index and blocks by registration order, and both carry
+warnings about what that costs — inserting a recipe renumbers a hundred and
+nineteen others and the golden diff becomes unreadable. Both are stuck with it: a
+block id is in every save, and a recipe's position is its match priority.
+
+A loot table has neither excuse, so `LootBook` is a map from name to table and the
+dump is sorted by name. A new table can go anywhere in the list. **Prefer this
+whenever a new registry appears** — index-keying is a cost to be justified, not a
+default.
+
+### Bumping kGenVersion is safe, and the gate proves it rather than promising it
+
+Every `ver` comparison in the generator is `>=` or `<`, never `==`, so `if (ver >=
+5)` is invisible to a v4 world. When 5 landed, the golden diff was **49 new, 0
+changed, 0 missing**, all 49 carrying v5 — which is what makes moving an existing
+world forward safe enough to offer in the menu at all.
+
+Note the layered guard: the version is checked at the call site, in
+`stampDungeons`, and in `dungeonPlan`. Sabotaging any one of them changes nothing,
+which is good defence and a trap when verifying — a sabotage that "passes" may
+simply not have taken effect. Check that a sabotage actually altered behaviour
+before concluding a check is vacuous.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

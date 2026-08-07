@@ -46,6 +46,11 @@ struct WorldListing {
   std::uint32_t seed = 0;
   std::int64_t savedAt = 0;
   std::int64_t createdAt = 0;
+  // Which generator made this world's ground. Carried through to the menu because
+  // terrain is not stored — it is regenerated from the seed and this number every
+  // load — so a world left on an old generator is one that will never grow anything
+  // added since, and the player is the only one who can decide to move it forward.
+  std::int32_t genVersion = 2;
 };
 
 // Every readable world, newest save first. Unreadable files are logged and skipped
@@ -55,6 +60,22 @@ std::vector<WorldListing> list();
 bool write(const WorldSave& save, std::string* error = nullptr);
 bool read(const std::string& id, WorldSave& out, std::string* error = nullptr);
 bool erase(const std::string& id);
+
+// Copies a world, under a fresh id and a name saying what it is. Returns the new id
+// through `newIdOut` when given.
+//
+// A read-and-rewrite rather than a file copy, because the id lives in two places: a
+// duplicated file would claim the id of the world it came from, and read() forces
+// meta.id from the filename precisely so a hand-copied file still works — which
+// would leave two worlds fighting over one identity in the list.
+bool backup(const std::string& id, std::string* newIdOut = nullptr,
+            std::string* error = nullptr);
+
+// Moves a world onto a different generator. Everything a player made is kept — edits
+// are stored cell by cell and replayed over whatever ground comes out — but the
+// ground itself is regenerated, so this is not a cosmetic field and the menu asks
+// before writing it.
+bool setGenVersion(const std::string& id, std::int32_t version, std::string* error = nullptr);
 
 // Raw file helpers, shared with save/transfer and used by the self-test.
 bool readFile(const std::string& path, std::vector<std::uint8_t>& out, std::string* error);

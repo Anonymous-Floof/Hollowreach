@@ -62,6 +62,13 @@ Four groups, ordered by how much each narrows a failure:
          the table is generated from the block registry, so one wrong loop
          silently drops a whole family of recipes.
 
+  loot   Every loot table as declared, and a fixed set of rolls through them.
+         Both halves are needed: the declarations catch a mistyped weight or a
+         count range the wrong way round, and the rolls catch a change in the
+         arithmetic that reads them — a broken weight walk would still print a
+         perfect table. A failure here means chests hold something different,
+         which no amount of playing would reveal quickly.
+
   mesh   Chunk geometry, ambient occlusion, smooth lighting, water surfaces.
          Positions are compared on a 1/16-block grid; see mesh_golden.mjs.
 
@@ -84,7 +91,7 @@ REPO = HERE.parent
 BASELINE = HERE / "golden"
 EXPECTED = BASELINE / "expected.txt"
 
-GROUPS = ("gen", "atlas", "recipes", "mesh")
+GROUPS = ("gen", "atlas", "recipes", "loot", "mesh")
 
 EXPECTED_HEADER = (
     "# Labels this working tree changes on purpose, one per line, with a reason\n"
@@ -134,6 +141,8 @@ def dump(exe: Path, group: str, scratch: Path) -> str:
         return run([str(exe), "--dump-golden", "-", "--sections", "mesh"], "the mesh dump")
     if group == "recipes":
         return run([str(exe), "--dump-recipes", "-"], "the recipe dump")
+    if group == "loot":
+        return run([str(exe), "--dump-loot", "-"], "the loot dump")
     png = scratch / "atlas.png"
     run([str(exe), "--dump-atlas", str(png)], "the atlas dump")
     return png.with_suffix(".png.txt").read_text(encoding="utf-8")

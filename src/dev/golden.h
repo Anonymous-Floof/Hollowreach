@@ -32,4 +32,9 @@ bool dumpAtlas(const std::string& pngPath, int maxTileResolution, bool mipmaps);
 // until a player cannot craft something.
 bool dumpRecipes(const std::string& path);
 
+// The loot tables, and a fixed set of rolls through them. Same argument as recipes:
+// a table with a wrong weight in it is invisible until somebody plays for an hour
+// and never sees the item.
+bool dumpLoot(const std::string& path);
+
 }  // namespace hr::dev

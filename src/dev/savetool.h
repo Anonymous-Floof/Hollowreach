@@ -27,4 +27,14 @@ int saveInfo(const std::string& path);
 int exportWorld(const std::string& id, const std::string& destination);
 int importWorld(const std::string& sourcePath);
 
+// Locates the nearest dungeon to the origin for a seed and prints its floor plan.
+//
+// Here rather than in a test because a structure generator needs an eye on it, and
+// a dungeon is unlit by design — a screenshot of one is a black rectangle, and the
+// AO debug view shows shape without showing what anything IS. A slice through the
+// voxels in text is the only view that tells you the altar is where it should be and
+// the room is genuinely sealed. It is also the fastest way to see a layout change,
+// which is worth having the next time somebody touches the generator.
+int dungeonInfo(std::uint32_t seed);
+
 }  // namespace hr::dev

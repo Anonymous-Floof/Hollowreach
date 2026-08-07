@@ -209,6 +209,7 @@ TextStyle debug();       // #debug
 TextStyle toast();       // .toast
 TextStyle worldName();   // .world-row .name
 TextStyle worldMeta();   // .world-row .meta
+TextStyle worldBadge();  // .world-row .badge
 TextStyle versionTag();
 TextStyle menuSignature();
 TextStyle rbName();

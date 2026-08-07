@@ -263,6 +263,28 @@ bool World::installResults(double deadlineMs) {
     lc->chunk.generated = true;
     applyEdits(*lc);
 
+    // A structure's containers, offered to whoever owns loot. Asked here because
+    // this is the one moment a chunk's terrain becomes real on the main thread, and
+    // asked at all because `generate` runs on a worker and can only hand back
+    // voxels — there is nowhere for it to leave a note saying "chest here".
+    //
+    // AFTER applyEdits, deliberately. A chest the player already broke is an edit,
+    // and offering a site they have cleared would put it back every time they walked
+    // away and returned.
+    if (lootSink_ && genVersion_ >= 5) {
+      dungeonChestsIn(lc->chunk.cx, lc->chunk.cz, noise_, noise_.seed(), genVersion_,
+                      lootScratch_);
+      // Not in WellKnownBlocks, and not worth adding there for one caller; resolved
+      // once rather than per chunk, which is the same shape worldgen's ore ids use.
+      static const BlockId kChestId = blocks().idOf("chest");
+      for (const DungeonChest& site : lootScratch_) {
+        // The block has to still be there. A player who broke this chest left an
+        // edit saying so, applyEdits has just replayed it, and the site is stale.
+        if (getBlock(site.x, site.y, site.z) != kChestId) continue;
+        lootSink_(site.x, site.y, site.z, site.altarRoom);
+      }
+    }
+
     // The Atlas only maps ground the player has actually been near, so generating
     // a chunk is what lifts its fog — and the tile it drew from a seed prediction
     // is now stale, which is what makes a preview tile upgrade to the real thing.

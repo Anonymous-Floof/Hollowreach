@@ -15,6 +15,40 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Your existing worlds keep the ground they have until you say otherwise.**
+> Hollowreach does not store terrain. It keeps everything you have built, mined
+> and placed, and regrows the landscape from the world's seed every time you open
+> it — so a world remembers which version of the generator made it, and only ever
+> uses that one. Dungeons therefore do not appear in a world made before this
+> release until you update it, which the world list now offers to do, keeping a
+> copy of the world as it is first. Worlds you make from now on have them
+> immediately. **Saves still load in both directions**, and multiplayer is
+> unchanged — this release does not touch the network protocol.
+
+### Added
+- **Dungeons — the first real structure.** Brick chambers buried well
+  underground, joined by corridors, with an Evil Altar standing in the largest
+  room and a chest in each of the others. They are sealed, with no way in from the
+  surface, so you find one by mining into a wall or by following a cave into it —
+  and the altar is still breeding monsters when you do. They are also completely
+  unlit, and that is the point rather than an oversight: an altar only spawns
+  anything in pitch dark, so the moment you light the room properly you have
+  turned the dungeon off. Deciding when to do that is the fight.
+- **Loot, and the tables behind it.** Dungeon chests hold something worth the
+  walk — fuel, ore, food, and now and then a tool a tier above whatever got you
+  down there. The chest in the altar's own room draws from a better table, and is
+  the only place aetherite turns up without mining for it. What a given chest
+  holds is decided by the world and the spot it stands on, so it is the same for
+  everyone playing that world, it does not change if you leave and come back, and
+  a chest you emptied stays empty.
+- **Worlds tell you which generator made them.** Any world in the list built by
+  an older one is marked, with an Update button beside it. Updating explains what
+  it is about to do in plain words, takes a copy of the world first, and only then
+  moves it — so the version you have been playing is always still there under its
+  own name. You can also take a copy and change nothing, or go on playing the
+  world exactly as it is. Nothing is forced, and nothing stops working if you
+  never touch it.
+
 ## [2.8.0] - 2026-08-05
 
 > **Multiplayer needs both machines on this version.** Boats now belong to

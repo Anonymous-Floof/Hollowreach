@@ -16,6 +16,7 @@
 #include "core/prng.h"
 #include "game/crafting.h"
 #include "game/items.h"
+#include "game/loot.h"
 #include "game/recipes.h"
 #include "resource/atlas.h"
 #include "resource/packstack.h"
@@ -703,6 +704,70 @@ bool dumpRecipes(const std::string& path) {
 
   if (!out.write(path)) return false;
   if (path != "-") std::printf("recipes: %s\n", path.c_str());
+  return true;
+}
+
+// Loot tables, for the same reason recipes are dumped: they have no visual signal.
+// A weight typed with an extra zero, or a count range the wrong way round, looks
+// exactly like a correct one until somebody opens a hundred chests and notices the
+// good item never turns up.
+//
+// Two halves. The declarations catch a mistyped table; the rolls catch a change in
+// the arithmetic that reads it, which is the half a declaration dump would miss
+// entirely — a broken weight walk would still print a perfect table.
+bool dumpLoot(const std::string& path) {
+  const game::LootBook& book = game::lootBook();
+
+  Dump out;
+  out.line("# hollowreach loot v1");
+  out.line("# source: c++");
+
+  // Sorted by name, so the file does not depend on how an unordered_map happened to
+  // bucket things this build. Tables are addressed by name and never by index, so
+  // unlike recipes a new one can be added anywhere without moving anything.
+  out.section("tables");
+  for (const game::LootTable* table : book.sorted()) {
+    for (std::size_t p = 0; p < table->pools.size(); ++p) {
+      const game::LootPool& pool = table->pools[p];
+      std::string line;
+      for (const game::LootEntry& e : pool.entries) {
+        if (!line.empty()) line += ", ";
+        line += e.key + "*" + std::to_string(e.minCount) + "-" + std::to_string(e.maxCount) +
+                "@" + std::to_string(e.weight);
+      }
+      out.linef("pool(%s, %zu) = rolls %d-%d of [%s]", table->id.c_str(), p, pool.minRolls,
+                pool.maxRolls, line.c_str());
+    }
+  }
+
+  // Fixed positions through the real roller. These are what would move if the
+  // weight walk, the count range or the coordinate stepping changed.
+  out.section("rolls");
+  struct Site {
+    std::uint32_t seed;
+    int x, y, z;
+  };
+  static const Site kSites[] = {
+      {3918175327u, 0, 24, 0},      {3918175327u, 137, 31, -288},
+      {3918175327u, -1024, 18, 512}, {12345u, 48, 40, 48},
+      {12345u, -77, 22, 903},        {1u, 1, 16, 1},
+  };
+  for (const game::LootTable* table : book.sorted()) {
+    for (const Site& s : kSites) {
+      const std::vector<game::ItemStack> got = game::rollLoot(*table, s.seed, s.x, s.y, s.z);
+      std::string line;
+      for (const game::ItemStack& st : got) {
+        if (!line.empty()) line += ", ";
+        line += st.key + "*" + std::to_string(st.count);
+        if (st.dura >= 0) line += "/" + std::to_string(st.dura);
+      }
+      out.linef("roll(%s, %u, %d, %d, %d) = [%s]", table->id.c_str(), s.seed, s.x, s.y, s.z,
+                line.c_str());
+    }
+  }
+
+  if (!out.write(path)) return false;
+  if (path != "-") std::printf("loot: %s\n", path.c_str());
   return true;
 }
 

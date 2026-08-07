@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -28,6 +29,7 @@
 #include "game/items.h"
 #include "game/player.h"
 #include "game/raycast.h"
+#include "game/loot.h"
 #include "game/recipes.h"
 #include "render/sky.h"
 #include "render/viewmodel.h"
@@ -39,6 +41,7 @@
 #include "net/protocol.h"
 #include "net/transport.h"
 #include "save/format.h"
+#include "platform/paths.h"
 #include "save/storage.h"
 #include "save/transfer.h"
 #include "ui/dom.h"
@@ -2565,6 +2568,553 @@ std::unique_ptr<world::World> makeWaterWorld() {
 // The numbers are asserted loosely, as bands rather than exact values: the point
 // is "caves are mostly dry and water is a thing you come across", and pinning that
 // to three significant figures would just break every time the field is retuned.
+// Loot tables. The arithmetic behind a chest, checked without a chest.
+void testLoot() {
+  std::printf("\n-- loot --\n");
+
+  const game::LootTable* common = game::lootBook().find("dungeon/chest");
+  const game::LootTable* rich = game::lootBook().find("dungeon/altar");
+  check(common != nullptr, "the common dungeon table is registered");
+  check(rich != nullptr, "and the altar table beside it");
+  check(game::lootBook().find("nothing/here") == nullptr,
+        "and asking for a table nobody wrote gives nothing rather than a crash");
+  if (!common || !rich) return;
+
+  // Sorted by name, which is what keeps the golden dump stable across builds — an
+  // unordered_map walked directly would reshuffle it.
+  const std::vector<const game::LootTable*> all = game::lootBook().sorted();
+  bool ordered = true;
+  for (std::size_t i = 1; i < all.size(); ++i) {
+    if (all[i - 1]->id > all[i]->id) ordered = false;
+  }
+  check(ordered, "and the book hands them back in name order");
+
+  // Every stack a table can produce has to be a real item, or a chest quietly
+  // swallows it. A typo here is invisible until somebody opens one.
+  int unknown = 0;
+  for (const game::LootTable* t : all) {
+    for (const game::LootPool& pool : t->pools) {
+      for (const game::LootEntry& e : pool.entries) {
+        if (!game::getItem(e.key)) ++unknown;
+      }
+    }
+  }
+  checkf(unknown == 0, "every item a table can give actually exists (%d unknown)", unknown);
+
+  // Counts inside their declared range, over enough positions to catch an
+  // off-by-one at either end.
+  {
+    int outside = 0, rolls = 0;
+    for (int i = 0; i < 400; ++i) {
+      for (const game::ItemStack& s : game::rollLoot(*common, 12345u, i * 7, 24, i * 13)) {
+        ++rolls;
+        bool ok = false;
+        for (const game::LootPool& pool : common->pools) {
+          for (const game::LootEntry& e : pool.entries) {
+            if (e.key == s.key && s.count >= e.minCount && s.count <= e.maxCount) ok = true;
+          }
+        }
+        if (!ok) ++outside;
+      }
+    }
+    checkf(rolls > 0, "a table actually produces something (%d stacks over 400 chests)", rolls);
+    checkf(outside == 0, "and never a count outside what it declared (%d bad)", outside);
+  }
+
+  // The same chest, asked twice, is the same chest. This is what stops a container
+  // changing its mind when the chunk holding it is regenerated.
+  {
+    const std::vector<game::ItemStack> a = game::rollLoot(*common, 999u, 40, 30, -12);
+    const std::vector<game::ItemStack> b = game::rollLoot(*common, 999u, 40, 30, -12);
+    bool same = a.size() == b.size();
+    for (std::size_t i = 0; same && i < a.size(); ++i) {
+      same = a[i].key == b[i].key && a[i].count == b[i].count && a[i].dura == b[i].dura;
+    }
+    check(same, "the same chest rolls the same contents every time");
+
+    // And a different one is genuinely different rather than the same list shifted.
+    int differing = 0;
+    for (int i = 1; i <= 40; ++i) {
+      const std::vector<game::ItemStack> c = game::rollLoot(*common, 999u, 40 + i, 30, -12);
+      if (c.size() != a.size()) {
+        ++differing;
+        continue;
+      }
+      for (std::size_t k = 0; k < c.size(); ++k) {
+        if (c[k].key != a[k].key || c[k].count != a[k].count) {
+          ++differing;
+          break;
+        }
+      }
+    }
+    checkf(differing >= 35, "and its neighbours hold something else (%d of 40 differ)",
+           differing);
+
+    // The seed has to matter too, or every world's dungeons are the same dungeon.
+    int seedDiffers = 0;
+    for (std::uint32_t s = 1; s <= 20; ++s) {
+      const std::vector<game::ItemStack> c = game::rollLoot(*common, s, 40, 30, -12);
+      if (c.size() != a.size()) {
+        ++seedDiffers;
+        continue;
+      }
+      for (std::size_t k = 0; k < c.size(); ++k) {
+        if (c[k].key != a[k].key || c[k].count != a[k].count) {
+          ++seedDiffers;
+          break;
+        }
+      }
+    }
+    checkf(seedDiffers >= 17, "and another world's does too (%d of 20 seeds)", seedDiffers);
+  }
+
+  // A looted tool arrives usable. Writing an ItemStack straight into a chest slot
+  // skips Inventory::give, which is what normally fills durability in — so without
+  // an explicit lookup a found pickaxe reads as "does not wear" and never breaks.
+  {
+    int tools = 0, unbreakable = 0, wrong = 0;
+    for (int i = 0; i < 600; ++i) {
+      for (const game::LootTable* t : all) {
+        for (const game::ItemStack& s : game::rollLoot(*t, 7u, i * 3, 28, i * 11)) {
+          const int want = game::maxDurability(s.key);
+          if (want <= 0) continue;
+          ++tools;
+          if (s.dura < 0) ++unbreakable;
+          else if (s.dura != want) ++wrong;
+        }
+      }
+    }
+    checkf(tools > 0, "tools do turn up in loot (%d over 600 chests)", tools);
+    checkf(unbreakable == 0, "and none of them is unbreakable (%d with no durability)",
+           unbreakable);
+    checkf(wrong == 0, "each arriving at full durability (%d wrong)", wrong);
+  }
+
+  // Weights mean something. The heaviest entry in a pool should beat the lightest
+  // by roughly their ratio — loose bounds, because this is a check that the weight
+  // walk works at all, not a test of the hash's uniformity.
+  {
+    const game::LootPool& pool = common->pools[0];
+    std::unordered_map<std::string, int> seen;
+    for (int i = 0; i < 4000; ++i) {
+      for (const game::ItemStack& s : game::rollLoot(*common, 55u, i, 26, i * 5)) seen[s.key]++;
+    }
+    const game::LootEntry* heaviest = nullptr;
+    const game::LootEntry* lightest = nullptr;
+    for (const game::LootEntry& e : pool.entries) {
+      if (!heaviest || e.weight > heaviest->weight) heaviest = &e;
+      if (!lightest || e.weight < lightest->weight) lightest = &e;
+    }
+    const int hi = seen[heaviest->key], lo = seen[lightest->key];
+    checkf(lo > 0, "even the rarest entry in a pool turns up (%s x%d)", lightest->key.c_str(),
+           lo);
+    checkf(hi > lo, "and the commonest beats it (%s x%d vs %s x%d)", heaviest->key.c_str(), hi,
+           lightest->key.c_str(), lo);
+  }
+}
+
+// The first structure. Swept over real terrain rather than asserted about, the way
+// testCaveWater and testWorldgenDepth are.
+void testDungeons() {
+  std::printf("\n-- dungeons --\n");
+
+  const world::NoiseSet noise(3918175327u);
+  const std::uint32_t seed = 3918175327u;
+  const world::BlockId altar = world::blocks().idOf("evil_altar");
+  const world::BlockId chestId = world::blocks().idOf("chest");
+  const world::BlockId bricks = world::blocks().idOf("bricks");
+  const world::BlockId cobbled = world::blocks().idOf("cobbled");
+
+  // THE claim the whole release rests on: v5 adds dungeons and changes nothing
+  // else, so an existing world can be moved onto it without its landscape shifting
+  // under what the player built. The golden gate covers this too; it is here as
+  // well because it is the property most likely to be broken by a later edit, and
+  // a gate failure is a diff while this is a sentence.
+  {
+    int differing = 0, compared = 0;
+    for (int cx = -3; cx <= 3; ++cx) {
+      for (int cz = -3; cz <= 3; ++cz) {
+        world::Chunk a, b;
+        a.cx = b.cx = cx;
+        a.cz = b.cz = cz;
+        a.data = std::make_shared<world::ChunkData>();
+        b.data = std::make_shared<world::ChunkData>();
+        world::generate(a, noise, 4);
+        world::generate(b, noise, 4);
+        // Same version twice is a control: if this ever differs, the generator has
+        // become nondeterministic and every other check here is meaningless.
+        for (int i = 0; i < world::kCellsPerChunk; ++i) {
+          ++compared;
+          if (a.data->voxels.get(i) != b.data->voxels.get(i)) ++differing;
+        }
+      }
+    }
+    checkf(differing == 0, "generation is repeatable at all (%d of %d cells)", differing,
+           compared);
+  }
+
+  // And that v4 has no dungeon in it.
+  //
+  // The control above only proves the generator is deterministic; it compares v4
+  // with v4 and would happily pass with dungeons carved through both. What actually
+  // has to hold is that the v5 gate keeps them out of v4 entirely, and that is
+  // checkable without a stored baseline: bricks, cobbled, chests and altars are
+  // crafted blocks. Terrain generation has never produced one at any version, so a
+  // single cell of masonry in a v4 chunk means the gate has leaked.
+  {
+    int masonry = 0;
+    for (int cx = -6; cx <= 6; ++cx) {
+      for (int cz = -6; cz <= 6; ++cz) {
+        world::Chunk c;
+        c.cx = cx;
+        c.cz = cz;
+        c.data = std::make_shared<world::ChunkData>();
+        world::generate(c, noise, 4);
+        for (int i = 0; i < world::kCellsPerChunk; ++i) {
+          const world::BlockId id = c.data->voxels.get(i);
+          if (id == altar || id == chestId || id == bricks || id == cobbled) ++masonry;
+        }
+      }
+    }
+    checkf(masonry == 0, "and an older world stays exactly as old as it was (%d dungeon cells at v4)",
+           masonry);
+  }
+
+  int dungeonChunks = 0, altars = 0, chests = 0, breached = 0, unenclosed = 0;
+  int totalChunks = 0;
+  constexpr int kSweep = 14;  // 29x29 chunks, about 215 blocks either way
+  for (int cx = -kSweep; cx <= kSweep; ++cx) {
+    for (int cz = -kSweep; cz <= kSweep; ++cz) {
+      world::Chunk chunk;
+      chunk.cx = cx;
+      chunk.cz = cz;
+      chunk.data = std::make_shared<world::ChunkData>();
+      world::generate(chunk, noise, world::kGenVersion);
+      ++totalChunks;
+
+      bool any = false;
+      for (int x = 0; x < world::CX; ++x) {
+        for (int z = 0; z < world::CZ; ++z) {
+          const int wx = cx * 16 + x, wz = cz * 16 + z;
+          const int surface = world::heightAt(noise, wx, wz, world::kGenVersion);
+          for (int y = 3; y < world::WH; ++y) {
+            const world::BlockId id = chunk.data->voxels.get(world::localIdx(x, y, z));
+            if (id == altar) {
+              ++altars;
+              any = true;
+            } else if (id == chestId) {
+              ++chests;
+              any = true;
+            } else if (id == bricks || id == cobbled) {
+              any = true;
+            } else {
+              continue;
+            }
+            // Masonry above the ground is masonry that broke the surface. The
+            // margin matches kRockAbove: a chamber lit from outside is a chamber
+            // whose altar has switched itself off.
+            if (y > surface - 4) ++breached;
+          }
+        }
+      }
+      if (any) ++dungeonChunks;
+    }
+  }
+
+  checkf(altars > 0, "dungeons generate at all (%d altars over %d chunks)", altars,
+         totalChunks);
+  checkf(chests >= altars, "each with at least one chest (%d chests, %d altars)", chests,
+         altars);
+  // Two-sided. A generator that carpets the world in dungeons passes any check that
+  // only asks whether it made one.
+  const double pct = 100.0 * dungeonChunks / totalChunks;
+  checkf(pct > 1.0, "spread widely enough to be met rather than hunted (%.1f%% of chunks)",
+         pct);
+  checkf(pct < 35.0, "and rarely enough to still be a find (%.1f%% of chunks)", pct);
+  checkf(breached == 0, "and never breaking the surface (%d cells above ground)", breached);
+
+  // A chamber has to be sealed, or it fills with cave air and daylight and stops
+  // being a room. Walk the shell around the nearest altar.
+  {
+    world::DungeonSite site;
+    check(world::findDungeon(noise, seed, world::kGenVersion, 0, 0, 6, site),
+          "one can be found near the origin, for --find-dungeon to point at");
+
+    std::unordered_map<long long, world::BlockId> around;
+    const int c0x = world::World::floorDiv16(site.x - 40), c1x = world::World::floorDiv16(site.x + 40);
+    const int c0z = world::World::floorDiv16(site.z - 40), c1z = world::World::floorDiv16(site.z + 40);
+    for (int cx = c0x; cx <= c1x; ++cx) {
+      for (int cz = c0z; cz <= c1z; ++cz) {
+        world::Chunk chunk;
+        chunk.cx = cx;
+        chunk.cz = cz;
+        chunk.data = std::make_shared<world::ChunkData>();
+        world::generate(chunk, noise, world::kGenVersion);
+        for (int x = 0; x < world::CX; ++x) {
+          for (int z = 0; z < world::CZ; ++z) {
+            for (int y = site.y - 2; y <= site.y + 7 && y < world::WH; ++y) {
+              const long long k = (static_cast<long long>(cx * 16 + x) << 40) ^
+                                  (static_cast<long long>(y) << 20) ^ (cz * 16 + z);
+              around[k] = chunk.data->voxels.get(world::localIdx(x, y, z));
+            }
+          }
+        }
+      }
+    }
+    const auto at = [&](int x, int y, int z) {
+      const long long k = (static_cast<long long>(x) << 40) ^ (static_cast<long long>(y) << 20) ^ z;
+      const auto it = around.find(k);
+      return it == around.end() ? world::kAir : it->second;
+    };
+
+    check(at(site.x, site.y, site.z) == altar, "the altar is where the finder says it is");
+    check(at(site.x, site.y - 1, site.z) == cobbled, "standing on a laid floor");
+    // Flood the interior from the altar and confirm it never escapes into rock.
+    // Anything that leaks means an unsealed chamber.
+    std::vector<std::array<int, 3>> open {{site.x, site.y, site.z}};
+    std::unordered_map<long long, bool> seen;
+    std::size_t head = 0;
+    int leaked = 0, cells = 0;
+    while (head < open.size() && cells < 20000) {
+      const std::array<int, 3> p = open[head++];
+      ++cells;
+      const int dirs[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+      for (const auto& d : dirs) {
+        const int nx = p[0] + d[0], ny = p[1] + d[1], nz = p[2] + d[2];
+        if (std::abs(nx - site.x) > 34 || std::abs(nz - site.z) > 34) {
+          ++leaked;  // reached the edge of what we generated: not sealed
+          continue;
+        }
+        const world::BlockId id = at(nx, ny, nz);
+        if (id != world::kAir) continue;
+        const long long k =
+            (static_cast<long long>(nx) << 40) ^ (static_cast<long long>(ny) << 20) ^ nz;
+        if (seen.count(k)) continue;
+        seen[k] = true;
+        open.push_back({nx, ny, nz});
+      }
+    }
+    checkf(leaked == 0, "and the rooms are sealed rock to rock (%d cells reached the edge)",
+           leaked);
+    checkf(cells > 40, "with room enough inside to be a dungeon (%d open cells)", cells);
+
+    // Sealed is not the same as connected, and only one of the two is obvious from
+    // looking at a wall. The first version of this generator stamped each room and
+    // corridor complete — shell and interior together — so a corridor's walls were
+    // laid straight through the room it had just opened into, and the altar ended up
+    // in a one-block slot with the chests behind masonry. Every enclosure check above
+    // passed while that was true, because a dungeon chopped into sealed pieces is
+    // still sealed.
+    //
+    // So: every chest has to be reachable from the altar. A chest is a solid block
+    // and so is never itself in the flood, which makes the question whether the
+    // flood ever came to stand next to it.
+    std::vector<world::DungeonChest> mine;
+    std::vector<world::DungeonChest> perChunk;
+    for (int cx = c0x; cx <= c1x; ++cx) {
+      for (int cz = c0z; cz <= c1z; ++cz) {
+        world::dungeonChestsIn(cx, cz, noise, seed, world::kGenVersion, perChunk);
+        for (const world::DungeonChest& s : perChunk) {
+          if (std::abs(s.x - site.x) > 34 || std::abs(s.z - site.z) > 34) continue;
+          if (s.y != site.y) continue;  // a neighbouring dungeon at another depth
+          mine.push_back(s);
+        }
+      }
+    }
+    int unreachable = 0;
+    for (const world::DungeonChest& s : mine) {
+      const int dirs[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+      bool touched = false;
+      for (const auto& d : dirs) {
+        const long long k = (static_cast<long long>(s.x + d[0]) << 40) ^
+                            (static_cast<long long>(s.y + d[1]) << 20) ^ (s.z + d[2]);
+        if (seen.count(k)) touched = true;
+      }
+      if (!touched) ++unreachable;
+    }
+    checkf(!mine.empty(), "this dungeon has chests to walk to (%zu)", mine.size());
+    checkf(unreachable == 0, "and every one of them can be walked to from the altar (%d walled off)",
+           unreachable);
+  }
+
+  // The chest positions World re-derives have to be the chests that were actually
+  // stamped, or containers are offered at empty air and real ones never filled.
+  {
+    int found = 0, mismatched = 0;
+    std::vector<world::DungeonChest> sites;
+    for (int cx = -8; cx <= 8; ++cx) {
+      for (int cz = -8; cz <= 8; ++cz) {
+        world::Chunk chunk;
+        chunk.cx = cx;
+        chunk.cz = cz;
+        chunk.data = std::make_shared<world::ChunkData>();
+        world::generate(chunk, noise, world::kGenVersion);
+        world::dungeonChestsIn(cx, cz, noise, seed, world::kGenVersion, sites);
+        for (const world::DungeonChest& s : sites) {
+          ++found;
+          const int lx = s.x - cx * 16, lz = s.z - cz * 16;
+          if (lx < 0 || lx >= world::CX || lz < 0 || lz >= world::CZ) {
+            ++mismatched;  // reported a chest that is not even in this chunk
+            continue;
+          }
+          if (chunk.data->voxels.get(world::localIdx(lx, s.y, lz)) != chestId) ++mismatched;
+        }
+      }
+    }
+    checkf(found > 0, "the chest sites can be re-derived without being stored (%d)", found);
+    checkf(mismatched == 0, "and every one of them is a chest in the ground (%d wrong)",
+           mismatched);
+  }
+
+  // Filling a dungeon chest once and only once.
+  //
+  // The pressure here is that chunks are regenerated every time the player walks
+  // back into them, so the sink fires again for a chest they cleared out an hour
+  // ago. What stops it refilling is that block entities are NOT unloaded with their
+  // chunk — so one already being there is the record that this chest has been met.
+  {
+    world::DungeonSite site;
+    if (world::findDungeon(noise, seed, world::kGenVersion, 0, 0, 6, site)) {
+      world::World w(seed, 4);
+      int filled = 0, offered = 0;
+      // The site the finder returns is the ALTAR, which is not a container — the
+      // chests stand in the room corners. So the position to inspect is whichever
+      // one the sink actually reports, not the one we searched for.
+      int chestX = 0, chestY = 0, chestZ = 0;
+      bool haveChest = false;
+      // The same guard App applies, kept in step with it by being written the same
+      // way round: existing entity means leave it alone.
+      w.setLootSink([&](int x, int y, int z, bool rich) {
+        ++offered;
+        if (!haveChest) {
+          chestX = x;
+          chestY = y;
+          chestZ = z;
+          haveChest = true;
+        }
+        if (w.getBlockEntity(x, y, z)) return;
+        game::BlockEntity* be = w.getOrCreateBlockEntity(x, y, z, game::BlockEntityKind::Chest);
+        if (!be) return;
+        const std::vector<game::ItemStack> loot =
+            game::rollLoot(rich ? "dungeon/altar" : "dungeon/chest", seed, x, y, z);
+        for (std::size_t i = 0; i < loot.size() && i < be->slots.size(); ++i) {
+          be->slots[i] = loot[i];
+        }
+        ++filled;
+      });
+
+      w.waitForIdle(static_cast<float>(site.x), static_cast<float>(site.z));
+      for (int i = 0; i < 40; ++i) w.update(static_cast<float>(site.x), static_cast<float>(site.z));
+      checkf(filled > 0, "a dungeon chest is filled as its chunk lands (%d)", filled);
+      check(haveChest, "and the sink says which cell it was");
+
+      // What is in it, before anything is allowed to happen to it twice.
+      const game::BlockEntity* be = w.getBlockEntity(chestX, chestY, chestZ);
+      int before = 0;
+      if (be) {
+        for (const game::ItemStack& st : be->slots) {
+          if (!st.empty()) ++before;
+        }
+      }
+      checkf(before > 0, "with something in it (%d stacks)", before);
+
+      // Empty it, the way a player would, then walk away and come back.
+      if (game::BlockEntity* mutableBe = w.getBlockEntity(chestX, chestY, chestZ)) {
+        for (game::ItemStack& st : mutableBe->slots) st.clear();
+      }
+      const int filledBefore = filled;
+      w.waitForIdle(static_cast<float>(site.x + 4000), static_cast<float>(site.z + 4000));
+      for (int i = 0; i < 40; ++i) {
+        w.update(static_cast<float>(site.x + 4000), static_cast<float>(site.z + 4000));
+      }
+      w.waitForIdle(static_cast<float>(site.x), static_cast<float>(site.z));
+      for (int i = 0; i < 40; ++i) w.update(static_cast<float>(site.x), static_cast<float>(site.z));
+
+      checkf(offered > filledBefore,
+             "coming back really does offer the chest again (%d offers, %d fills)", offered,
+             filled);
+      checkf(filled == filledBefore, "but an emptied one stays empty (%d fills, was %d)", filled,
+             filledBefore);
+      const game::BlockEntity* after = w.getBlockEntity(chestX, chestY, chestZ);
+      int stacks = 0;
+      if (after) {
+        for (const game::ItemStack& st : after->slots) {
+          if (!st.empty()) ++stacks;
+        }
+      }
+      checkf(stacks == 0, "with nothing put back into it (%d stacks)", stacks);
+    }
+  }
+}
+
+// Moving a world onto a newer generator, and the copy taken before it happens.
+void testWorldUpgrade() {
+  std::printf("\n-- old worlds --\n");
+
+  // This is the only test that goes through the storage layer rather than encode
+  // and decode, because listing worlds is the thing being checked and a listing
+  // needs a directory to read. runSelfTest is reached before main.cpp calls
+  // paths::init, so without this `save::list()` asks whether "" is a directory,
+  // decides it is not, and truthfully reports no worlds at all — which looks
+  // exactly like the bug this test was written to catch.
+  //
+  // A scratch directory rather than the real one: a test has no business writing
+  // into somebody's saves, and both worlds below are erased at the end anyway.
+  const std::filesystem::path scratch =
+      std::filesystem::temp_directory_path() / "hollowreach-selftest";
+  std::error_code ec;
+  std::filesystem::create_directories(scratch, ec);
+  paths::init(scratch.string());
+
+  save::WorldSave s;
+  s.meta.id = save::newId();
+  s.meta.name = "Elder";
+  s.meta.seed = 4242u;
+  s.meta.genVersion = 3;
+  s.meta.createdAt = s.meta.savedAt = save::nowSeconds();
+  s.inventory.give("greystone", 11);
+  check(save::write(s), "a world on an older generator can be written");
+
+  const std::vector<save::WorldListing> before = save::list();
+  const save::WorldListing* row = nullptr;
+  for (const save::WorldListing& w : before) {
+    if (w.id == s.meta.id) row = &w;
+  }
+  check(row != nullptr, "and it appears in the listing");
+  // The number was decoded and then dropped on the floor before this, which is why
+  // nothing could warn about it.
+  checkf(row && row->genVersion == 3, "which now carries the generator that made it (%d)",
+         row ? row->genVersion : -1);
+  check(world::kGenVersion > 3, "and the current generator is newer, so there is a warning to give");
+
+  std::string copyId;
+  check(save::backup(s.meta.id, &copyId), "it can be copied");
+  check(copyId != s.meta.id, "under an id of its own rather than over the original");
+
+  save::WorldSave copy;
+  check(save::read(copyId, copy), "the copy reads back");
+  checkf(copy.meta.genVersion == 3, "still on the old generator (%d)", copy.meta.genVersion);
+  check(copy.meta.name.find("backup") != std::string::npos, "and says what it is in its name");
+  check(copy.inventory.countOf("greystone") == 11, "carrying everything the original had");
+
+  check(save::setGenVersion(s.meta.id, world::kGenVersion), "the original can be moved forward");
+  save::WorldSave moved;
+  check(save::read(s.meta.id, moved), "and reads back");
+  checkf(moved.meta.genVersion == world::kGenVersion, "on the current generator (%d)",
+         moved.meta.genVersion);
+  check(moved.meta.seed == 4242u, "with the same seed, so it is the same place");
+  check(moved.inventory.countOf("greystone") == 11, "and nothing of the player's lost");
+
+  // The copy must be untouched by what happened to the original — the entire point.
+  save::WorldSave after;
+  check(save::read(copyId, after), "the copy still reads");
+  checkf(after.meta.genVersion == 3, "and is still the world as it was (%d)",
+         after.meta.genVersion);
+
+  save::erase(s.meta.id);
+  save::erase(copyId);
+}
+
 void testCaveWater() {
   std::printf("underground water\n");
   const world::NoiseSet noise(3918175327u);
@@ -5967,6 +6517,9 @@ int runSelfTest() {
   testSleep();
   testBlockSupport();
   testCaveWater();
+  testLoot();
+  testDungeons();
+  testWorldUpgrade();
   testNet();
   testRemoteEditSink();
   testNetInterfaces();

@@ -17,6 +17,7 @@
 #include "core/log.h"
 #include "core/prng.h"
 #include "game/entities/types.h"
+#include "game/loot.h"
 #include "platform/paths.h"
 #include "resource/image.h"
 #include "resource/packstack.h"
@@ -826,6 +827,8 @@ void App::wireInterface() {
       row.name = w.name;
       row.seed = w.seed;
       row.ageSeconds = static_cast<double>(now - w.savedAt);
+      row.genVersion = w.genVersion;
+      row.currentGenVersion = world::kGenVersion;
       rows.push_back(std::move(row));
     }
     return rows;
@@ -848,6 +851,39 @@ void App::wireInterface() {
       interface_.notify().push("World deleted");
     } else {
       interface_.notify().push("Could not delete that world");
+    }
+  };
+
+  // Both of these refuse to touch a world that is currently open, for the same
+  // reason deleteWorld closes it first: the running game holds the authoritative
+  // copy and would write it straight back over whatever was done here.
+  interface_.menu().actions.backupWorld = [this](const std::string& id) {
+    if (worldOnDisk_ && worldMeta_.id == id) saveCurrentWorld();
+    std::string error;
+    if (save::backup(id, nullptr, &error)) {
+      interface_.notify().push("Copy saved");
+    } else {
+      log::warn("backup failed: %s", error.c_str());
+      interface_.notify().push("Could not copy that world");
+    }
+  };
+
+  interface_.menu().actions.upgradeWorld = [this](const std::string& id) {
+    if (worldOnDisk_ && worldMeta_.id == id) saveCurrentWorld();
+    // The copy first, and the update only if it worked. A failed backup that still
+    // let the update through would be the one outcome this whole screen exists to
+    // prevent.
+    std::string error;
+    if (!save::backup(id, nullptr, &error)) {
+      log::warn("upgrade aborted, backup failed: %s", error.c_str());
+      interface_.notify().push("Could not copy the world, so nothing was changed");
+      return;
+    }
+    if (save::setGenVersion(id, world::kGenVersion, &error)) {
+      interface_.notify().push("World updated \xE2\x80\x94 a copy of the old one was kept");
+    } else {
+      log::warn("upgrade failed: %s", error.c_str());
+      interface_.notify().push("Could not update that world");
     }
   };
 
@@ -1036,6 +1072,30 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
       return;
     }
     entities_.spawnDrop(Vec3{x, y, z}, key, count, dura);
+  });
+  world_->setLootSink([this](int x, int y, int z, bool rich) {
+    // A guest fills nothing. It regenerates the same terrain locally, so it sees
+    // exactly the same chests appear — but what is inside one is the host's to
+    // decide, and it arrives on request through the block-entity path. Rolling it
+    // here as well would build a private guess that the first click overwrites.
+    if (netGuest()) return;
+    // Already there means already filled. Chunks are regenerated every time the
+    // player walks back into them, but block entities are not unloaded with a
+    // chunk and are saved with the world — so an existing one is a reliable record
+    // that this chest has been seen before, whether it is still full or the player
+    // emptied it an hour ago.
+    if (world_->getBlockEntity(x, y, z)) return;
+
+    game::BlockEntity* be =
+        world_->getOrCreateBlockEntity(x, y, z, game::BlockEntityKind::Chest);
+    if (!be) return;
+    // Seeded from the world and the position, so the same chest holds the same
+    // things however many times it is generated, on whichever machine.
+    const std::vector<game::ItemStack> loot =
+        game::rollLoot(rich ? "dungeon/altar" : "dungeon/chest", world_->seed(), x, y, z);
+    for (std::size_t i = 0; i < loot.size() && i < be->slots.size(); ++i) {
+      be->slots[i] = loot[i];
+    }
   });
   world_->fallSink = [this](float x, float y, float z, world::BlockId id, int meta) {
     if (game::Entity* e = entities_.spawn(game::EntityType::FallingBlock, Vec3{x, y, z})) {
@@ -2093,6 +2153,9 @@ bool App::applyStartScreen(const std::string& name) {
       {"newworld", AppState::Menu, ui::MenuPage::NewWorld, world::Station::None, false},
       {"about", AppState::Menu, ui::MenuPage::About, world::Station::None, false},
       {"join", AppState::Menu, ui::MenuPage::Join, world::Station::None, false},
+      // Reachable only by clicking Update on an old world, which no capture can do.
+      // It opens with no world named, which the page already words for.
+      {"upgrade", AppState::Menu, ui::MenuPage::WorldUpgrade, world::Station::None, false},
       {"pause", AppState::Paused, ui::MenuPage::Main, world::Station::None, false},
       {"settings", AppState::Settings, ui::MenuPage::Main, world::Station::None, false},
       {"inventory", AppState::Inventory, ui::MenuPage::Main, world::Station::None, true},
