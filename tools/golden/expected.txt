@@ -5,15 +5,3 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
-
-# kGenVersion 4 -> 5 adds dungeons. Every label below is NEW rather than changed:
-# the gate loops every version from 1 up, so a new version simply adds a version's
-# worth of hashes. Checked, not assumed — the diff at the time this was written was
-# 49 new, 0 changed, 0 missing, and all 49 carry v5. That zero is the whole reason
-# an existing world can be moved onto the new generator without its landscape
-# shifting under what the player built on it.
-chunk(*, v5, *)          # new: the dungeon version's chunk hashes
-chunkFull(*, v5, *)      # new: same, over all 192 layers
-heightAt(*, v5)          # new: v5 inherits v4's heightmap unchanged
-biomeAt(*, v5)           # new: likewise
-surfacePreview(*, v5)    # new: likewise

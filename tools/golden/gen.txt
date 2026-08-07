@@ -176,22 +176,27 @@ heightAt(3479357960, v1) = 49,44,42,48,47,36,48,44,52,47,49,47,46,38,47,47,39,50
 heightAt(3479357960, v2) = 49,44,42,53,79,47,50,44,52,47,49,74,72,52,47,47,39,50,40,43,46,40,46,54,38,42,52,52,47,36,49,52
 heightAt(3479357960, v3) = 103,98,96,107,133,101,104,98,106,101,103,128,126,106,101,101,93,104,94,97,100,94,100,108,92,96,106,106,101,90,103,106
 heightAt(3479357960, v4) = 103,98,96,107,133,101,104,98,106,101,103,128,126,106,101,101,93,104,94,97,100,94,100,108,92,96,106,106,101,90,103,106
+heightAt(3479357960, v5) = 103,98,96,107,133,101,104,98,106,101,103,128,126,106,101,101,93,104,94,97,100,94,100,108,92,96,106,106,101,90,103,106
 heightAt(3918175327, v1) = 51,46,54,38,39,48,45,46,46,36,57,42,43,55,46,45,46,43,50,43,47,38,48,43,37,50,48,46,46,39,54,46
 heightAt(3918175327, v2) = 51,46,54,46,65,73,75,52,60,46,60,42,43,55,46,45,46,58,61,43,47,38,61,60,38,50,48,46,50,39,54,46
 heightAt(3918175327, v3) = 105,100,108,100,119,127,129,106,114,100,114,96,97,109,100,99,100,112,115,97,101,92,115,114,92,104,102,100,104,93,108,100
 heightAt(3918175327, v4) = 105,100,108,100,119,127,129,106,114,100,114,96,97,109,100,99,100,112,115,97,101,92,115,114,92,104,102,100,104,93,108,100
+heightAt(3918175327, v5) = 105,100,108,100,119,127,129,106,114,100,114,96,97,109,100,99,100,112,115,97,101,92,115,114,92,104,102,100,104,93,108,100
 heightAt(1, v1) = 46,46,44,47,46,49,38,47,52,50,44,39,47,47,42,42,39,48,44,43,34,53,39,50,45,47,48,38,49,44,52,51
 heightAt(1, v2) = 46,46,44,47,56,49,38,47,52,50,58,39,47,51,43,43,39,48,44,43,34,53,39,50,45,47,69,58,51,46,52,51
 heightAt(1, v3) = 100,100,98,101,110,103,92,101,106,104,112,93,101,105,97,97,93,102,98,97,88,107,93,104,99,101,123,112,105,100,106,105
 heightAt(1, v4) = 100,100,98,101,110,103,92,101,106,104,112,93,101,105,97,97,93,102,98,97,88,107,93,104,99,101,123,112,105,100,106,105
+heightAt(1, v5) = 100,100,98,101,110,103,92,101,106,104,112,93,101,105,97,97,93,102,98,97,88,107,93,104,99,101,123,112,105,100,106,105
 heightAt(12345, v1) = 47,37,46,47,37,43,38,53,45,48,43,46,53,41,35,48,46,40,45,45,48,38,55,43,43,42,50,41,49,48,49,47
 heightAt(12345, v2) = 47,37,46,54,37,43,38,53,45,48,43,65,53,41,35,49,46,57,62,71,69,72,71,43,43,50,55,60,67,48,49,50
 heightAt(12345, v3) = 101,91,100,108,91,97,92,107,99,102,97,119,107,95,89,103,100,111,116,125,123,126,125,97,97,104,109,114,121,102,103,104
 heightAt(12345, v4) = 101,91,100,108,91,97,92,107,99,102,97,119,107,95,89,103,100,111,116,125,123,126,125,97,97,104,109,114,121,102,103,104
+heightAt(12345, v5) = 101,91,100,108,91,97,92,107,99,102,97,119,107,95,89,103,100,111,116,125,123,126,125,97,97,104,109,114,121,102,103,104
 heightAt(4294967295, v1) = 41,49,54,38,39,43,52,45,46,37,51,40,53,44,42,53,54,40,38,53,44,49,48,47,46,41,45,47,38,51,32,40
 heightAt(4294967295, v2) = 41,49,54,38,39,43,52,45,46,37,53,51,69,70,42,55,54,40,38,53,52,77,48,47,46,41,45,67,55,55,32,40
 heightAt(4294967295, v3) = 95,103,108,92,93,97,106,99,100,91,107,105,123,124,96,109,108,94,92,107,106,131,102,101,100,95,99,121,109,109,86,94
 heightAt(4294967295, v4) = 95,103,108,92,93,97,106,99,100,91,107,105,123,124,96,109,108,94,92,107,106,131,102,101,100,95,99,121,109,109,86,94
+heightAt(4294967295, v5) = 95,103,108,92,93,97,106,99,100,91,107,105,123,124,96,109,108,94,92,107,106,131,102,101,100,95,99,121,109,109,86,94
 
 ## worldgen.biomeAt
 biomeHist(3479357960) = 3003,1195,482,266,830
@@ -205,10 +210,12 @@ surfacePreview(3479357960, v1) = sand@47 water@42 water@41 water@45 sand@46 wate
 surfacePreview(3479357960, v2) = turf@57 turf@74 turf@77 pine_leaves@77 turf@56 turf@49 pine_leaves@59 pine_leaves@93 snowturf@75 dusk_leaves@72 turf@52 turf@50 turf@55 dusk_leaves@62 pine_leaves@56 water@41 water@41 sand@46 turf@61 leaves@72 turf@54 sand@47 turf@50 leaves@53
 surfacePreview(3479357960, v3) = turf@111 turf@128 turf@131 pine_leaves@131 turf@110 turf@103 pine_leaves@113 pine_leaves@147 snowturf@129 dusk_leaves@126 turf@106 turf@104 turf@109 dusk_leaves@116 pine_leaves@110 water@95 water@95 sand@100 turf@115 leaves@126 turf@108 sand@101 turf@104 leaves@107
 surfacePreview(3479357960, v4) = turf@111 turf@128 turf@131 pine_leaves@131 turf@110 turf@103 pine_leaves@113 pine_leaves@147 snowturf@129 dusk_leaves@126 turf@106 turf@104 turf@109 dusk_leaves@116 pine_leaves@110 water@95 water@95 sand@100 turf@115 leaves@126 turf@108 sand@101 turf@104 leaves@107
+surfacePreview(3479357960, v5) = turf@111 turf@128 turf@131 pine_leaves@131 turf@110 turf@103 pine_leaves@113 pine_leaves@147 snowturf@129 dusk_leaves@126 turf@106 turf@104 turf@109 dusk_leaves@116 pine_leaves@110 water@95 water@95 sand@100 turf@115 leaves@126 turf@108 sand@101 turf@104 leaves@107
 surfacePreview(3918175327, v1) = turf@48 water@41 sand@47 pine_leaves@54 leaves@53 pine_leaves@55 water@40 sand@46 water@45 leaves@53 turf@50 pine_leaves@54 water@43 water@33 water@45 pine_leaves@56 water@45 water@44 turf@53 turf@49 water@44 water@43 water@39 water@43
 surfacePreview(3918175327, v2) = turf@48 water@41 sand@47 birch_leaves@54 birch_leaves@53 pine_leaves@55 water@40 sand@46 water@45 leaves@53 turf@50 dusk_leaves@54 water@43 water@33 water@45 dusk_leaves@56 water@45 water@44 snowturf@53 snowturf@49 water@44 water@43 water@39 water@43
 surfacePreview(3918175327, v3) = turf@102 water@95 sand@101 birch_leaves@108 birch_leaves@107 pine_leaves@109 water@94 sand@100 water@99 leaves@107 turf@104 dusk_leaves@108 water@97 water@87 water@99 dusk_leaves@110 water@99 water@98 snowturf@107 snowturf@103 water@98 water@97 water@93 water@97
 surfacePreview(3918175327, v4) = turf@102 water@95 sand@101 birch_leaves@108 birch_leaves@107 pine_leaves@109 water@94 sand@100 water@99 leaves@107 turf@104 dusk_leaves@108 water@97 water@87 water@99 dusk_leaves@110 water@99 water@98 snowturf@107 snowturf@103 water@98 water@97 water@93 water@97
+surfacePreview(3918175327, v5) = turf@102 water@95 sand@101 birch_leaves@108 birch_leaves@107 pine_leaves@109 water@94 sand@100 water@99 leaves@107 turf@104 dusk_leaves@108 water@97 water@87 water@99 dusk_leaves@110 water@99 water@98 snowturf@107 snowturf@103 water@98 water@97 water@93 water@97
 
 ## worldgen.generate
 chunk(3479357960, v1, 0, 0) ids=278eb6db keys=174139c4 nonAir=11405
@@ -267,6 +274,20 @@ chunk(3479357960, v4, -12, 25) ids=eb8834ca keys=a9b5a8bf nonAir=24111
 chunkFull(3479357960, v4, -12, 25) ids=ff3c34ca keys=4c7ca8bf
 chunk(3479357960, v4, 100, 100) ids=f3ec35b3 keys=67bd256a nonAir=23697
 chunkFull(3479357960, v4, 100, 100) ids=45c235b3 keys=3b9d256a
+chunk(3479357960, v5, 0, 0) ids=1fa5f638 keys=072ef4bb nonAir=22942
+chunkFull(3479357960, v5, 0, 0) ids=a195f638 keys=9f45f4bb
+chunk(3479357960, v5, 1, 0) ids=09397cc9 keys=f0041491 nonAir=22562
+chunkFull(3479357960, v5, 1, 0) ids=051b7cc9 keys=7e241491
+chunk(3479357960, v5, 0, 1) ids=b99dc8e6 keys=e20f93a7 nonAir=22952
+chunkFull(3479357960, v5, 0, 1) ids=9049c8e6 keys=607693a7
+chunk(3479357960, v5, -1, -1) ids=30250a85 keys=1eaf6cd3 nonAir=22312
+chunkFull(3479357960, v5, -1, -1) ids=143f0a85 keys=ffe66cd3
+chunk(3479357960, v5, 7, -3) ids=6afde542 keys=66896734 nonAir=23354
+chunkFull(3479357960, v5, 7, -3) ids=8921e542 keys=efae6734
+chunk(3479357960, v5, -12, 25) ids=eb8834ca keys=a9b5a8bf nonAir=24111
+chunkFull(3479357960, v5, -12, 25) ids=ff3c34ca keys=4c7ca8bf
+chunk(3479357960, v5, 100, 100) ids=f3ec35b3 keys=67bd256a nonAir=23697
+chunkFull(3479357960, v5, 100, 100) ids=45c235b3 keys=3b9d256a
 chunk(3918175327, v1, 0, 0) ids=dc5d985d keys=c8ebf2d5 nonAir=10982
 chunkFull(3918175327, v1, 0, 0) ids=03a7985d keys=5973f2d5
 chunk(3918175327, v1, 1, 0) ids=030c544d keys=203801f6 nonAir=10899
@@ -323,6 +344,20 @@ chunk(3918175327, v4, -12, 25) ids=a8d9c6d5 keys=2c822828 nonAir=22419
 chunkFull(3918175327, v4, -12, 25) ids=3693c6d5 keys=f2572828
 chunk(3918175327, v4, 100, 100) ids=27e74b2f keys=14eeb2d3 nonAir=23310
 chunkFull(3918175327, v4, 100, 100) ids=fd754b2f keys=ce25b2d3
+chunk(3918175327, v5, 0, 0) ids=77f8dbab keys=8b3820d5 nonAir=22941
+chunkFull(3918175327, v5, 0, 0) ids=b73edbab keys=93c020d5
+chunk(3918175327, v5, 1, 0) ids=a64c2e27 keys=678afe73 nonAir=22499
+chunkFull(3918175327, v5, 1, 0) ids=734a2e27 keys=5141fe73
+chunk(3918175327, v5, 0, 1) ids=a62d5dd7 keys=70049e17 nonAir=22291
+chunkFull(3918175327, v5, 0, 1) ids=618b5dd7 keys=f7ab9e17
+chunk(3918175327, v5, -1, -1) ids=f698e747 keys=cb718271 nonAir=22396
+chunkFull(3918175327, v5, -1, -1) ids=7fd6e747 keys=cd918271
+chunk(3918175327, v5, 7, -3) ids=99a2c7d8 keys=4e17db46 nonAir=24044
+chunkFull(3918175327, v5, 7, -3) ids=70d2c7d8 keys=cb77db46
+chunk(3918175327, v5, -12, 25) ids=a8d9c6d5 keys=2c822828 nonAir=22419
+chunkFull(3918175327, v5, -12, 25) ids=3693c6d5 keys=f2572828
+chunk(3918175327, v5, 100, 100) ids=27e74b2f keys=14eeb2d3 nonAir=23310
+chunkFull(3918175327, v5, 100, 100) ids=fd754b2f keys=ce25b2d3
 chunk(12345, v1, 0, 0) ids=4c6cd6b8 keys=10776c10 nonAir=11056
 chunkFull(12345, v1, 0, 0) ids=775cd6b8 keys=272c6c10
 chunk(12345, v1, 1, 0) ids=edefa1e5 keys=0e6abaed nonAir=10904
@@ -379,3 +414,17 @@ chunk(12345, v4, -12, 25) ids=db6dd159 keys=e5646f04 nonAir=23600
 chunkFull(12345, v4, -12, 25) ids=256fd159 keys=f1c96f04
 chunk(12345, v4, 100, 100) ids=d4f41888 keys=19754f02 nonAir=28358
 chunkFull(12345, v4, 100, 100) ids=ac841888 keys=bc454f02
+chunk(12345, v5, 0, 0) ids=7fb27678 keys=a79477d7 nonAir=22145
+chunkFull(12345, v5, 0, 0) ids=f6227678 keys=203b77d7
+chunk(12345, v5, 1, 0) ids=0743140f keys=ebb0da44 nonAir=22824
+chunkFull(12345, v5, 1, 0) ids=c491140f keys=2715da44
+chunk(12345, v5, 0, 1) ids=8cfc206d keys=ccb9bee4 nonAir=22837
+chunkFull(12345, v5, 0, 1) ids=c166206d keys=399ebee4
+chunk(12345, v5, -1, -1) ids=420a9629 keys=de4d76b2 nonAir=23439
+chunkFull(12345, v5, -1, -1) ids=aeac9629 keys=241d76b2
+chunk(12345, v5, 7, -3) ids=e6bdbc98 keys=f10c1166 nonAir=22687
+chunkFull(12345, v5, 7, -3) ids=c36dbc98 keys=cecc1166
+chunk(12345, v5, -12, 25) ids=db6dd159 keys=e5646f04 nonAir=23600
+chunkFull(12345, v5, -12, 25) ids=256fd159 keys=f1c96f04
+chunk(12345, v5, 100, 100) ids=d4f41888 keys=19754f02 nonAir=28358
+chunkFull(12345, v5, 100, 100) ids=ac841888 keys=bc454f02
