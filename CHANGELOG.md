@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.9.0] - 2026-08-07
+
 > **Your existing worlds keep the ground they have until you say otherwise.**
 > Hollowreach does not store terrain. It keeps everything you have built, mined
 > and placed, and regrows the landscape from the world's seed every time you open
@@ -743,7 +745,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.8.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.9.0...HEAD
+[2.9.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.9.0
 [2.8.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.8.0
 [2.7.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.7.0
 [2.6.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.6.0
