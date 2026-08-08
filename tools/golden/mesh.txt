@@ -4,25 +4,25 @@
 # blocks=125 CX=16 CZ=16 WH=192
 
 ## mesher.chunks
-mesh(3479357960, v1, 0, 0) opaqueVerts=18384 waterVerts=150 opaque=9340ea41 water=ce82edfe sky=f142249d blk=784ab765 emitters=10
+mesh(3479357960, v1, 0, 0) opaqueVerts=18384 waterVerts=150 opaque=f0a0aa37 water=ce82edfe sky=f142249d blk=4f564121 emitters=18
 mesh(3479357960, v1, 1, 0) opaqueVerts=25782 waterVerts=120 opaque=1ca1f6b9 water=ebcad5b5 sky=0fc32c49 blk=efb69dc5 emitters=0
 mesh(3479357960, v1, -1, -1) opaqueVerts=17382 waterVerts=1536 opaque=f3ad0bcf water=aab88335 sky=e02dd4fd blk=efb69dc5 emitters=0
 mesh(3479357960, v1, 7, -3) opaqueVerts=18036 waterVerts=1362 opaque=7f9c33be water=cd451085 sky=481e6f54 blk=efb69dc5 emitters=0
-mesh(3479357960, v1, -12, 25) opaqueVerts=28866 waterVerts=0 opaque=8bbb0ff4 water=811c9dc5 sky=b9d7c8b3 blk=106d53c6 emitters=29
-mesh(3479357960, v2, 0, 0) opaqueVerts=19860 waterVerts=306 opaque=8363bd20 water=23870607 sky=b8ed081d blk=784ab765 emitters=10
+mesh(3479357960, v1, -12, 25) opaqueVerts=28866 waterVerts=0 opaque=d4774159 water=811c9dc5 sky=b9d7c8b3 blk=d5b891b8 emitters=31
+mesh(3479357960, v2, 0, 0) opaqueVerts=19860 waterVerts=306 opaque=a83aeab6 water=23870607 sky=b8ed081d blk=4f564121 emitters=18
 mesh(3479357960, v2, 1, 0) opaqueVerts=25500 waterVerts=1410 opaque=34e32041 water=20a6b6c7 sky=8f7501c4 blk=efb69dc5 emitters=0
 mesh(3479357960, v2, -1, -1) opaqueVerts=17382 waterVerts=2490 opaque=921ecf4a water=795be836 sky=e02dd4fd blk=efb69dc5 emitters=0
 mesh(3479357960, v2, 7, -3) opaqueVerts=18060 waterVerts=2058 opaque=9f3c4512 water=43f6331f sky=481e6f54 blk=efb69dc5 emitters=0
-mesh(3479357960, v2, -12, 25) opaqueVerts=28302 waterVerts=1248 opaque=969136aa water=6e106aa2 sky=c3448443 blk=106d53c6 emitters=29
+mesh(3479357960, v2, -12, 25) opaqueVerts=28302 waterVerts=1248 opaque=3310e3f7 water=33aa441e sky=c3448443 blk=d5b891b8 emitters=31
 mesh(3918175327, v1, 0, 0) opaqueVerts=17832 waterVerts=1440 opaque=a7431e47 water=e87f150e sky=3d52a2ef blk=efb69dc5 emitters=0
 mesh(3918175327, v1, 1, 0) opaqueVerts=19464 waterVerts=1494 opaque=75edd1f6 water=bde32379 sky=bac59f49 blk=efb69dc5 emitters=0
 mesh(3918175327, v1, -1, -1) opaqueVerts=28158 waterVerts=0 opaque=9d853e7b water=811c9dc5 sky=4c8d68ba blk=e4fa78d7 emitters=10
-mesh(3918175327, v1, 7, -3) opaqueVerts=27912 waterVerts=0 opaque=0de804e4 water=811c9dc5 sky=9376b8d4 blk=8d822a40 emitters=10
+mesh(3918175327, v1, 7, -3) opaqueVerts=27912 waterVerts=0 opaque=0de804e4 water=811c9dc5 sky=9376b8d4 blk=bd4cb180 emitters=12
 mesh(3918175327, v1, -12, 25) opaqueVerts=20148 waterVerts=1536 opaque=fa0ee802 water=62e2c325 sky=461ea20b blk=efb69dc5 emitters=0
 mesh(3918175327, v2, 0, 0) opaqueVerts=17916 waterVerts=2046 opaque=a2940baf water=97371ae8 sky=9a5d5e12 blk=efb69dc5 emitters=0
 mesh(3918175327, v2, 1, 0) opaqueVerts=19560 waterVerts=2352 opaque=fc310a18 water=0df8f97f sky=bac59f49 blk=efb69dc5 emitters=0
 mesh(3918175327, v2, -1, -1) opaqueVerts=30948 waterVerts=1308 opaque=6e864285 water=6149eec1 sky=91de1873 blk=e4fa78d7 emitters=10
-mesh(3918175327, v2, 7, -3) opaqueVerts=25050 waterVerts=1038 opaque=1e731254 water=8e9e398d sky=53e451fd blk=8d822a40 emitters=10
+mesh(3918175327, v2, 7, -3) opaqueVerts=25050 waterVerts=1038 opaque=1e731254 water=8e9e398d sky=53e451fd blk=bd4cb180 emitters=12
 mesh(3918175327, v2, -12, 25) opaqueVerts=20148 waterVerts=2706 opaque=fa0ee802 water=9a501064 sky=461ea20b blk=efb69dc5 emitters=0
 mesh(12345, v1, 0, 0) opaqueVerts=20766 waterVerts=648 opaque=d5516eea water=103b893e sky=90335df1 blk=efb69dc5 emitters=0
 mesh(12345, v1, 1, 0) opaqueVerts=20790 waterVerts=1518 opaque=2c81b941 water=4bd0cbf1 sky=a4321d5d blk=efb69dc5 emitters=0
