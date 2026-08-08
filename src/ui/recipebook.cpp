@@ -146,7 +146,40 @@ bool RecipeBook::fuzzy(const std::string& query, const std::string& subject) {
   return i == query.size();
 }
 
+// In a creative world this screen stops being a recipe browser and becomes an item
+// picker: every item in the game, once each, laid out to be taken.
+//
+// The same screen rather than a new one, because everything a picker needs is
+// already here and working — the category tabs, the fuzzy search, the icon atlas,
+// the tooltip, and the click-to-take path the output icons already use. A second
+// screen would have been a second copy of all of it, and the recipe book is the
+// wrong thing to be looking at when you can simply have the item.
+void RecipeBook::buildCreativeData() {
+  families_.clear();
+  for (const game::ItemDef& item : game::items().all()) {
+    Entry e;
+    e.outKey = item.key;
+    // A stack, not one. Filling a hotbar slot at a time is what makes a creative
+    // menu usable; a tool or a boat maxes at one anyway and the give clamps.
+    e.outCount = std::min(64, std::max(1, item.maxStack));
+    e.name = item.name;
+    e.recipe = nullptr;
+    // One item per family, so the ‹ › cycling never appears: in a picker every
+    // variant is a separate thing you might want, not a variation on one recipe.
+    Family f;
+    f.key = "give:" + item.key;
+    f.name = item.name;
+    f.category = categoryFor(item.key);
+    f.entries.push_back(std::move(e));
+    families_.push_back(std::move(f));
+  }
+}
+
 void RecipeBook::buildData() {
+  if (creative_) {
+    buildCreativeData();
+    return;
+  }
   families_.clear();
   const auto addEntry = [&](const std::string& familyKey, const std::string& category,
                             Entry entry) {
@@ -206,7 +239,7 @@ void RecipeBook::open() {
     built_ = true;
   }
   search_.clear();
-  search_.placeholder = "Search recipes\xE2\x80\xA6";
+  search_.placeholder = creative_ ? "Search items\xE2\x80\xA6" : "Search recipes\xE2\x80\xA6";
   hoveredTag_ = 0;
 }
 
@@ -230,6 +263,36 @@ IconRef RecipeBook::iconFor(const std::string& key) const {
 void RecipeBook::cardNode(const Family& family, int familyIndex) {
   const Entry& e = family.entries[static_cast<std::size_t>(
       std::min<int>(family.current, static_cast<int>(family.entries.size()) - 1))];
+
+  // A picker tile: the icon and the name, and the whole thing is the target. No
+  // ingredients, no arrow — there is no recipe being shown, only a thing to take.
+  if (creative_) {
+    Style tile = Doc::row(8, Justify::Start, Align::Center);
+    tile.bg = color::panel2;
+    tile.border = color::edge;
+    tile.borderWidth = 1;
+    tile.radius = 8;
+    tile.padding = Edges(6, 8);
+    const bool hot = hoveredTag_ == kTagIcon && hoveredIndex_ < static_cast<int>(iconKeys_.size()) &&
+                     iconKeys_[static_cast<std::size_t>(hoveredIndex_)] == e.outKey;
+    if (hot) {
+      tile.bg = color::slot;
+      tile.border = color::accent;
+    }
+    doc_.begin(tile, kTagCard, familyIndex);
+    doc_.icon(iconFor(e.outKey), metric::rbIconOut, metric::rbIconOut, {}, kTagIcon,
+              static_cast<int>(iconKeys_.size()));
+    iconKeys_.push_back(e.outKey);
+    iconIsOutput_.push_back(true);
+    outCounts_.push_back(e.outCount);
+    Style nameBox;
+    nameBox.maxWidth = 120;
+    nameBox.ellipsis = true;
+    nameBox.grow = 1;
+    doc_.label(e.name, widget::rbName(), nameBox);
+    doc_.end();
+    return;
+  }
 
   // .rb-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px }
   Style card = Doc::row(8, Justify::Start, Align::Center);
@@ -367,7 +430,7 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
   Style titleRow = Doc::row(10, Justify::SpaceBetween, Align::Center);
   titleRow.margin = Edges(0, 0, 18, 0);
   doc_.begin(titleRow);
-  doc_.label("Recipe Book", widget::h2());
+  doc_.label(creative_ ? "Creative Menu" : "Recipe Book", widget::h2());
   {
     const bool hovered = hoveredTag_ == kTagBack;
     Style s = widget::btnSmall(hovered, false, widget::ButtonKind::Normal);
@@ -438,7 +501,7 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
     Style grid;
     grid.display = Display::Grid;
     grid.gridCols = 0;
-    grid.gridMinCol = 220;
+    grid.gridMinCol = creative_ ? 170 : 220;
     grid.gap = 8;
     doc_.begin(grid);
     for (int index : visible_) cardNode(families_[static_cast<std::size_t>(index)], index);
@@ -449,9 +512,12 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
   Style foot;
   foot.margin = Edges(10, 0, 2, 0);
   foot.maxWidth = 700;
-  doc_.label("Tip: many recipes group \xE2\x80\x94 use the \xE2\x80\xB9 \xE2\x80\xBA arrows to "
-             "cycle materials/tiers. Forge fuels: coal, charcoal, and anything wooden "
-             "(logs, planks, tools, chests, boats, torches\xE2\x80\xA6).",
+  doc_.label(creative_
+                 ? "Click anything to take a stack of it. Tools and boats come one at a "
+                   "time; anything that does not fit is dropped at your feet."
+                 : "Tip: many recipes group \xE2\x80\x94 use the \xE2\x80\xB9 \xE2\x80\xBA "
+                   "arrows to cycle materials/tiers. Forge fuels: coal, charcoal, and "
+                   "anything wooden (logs, planks, tools, chests, boats, torches\xE2\x80\xA6).",
              widget::rbFoot(), foot);
 
   doc_.end();

@@ -2569,6 +2569,61 @@ std::unique_ptr<world::World> makeWaterWorld() {
 // The numbers are asserted loosely, as bands rather than exact values: the point
 // is "caves are mostly dry and water is a thing you come across", and pinning that
 // to three significant figures would just break every time the field is retuned.
+// Walking the exact sequence a player does to reach the debug tools, because the
+// first version of them appeared to do nothing at all and the settings path is
+// where "nothing happens" hides.
+void testDebugSettings() {
+  std::printf("\n-- debug tools --\n");
+
+  ui::SettingsStore s;
+  check(!s.available("debugView"), "the debug rows are absent before anything is turned on");
+  check(!s.available("debugPaths"), "and so are the overlays");
+
+  // Deliberately NOT in a world. These are view preferences, not world rules, and
+  // the first version got that wrong: the switch was world-scoped, so it lived in
+  // the save, defaulted off in every world, took the whole tab with it, and could
+  // not be reached from the main menu at all.
+  check(!s.flag("debugTools"), "the tools start off");
+  check(!s.available("debugView"), "and nothing is shown");
+
+  s.setFlag("debugTools", true);
+  check(s.flag("debugTools"), "turning them on takes");
+  check(s.available("debugView"), "which is what makes the Debug rows exist");
+  check(s.available("debugPaths"), "all of them");
+  check(s.editable("debugPaths"), "and lets them be set");
+
+  // The Select's option order IS the uDebug value the renderer is given, so an
+  // option inserted in the wrong place silently shows the wrong thing.
+  const ui::SettingDef* view = s.find("debugView");
+  check(view != nullptr, "the debug view row exists in the schema");
+  if (view) {
+    checkf(view->options.size() == 6, "with every view listed (%zu)", view->options.size());
+    checkf(s.selectedIndex("debugView") == 0, "starting Off (%d)",
+           s.selectedIndex("debugView"));
+    s.setText("debugView", "Surface Light");
+    checkf(s.selectedIndex("debugView") == 3, "and Surface Light is uDebug 3 (%d)",
+           s.selectedIndex("debugView"));
+    s.setText("debugView", "Sun Shadow");
+    checkf(s.selectedIndex("debugView") == 2,
+           "with the two the command line has always meant left where they were (%d)",
+           s.selectedIndex("debugView"));
+  }
+
+  // Each overlay on its own. They were reported as working only all together.
+  s.setFlag("debugPaths", true);
+  check(s.flag("debugPaths") && !s.flag("debugChunks") && !s.flag("debugBoxes"),
+        "each overlay switches on its own");
+
+  // And the tools switch takes the whole tab away again.
+  s.setFlag("debugTools", false);
+  check(!s.available("debugView"), "turning the tools off hides them again");
+  check(s.flag("debugPaths"), "without forgetting what was set");
+
+  // And they are reachable with no world open at all, which is the whole point of
+  // moving them out of the world's rules.
+  check(!s.inWorld(), "none of which needed a world");
+}
+
 // Creative: the three rules, each at the chokepoint it is enforced in.
 void testCreative() {
   std::printf("\n-- creative --\n");
@@ -6749,6 +6804,7 @@ int runSelfTest() {
   testBlockSupport();
   testCaveWater();
   testConfirmPrompt();
+  testDebugSettings();
   testCreative();
   testLoot();
   testDungeons();

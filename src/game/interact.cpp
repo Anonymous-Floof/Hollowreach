@@ -165,7 +165,10 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
         toolMatches(held->toolType, b.tool)) {
       speed = held->speed;
     }
-    const float breakTime = b.hardness / speed;
+    // Creative: no chipping and no drop. The point is clearing space to build in,
+    // and a player who can conjure any block from the menu does not need the one
+    // they just deleted falling at their feet.
+    const float breakTime = instantBreak_ ? 0.0f : b.hardness / speed;
     progress_ += dt;
     breakFrac_ = std::min(1.0f, breakTime > 0 ? progress_ / breakTime : 1.0f);
 
@@ -329,10 +332,11 @@ void Interact::complete(world::World& world, Inventory& inventory, const RayHit&
   const bool gated = b.minTier > 0;
   const bool correctTool =
       tool && tool->type == ItemType::Tool && toolMatches(tool->toolType, b.tool);
-  const bool canDrop = !b.drop.empty() && (!gated || (correctTool && tool->tier >= b.minTier));
+  const bool canDrop = !instantBreak_ && !b.drop.empty() &&
+                       (!gated || (correctTool && tool->tier >= b.minTier));
   if (canDrop) {
     world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, b.drop, b.dropCount);
-  } else if (gated && hooks.notify) {
+  } else if (gated && !instantBreak_ && hooks.notify) {
     static const char* kTierNames[] = {"", "wood", "stone", "copper", "iron"};
     const char* need = kTierNames[std::min(4, b.minTier)];
     const char* what = b.tool == world::ToolType::Pick     ? "pick"

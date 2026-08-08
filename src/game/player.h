@@ -91,6 +91,9 @@ struct PlayerOptions {
   // walls without flying means falling through the floor forever.
   bool invulnerable = false;
   bool noClip = false;
+  // Read by App, which passes it to Interact rather than Player -- breaking is
+  // not something the body does.
+  bool instantBreak = false;
   bool hungerEnabled = false;
   bool fallDamageEnabled = true;
   float stepHeight = playerConst::kStep;

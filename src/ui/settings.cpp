@@ -92,11 +92,6 @@ const std::vector<SettingDef>& schema() {
       // strange first thing to have happen in a survival world.
       {"flight", "Allow Flight (double-tap Space)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
        false},
-      // The switch that reveals the Debug tab. A cheat rather than a preference,
-      // because seeing through the world's floor is not a display option — and
-      // world-scoped like the rest, so a host decides whether their world is a
-      // place people can do that in.
-      {"debugTools", "Debug Tools", SettingType::Toggle, "Cheats", 0, 0, 0, 0, false},
       // Only in a world that was CREATED creative. `worldIsCreative` is not a row;
       // it is a fact about the save, set by App when the world opens, and that is
       // the whole reason a survival world can never turn into a creative one.
@@ -106,14 +101,30 @@ const std::vector<SettingDef>& schema() {
        {}, false, "creativeMode"},
       {"noClip", "Walk Through Walls (fly to move)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
        false, "", {}, false, "creativeMode"},
+      // Mining without the mining. Drops nothing: the point is clearing space to
+      // build in, and a creative player who wanted the block can ask for one.
+      {"instantBreak", "Break Blocks Instantly", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
+       false, "", {}, false, "creativeMode"},
       {"locateDungeon", "Locate Nearest Dungeon", SettingType::Action, "Cheats", 0, 0, 0, 0,
        false, "", {}, false, "creativeMode"},
 
       // --- Debug: how the world is drawn, not what it is ----------------------
-      // Global, deliberately, and the split is the point: whether these tools may
-      // be used at all is the WORLD's business and the host's, but which overlay a
-      // player likes looking at is theirs and follows them between worlds. It also
-      // keeps them off the wire, where the world-settings message caps at 64 pairs.
+      //
+      // Every row here is Global, INCLUDING the switch that reveals the rest.
+      //
+      // The first attempt put that switch in Cheats, where it was world-scoped, on
+      // the reasoning that a host should decide whether their world is a place
+      // people can see through. That was wrong twice over. It is not a rule about
+      // the world — none of these change a single thing about the game, they only
+      // change how it is drawn for the one person looking — and making it the
+      // world's business meant it lived in the save, defaulted off in every world,
+      // and took the entire Debug tab away with it. Which is exactly what "the
+      // debug tools do not do anything" turned out to mean.
+      //
+      // Global also means they are reachable from the main menu, survive between
+      // worlds, and stay off the wire, where the world-settings message caps at
+      // 64 pairs.
+      {"debugTools", "Debug Tools", SettingType::Toggle, "Debug", 0, 0, 0, 0, false},
       // Option order IS the uDebug value, and the first two are 1 and 2 because
       // --debug-view has meant exactly that since before this screen existed. The
       // light views are appended rather than slotted in front, so a documented flag

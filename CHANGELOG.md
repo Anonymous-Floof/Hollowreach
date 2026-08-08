@@ -15,6 +15,46 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Multiplayer needs both machines on this version.** Creative gains a rule an
+> older build has never heard of, and world rules travel as text — so a 2.9.0
+> guest would drop it and play by its own defaults with neither end told. The two
+> refuse each other at the join screen. **Saves are fine in both directions.**
+
+### Added
+- **A real creative menu.** In a creative world the recipe book becomes an item
+  picker: every item in the game, once each, with the same tabs and search, and a
+  click takes a stack. It goes back to being a recipe book the moment creative is
+  switched off.
+- **Break blocks instantly**, as its own creative switch. Blocks come out on the
+  first frame and drop nothing — the point is clearing space to build in, and
+  anyone who wanted the block can take one from the menu. The "you need a stone
+  pickaxe" refusal goes quiet with it, because being told that about a block you
+  just removed anyway is noise.
+
+### Fixed
+- **The debug tools actually appear.** They were reachable only from inside a
+  world, defaulted off in every world separately, and vanished along with the
+  whole Debug tab — which is what "the light view and mob paths do nothing" meant.
+  They were filed as one of the world's rules, and they are not: none of them
+  changes a single thing about the game, only how it is drawn for the one person
+  looking. They now sit in their own tab, work from the main menu, and follow you
+  between worlds. Each overlay switches on its own.
+- **A world's rules apply the moment you enter it**, rather than on the first
+  frame you spend actually playing. Opening a world straight into a screen left
+  flight, invulnerability and the creative menu itself wrong for as long as you
+  stood in that menu.
+- **Creative no longer flies whether you asked or not.** It forced flight on while
+  the Allow Flight switch sat there reading Off, which is worse than having no
+  switch. Every creative rule is now exactly what its own row says. The one
+  exception is walking through walls, which has to fly: a body that never collides
+  never lands.
+- **Walking through walls is the right way round.** Solid rock came out
+  see-through and open caves came out filled in — the exact opposite of what every
+  other game does, and of what is useful. Every surface underground is the wall of
+  some opening, and the fix is which side of it you are looking at: walls facing
+  you are the near side of somewhere you could fly into and are lit; walls facing
+  away are the far side of the mass behind you and are pushed down into it.
+
 ## [2.9.0] - 2026-08-08
 
 > **Your existing worlds keep the ground they have until you say otherwise.**

@@ -99,6 +99,9 @@ struct AppOptions {
   // settings screen, which a headless capture cannot click. Same reason --screen
   // exists.
   bool debugLines = false;
+  // --creative: makes the generated world a creative one and turns the mode on,
+  // so the creative screens can be captured without clicking through a menu.
+  bool creativeWorld = false;
   // --no-hud: the same thing F1 does, for a capture of the world alone.
   bool hideHud = false;
   // --no-vsync: uncap the frame rate. With vsync on, frame time quantises to

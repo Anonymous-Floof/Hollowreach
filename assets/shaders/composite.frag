@@ -268,8 +268,23 @@ void main() {
   // one; what it can do is show what is already there. Flying through a mountain
   // now looks like flying through a dim glass model of it.
   if (uXray > 0.001) {
-    vec3 lifted = albedo * mix(0.25, 0.55, shade);
-    col = mix(col, max(col, lifted), uXray);
+    // Which way is this surface facing?
+    //
+    // The mesher only ever makes a face where solid meets air, so every surface in
+    // here is the wall of some opening. From inside rock you are looking at the
+    // BACK of the walls of the cave behind you, and the front of the walls of the
+    // cave ahead — and lighting both equally is what made the first version read
+    // inside out: solid rock came out see-through and open caves came out filled
+    // in, which is the opposite of every other game that does this.
+    //
+    // So the sign of the facing decides. A wall turned toward you is the near side
+    // of an opening you could fly into: lit, and lit more the more squarely it
+    // faces you. A wall turned away is the far side of something behind you:
+    // pushed right down so it reads as the solid mass it is the inside of.
+    vec3 toEye = normalize(uCamPos - wpos);
+    float facing = dot(N, toEye);
+    float lift = facing > 0.0 ? mix(0.30, 0.70, facing) : 0.04;
+    col = mix(col, max(col, albedo * lift), uXray);
   }
   frag = vec4(col, 1.0);
 }

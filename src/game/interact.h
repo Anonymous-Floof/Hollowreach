@@ -81,6 +81,11 @@ class Interact {
   // mine keeps it true, which chains into a repeating swing.
   bool swung() const { return swung_; }
 
+  // Creative's instant break. Blocks come out on the first frame and drop
+  // nothing, and the tier refusal goes quiet with them — being told you need a
+  // stone pickaxe for a block you just removed anyway is noise.
+  void setInstantBreak(bool on) { instantBreak_ = on; }
+
   void reset();
 
  private:
@@ -112,6 +117,7 @@ class Interact {
   float attackCooldown_ = 0.0f;  // seconds until the next melee swing can land
   float digSoundClock_ = 0.0f;   // rhythm clock for the mining tick sound
   bool swung_ = false;
+  bool instantBreak_ = false;
 };
 
 }  // namespace hr::game

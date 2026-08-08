@@ -43,6 +43,16 @@ class RecipeBook {
   std::function<void(const std::string& key, int count)> onGive;
   std::function<bool()> canGive;
 
+  // In a creative world this screen is an item picker instead of a recipe browser:
+  // every item, once, laid out to be taken. Rebuilds the list when it changes, so
+  // switching a world between creative and survival switches the screen with it.
+  void setCreative(bool on) {
+    if (creative_ == on) return;
+    creative_ = on;
+    built_ = false;
+  }
+  bool creative() const { return creative_; }
+
   // Built lazily on first open, like the JS `built` flag: it walks every recipe and
   // groups it, which is not work to do at startup for a screen most sessions never open.
   void open();
@@ -78,6 +88,7 @@ class RecipeBook {
   };
 
   void buildData();
+  void buildCreativeData();
   void build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens);
   void handle(const UiEvent& event, Text& text);
   void cardNode(const Family& family, int familyIndex);
@@ -93,6 +104,7 @@ class RecipeBook {
 
   const render::IconAtlas* icons_ = nullptr;
   bool built_ = false;
+  bool creative_ = false;
   std::vector<Family> families_;
   std::string tab_ = "all";
   // Rows surviving the tab and the search, as indices into families_.

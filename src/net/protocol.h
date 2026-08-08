@@ -83,7 +83,11 @@ namespace hr::net {
 // was compiled with. In a creative world that guest takes fall damage, drowns and
 // cannot fly while everybody else is invulnerable, and neither end is told they
 // disagree. Exactly the shape of version 5, which was bumped for exactly this.
-inline constexpr std::uint16_t kNetVersion = 8;
+// 9: creative gains instant break, and the debug tools stop being one of the
+// world's rules at all. Same reasoning as 8 and as 5 before it -- a rule an older
+// guest has never heard of is dropped rather than refused, and it plays a
+// different game without either end being told.
+inline constexpr std::uint16_t kNetVersion = 9;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

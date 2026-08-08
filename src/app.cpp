@@ -407,14 +407,19 @@ void App::applySettings() {
   // web build used against the browser's already-accelerated movementX.
   playerOptions_.sensitivity = static_cast<float>(s.number("sensitivity")) * 0.0002f;
   playerOptions_.invertY = s.flag("invertY");
-  // Creative is a bundle, not a fourth switch beside the others: it turns flight on
-  // and does not ask, because a mode where you have to also find the flight row is
-  // not a mode. The rows it subsumes stay visible and stay honest — turning
-  // creative off puts every one of them back exactly where the player left it.
+  // Creative unlocks the rows; it does not press them. An earlier version forced
+  // flight on whenever creative was, which meant the Allow Flight switch sat there
+  // reading Off while the player flew — a switch that lies about the thing it
+  // controls is worse than no switch. Every creative rule is now exactly what its
+  // own row says, and creative's job is to make those rows exist at all.
   const bool creative = s.available("creativeMode") && s.flag("creativeMode");
-  playerOptions_.flightAllowed = creative || s.flag("flight");
-  playerOptions_.invulnerable = creative && s.flag("noHealth");
   playerOptions_.noClip = creative && s.flag("noClip");
+  // The one exception, and it is not a default but a consequence: a body that never
+  // collides never lands, so no-clip has to fly. Player::update enforces the same
+  // thing; this keeps the two from disagreeing.
+  playerOptions_.flightAllowed = s.flag("flight") || playerOptions_.noClip;
+  playerOptions_.invulnerable = creative && s.flag("noHealth");
+  playerOptions_.instantBreak = creative && s.flag("instantBreak");
   playerOptions_.hungerEnabled = s.flag("hunger") && !playerOptions_.invulnerable;
   playerOptions_.fallDamageEnabled = s.flag("fallDamage");
   playerOptions_.stepHeight = s.flag("highStep") ? 1.0f : game::playerConst::kStep;
@@ -429,6 +434,11 @@ void App::applySettings() {
   } else {
     renderer_.setDebugView(0);
   }
+
+  interact_.setInstantBreak(playerOptions_.instantBreak);
+  // The recipe book becomes an item picker in a creative world, and goes back to
+  // being a recipe book the moment creative is switched off.
+  interface_.recipeBook().setCreative(creative);
 
   window_.setRawMouseMotion(s.flag("rawMouse"));
   interface_.setUiScale(static_cast<float>(s.number("uiScale")) / 100.0f);
@@ -1191,11 +1201,22 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
   // one is whatever the New World screen asked for, which createWorld left here
   // before calling in. Not a setting, so nothing in the interface can change it —
   // that is the entire point of it being separate.
-  createdCreative_ = loaded ? loaded->createdCreative : pendingCreative_;
+  createdCreative_ = loaded ? loaded->createdCreative : (pendingCreative_ || options.creativeWorld);
   ui::settings().setVirtualFlag("worldIsCreative", createdCreative_);
   // A world made Creative starts in it. Anything else and the row is not there to
   // be read, so this is the only place the mode is ever assumed rather than stored.
   if (createdCreative_ && !loaded) ui::settings().setFlag("creativeMode", true);
+  if (options.creativeWorld) ui::settings().setFlag("creativeMode", true);
+  // Apply them NOW, not on the first frame of play.
+  //
+  // syncSettingsIfChanged only runs inside updatePlaying, so a world entered with
+  // a screen already open — the recipe book, the pause menu, anything --screen
+  // opens — got its rules applied only once the player closed that screen and the
+  // world started ticking. Everything a world's rules decide was therefore wrong
+  // for exactly as long as somebody stood in a menu: flight, invulnerability, and
+  // whether the recipe book is a recipe book at all.
+  applySettings();
+  settingsRevision_ = ui::settings().revision();
   if (loaded) {
     inventory_ = loaded->inventory;
     entities_.load(loaded->entities);
