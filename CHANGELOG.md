@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.10.1] - 2026-08-08
+
 > **Multiplayer needs both machines on this version.** A world saved while flight
 > was allowed still says so, and a 2.10.0 guest would read that and go on flying
 > around a survival world its host no longer grants flight in. Same key, different
@@ -852,7 +854,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.10.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.10.1...HEAD
+[2.10.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.10.1
 [2.10.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.10.0
 [2.9.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.9.0
 [2.8.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.8.0
