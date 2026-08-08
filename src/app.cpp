@@ -417,7 +417,12 @@ void App::applySettings() {
   // The one exception, and it is not a default but a consequence: a body that never
   // collides never lands, so no-clip has to fly. Player::update enforces the same
   // thing; this keeps the two from disagreeing.
-  playerOptions_.flightAllowed = s.flag("flight") || playerOptions_.noClip;
+  // ANDed with creative rather than read on its own. A world saved while flight was
+  // allowed still carries flight=true in its rules, and reading the row without
+  // asking whether it is still reachable would go on granting flight in a survival
+  // world forever. `available` is the single question "does this row exist here".
+  playerOptions_.flightAllowed =
+      (creative && s.flag("flight")) || playerOptions_.noClip;
   playerOptions_.invulnerable = creative && s.flag("noHealth");
   playerOptions_.instantBreak = creative && s.flag("instantBreak");
   playerOptions_.hungerEnabled = s.flag("hunger") && !playerOptions_.invulnerable;
@@ -1823,6 +1828,11 @@ void App::syncSettingsIfChanged() {
 // needs to stream in, and the capture happened wherever the player landed.
 void App::stepPlayer(Input& in) {
   if (options_.freezePlayer) return;
+  // Once, before the substeps: this reads a key edge, and the substep loop would
+  // see the same press several times over.
+  // Once, before the substeps: this reads a key edge, and the substep loop would
+  // see the same press several times over.
+  player_->tryToggleFlight(in, playerOptions_, clock_.simTime());
   double step = 0;
   const int steps = clock_.substeps(step);
   for (int i = 0; i < steps; ++i) {

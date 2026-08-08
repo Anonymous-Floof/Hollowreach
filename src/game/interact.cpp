@@ -14,6 +14,10 @@ namespace {
 using world::RenderKind;
 
 constexpr float kReach = 6.0f;
+// Seconds between blocks while creative's instant break is held. Roughly seven a
+// second: a click takes the one you aimed at, and holding clears a wall at a pace
+// you can still steer.
+constexpr float kInstantBreakInterval = 0.14f;
 constexpr float kPlayerHalfWidth = playerConst::kHalfWidth;
 constexpr float kPlayerHeight = playerConst::kHeight;
 
@@ -168,7 +172,12 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
     // Creative: no chipping and no drop. The point is clearing space to build in,
     // and a player who can conjure any block from the menu does not need the one
     // they just deleted falling at their feet.
-    const float breakTime = instantBreak_ ? 0.0f : b.hardness / speed;
+    //
+    // A rate rather than zero. Zero meant one block per FRAME while the button was
+    // held, so the briefest click took four or five blocks out of a wall and a held
+    // one tunnelled at the frame rate. This is fast enough to feel instant on the
+    // block you aimed at and slow enough that you choose each one after it.
+    const float breakTime = instantBreak_ ? kInstantBreakInterval : b.hardness / speed;
     progress_ += dt;
     breakFrac_ = std::min(1.0f, breakTime > 0 ? progress_ / breakTime : 1.0f);
 

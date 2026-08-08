@@ -210,6 +210,34 @@ void Player::stepMove(const world::World& world, int axis, float delta, bool swi
   body_.pos.y = savedY;
 }
 
+// The fly toggle, read exactly once per frame.
+//
+// It used to live in update(), which is wrong in a way that took a bug report to
+// see: update() is called once per SUBSTEP, `Input::pressed` is a per-frame edge
+// that stays true for every substep of that frame, and simTime only advances once
+// per frame. So on any frame the clock split into two substeps, the second one saw
+// a press whose "previous press" was itself, zero seconds ago, and flight toggled.
+// One tap read as a double tap — which is why any two presses, however far apart,
+// appeared to toggle: each one was toggling on its own.
+//
+// Substep count rises with frame time, so this got worse the busier the scene was.
+void Player::tryToggleFlight(const Input& input, const PlayerOptions& options,
+                             double simTime) {
+  if (!input.pressed(Key::Space)) return;
+  const bool canFly = options.flightAllowed || options.noClip;
+  if (canFly && lastSpaceTime_ >= 0.0 &&
+      simTime - lastSpaceTime_ < playerConst::kDoubleTapSeconds) {
+    flying_ = !flying_;
+    vel_.y = 0.0f;
+    // Disarmed, so the tap that completed one double tap cannot also start the
+    // next. Three quick presses were two toggles and landed you back where you
+    // started.
+    lastSpaceTime_ = -1.0;
+    return;
+  }
+  lastSpaceTime_ = simTime;
+}
+
 void Player::update(float dt, const Input& input, const world::World& world,
                     const PlayerOptions& options, double simTime) {
   stepHeight_ = options.stepHeight;
@@ -232,15 +260,9 @@ void Player::update(float dt, const Input& input, const world::World& world,
     vel_.y = 0.0f;
   }
 
-  // Fly toggles on a double tap of space. Timed against accumulated simulation
-  // time, not wall clock, so a paused menu cannot swallow or fake the second tap.
-  if (input.pressed(Key::Space)) {
-    if (canFly && lastSpaceTime_ >= 0.0 && simTime - lastSpaceTime_ < kDoubleTapSeconds) {
-      flying_ = !flying_;
-      vel_.y = 0.0f;
-    }
-    lastSpaceTime_ = simTime;
-  }
+  // The double tap is NOT read here — see tryToggleFlight, which is called once a
+  // frame. This function runs once per substep, and reading a per-frame key edge
+  // from it counts one press as several.
 
   const float sinYaw = std::sin(yaw_);
   const float cosYaw = std::cos(yaw_);

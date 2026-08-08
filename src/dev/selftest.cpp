@@ -2569,6 +2569,93 @@ std::unique_ptr<world::World> makeWaterWorld() {
 // The numbers are asserted loosely, as bands rather than exact values: the point
 // is "caves are mostly dry and water is a thing you come across", and pinning that
 // to three significant figures would just break every time the field is retuned.
+// The fly double-tap.
+//
+// This shipped broken twice over and the suite said nothing both times, because
+// every test called Player::update once per frame and the game calls it once per
+// SUBSTEP. So the checks below drive it the way the game does.
+void testFlightToggle() {
+  std::printf("\n-- flying --\n");
+
+  auto world = makeArena();
+  game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+  game::PlayerOptions opts;
+  opts.flightAllowed = true;
+  Input in;
+  double simTime = 0.0;
+
+  // A frame: advance the clock, present the key edge once, then run the substeps.
+  const auto frame = [&](bool space, int substeps) {
+    simTime += 1.0 / 60.0;
+    in.endFrame();  // clears last frame's edges, as the platform layer does
+    // Released as well as pressed: feeding "down" twice running is not two taps,
+    // it is one hold, and Input is right to report only the first as an edge.
+    in.feedKey(Key::Space, space, false);
+    player.tryToggleFlight(in, opts, simTime);
+    for (int i = 0; i < substeps; ++i) {
+      player.update(1.0f / 60.0f / substeps, in, *world, opts, simTime);
+    }
+  };
+
+  // Well past the 0.3s window, so each scenario below starts from nothing rather
+  // than from whatever the last one left armed. Getting this wrong is how the
+  // first draft of this test reported the fix as broken.
+  const auto settle = [&] {
+    for (int i = 0; i < 30; ++i) frame(false, 1);
+  };
+  const auto doubleTap = [&] {
+    frame(true, 1);
+    frame(false, 1);
+    frame(true, 1);
+  };
+
+  check(!player.flying(), "a player starts on the ground");
+
+  // ONE press, on a frame the clock split in two. This is the whole bug: the
+  // second substep saw the same edge, measured its distance from itself, and
+  // called it a double tap.
+  // THREE substeps, not two. With an even count the old bug toggled twice and
+  // cancelled itself out, which is exactly why it was reported as intermittent —
+  // whether one tap took off depended on how long the last frame happened to be.
+  frame(true, 3);
+  check(!player.flying(), "one tap does not take off, however many substeps the frame had");
+  settle();
+
+  // Two taps, far enough apart to be two jumps.
+  frame(true, 1);
+  settle();
+  frame(true, 1);
+  check(!player.flying(), "two taps half a second apart are two jumps, not a double tap");
+  settle();
+
+  doubleTap();
+  check(player.flying(), "two taps in quick succession do take off");
+  settle();
+
+  doubleTap();
+  check(!player.flying(), "and the same again lands");
+  settle();
+
+  // The tap that completes a double tap is spent, not the start of the next one —
+  // otherwise three quick presses are two toggles and land you where you began.
+  doubleTap();
+  check(player.flying(), "a double tap takes off");
+  frame(false, 1);
+  frame(true, 1);
+  check(player.flying(), "and one more tap right after is not another double tap");
+
+  // Nothing at all when the world does not allow it.
+  game::Player grounded(kOriginX, static_cast<float>(kY), kOriginZ);
+  opts.flightAllowed = false;
+  for (int i = 0; i < 6; ++i) {
+    simTime += 1.0 / 60.0;
+    in.endFrame();
+    in.feedKey(Key::Space, i % 2 == 0, false);
+    grounded.tryToggleFlight(in, opts, simTime);
+  }
+  check(!grounded.flying(), "and no amount of tapping flies in a world that forbids it");
+}
+
 // Walking the exact sequence a player does to reach the debug tools, because the
 // first version of them appeared to do nothing at all and the settings path is
 // where "nothing happens" hides.
@@ -6804,6 +6891,7 @@ int runSelfTest() {
   testBlockSupport();
   testCaveWater();
   testConfirmPrompt();
+  testFlightToggle();
   testDebugSettings();
   testCreative();
   testLoot();

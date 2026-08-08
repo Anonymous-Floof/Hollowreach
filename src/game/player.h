@@ -193,6 +193,10 @@ class Player {
   // Mouse look, applied per frame at render rate so aim latency stays low.
   void look(double dx, double dy, const PlayerOptions& options);
 
+  // The fly double-tap, read ONCE per frame. Kept out of update() because that
+  // runs per substep and a key edge is per frame; see the note on the definition.
+  void tryToggleFlight(const Input& input, const PlayerOptions& options, double simTime);
+
   void update(float dt, const Input& input, const world::World& world,
               const PlayerOptions& options, double simTime);
 

@@ -87,11 +87,14 @@ const std::vector<SettingDef>& schema() {
       // kind of decision — it is not making the world easier, it is stepping
       // outside its rules — and a world where somebody can fly should say so.
       //
-      // Off by default, where the web build had flight on. A double-tap of Space is
-      // easy to do by accident while jumping, and drifting off the ground is a
-      // strange first thing to have happen in a survival world.
-      {"flight", "Allow Flight (double-tap Space)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
-       false},
+      // Creative only, and the Cheats tab is empty without it — which is the
+      // intended state for now. A survival world has no flight at all: it was a
+      // leftover from the web build, it is the one "cheat" that changes how the
+      // whole game is played rather than adding a tool, and a double-tap of Space
+      // is easy enough to do by accident while jumping that people met it without
+      // meaning to. The tab and the category stay wired up for whatever comes next.
+      {"flight", "Fly (double-tap Space)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
+       false, "", {}, false, "creativeMode"},
       // Only in a world that was CREATED creative. `worldIsCreative` is not a row;
       // it is a fact about the save, set by App when the world opens, and that is
       // the whole reason a survival world can never turn into a creative one.

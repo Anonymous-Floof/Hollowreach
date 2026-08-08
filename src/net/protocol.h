@@ -87,7 +87,12 @@ namespace hr::net {
 // world's rules at all. Same reasoning as 8 and as 5 before it -- a rule an older
 // guest has never heard of is dropped rather than refused, and it plays a
 // different game without either end being told.
-inline constexpr std::uint16_t kNetVersion = 9;
+// 10: flight belongs to creative worlds now. The same key means something else --
+// a 2.10.0 guest reads flight=true out of a world whose host no longer grants it
+// and flies around a survival world on its own authority. Version 7's case
+// exactly: the layout is unchanged and that is the reason to refuse rather than
+// tolerate it.
+inline constexpr std::uint16_t kNetVersion = 10;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

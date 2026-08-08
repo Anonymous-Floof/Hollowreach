@@ -15,6 +15,34 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+> **Multiplayer needs both machines on this version.** A world saved while flight
+> was allowed still says so, and a 2.10.0 guest would read that and go on flying
+> around a survival world its host no longer grants flight in. Same key, different
+> meaning — so the two refuse each other at the join screen. **Saves are fine in
+> both directions.**
+
+### Changed
+- **Flight is gone from survival.** It was a leftover from the web build and the
+  one "cheat" that changes how the whole game is played rather than adding a tool
+  — and a double-tap of Space is easy enough to do by accident while jumping that
+  people met it without meaning to. It lives in creative now, as its own switch.
+  The Cheats tab is empty in a survival world and simply does not appear; it stays
+  wired up for whatever goes in it next.
+
+### Fixed
+- **Double-tap to fly needs an actual double tap.** Any two presses toggled it,
+  however far apart — and sometimes one press did, depending on how long the last
+  frame happened to be. The tap was being read once per physics step rather than
+  once per frame, so on a busy frame the second step saw the same press, measured
+  the gap from itself as zero, and called it a double tap. One tap now means one
+  jump, whatever the frame rate is doing. The press that completes a double tap is
+  also spent rather than starting the next one, so three quick presses no longer
+  land you back where you began.
+- **Instant break breaks one block at a time.** It was taking a block per frame
+  while the button was down, so the shortest click took four or five out of a wall.
+  It now clears about seven a second: instant on the block you aimed at, and slow
+  enough to steer.
+
 ## [2.10.0] - 2026-08-08
 
 > **Multiplayer needs both machines on this version.** Creative gains a rule an

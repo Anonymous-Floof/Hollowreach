@@ -104,7 +104,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 749 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 757 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -115,7 +115,7 @@ all and is the fastest way to know a change did not break something.
 | Look | Mouse |
 | Jump / swim up | Space |
 | Sprint (1.3×) | Hold Left Ctrl while moving |
-| Fly (toggle) | Double-tap Space |
+| Fly (toggle, creative worlds) | Double-tap Space |
 | Crouch (slower, and will not walk off a ledge) | Left Shift |
 | Break block / attack | Left mouse (hold) |
 | Place / use station / open door / sleep / **eat** | Right mouse |
@@ -145,7 +145,9 @@ sensitivity, raw input, invert, interface scale), *Gameplay* (High Step, minimap
 death waypoints) and *Audio*. These live in `data/settings.json`.
 
 **The world's, and they stay with it** — *Difficulty* (fall damage, hunger,
-monster spawning) and *Cheats* (flight). These are saved inside the world, travel
+monster spawning) and *Cheats*, which in a survival world is empty and does not
+appear at all: flight, no-clip, invulnerability and instant break belong to
+creative worlds. These are saved inside the world, travel
 with it when you share it, and only appear while a world is open: on the main
 menu there is no world whose rules could be shown. **In multiplayer they are the
 host's** — a guest can read them but not change them, because a rule only half
