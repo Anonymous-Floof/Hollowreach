@@ -220,10 +220,19 @@ BlockRegistry::BlockRegistry() {
       .pick(tier::kStone).drops("raw_ferralite");
   Builder(B, "ore_sunbrass", "Gold Ore").cube().solidOpaque().tex("ore_sunbrass").hard(2.4f)
       .pick(tier::kCopper).drops("raw_sunbrass");
+  // Diamond glows, faintly and blue. Dimmer than sparkstone on purpose: it is the
+  // rarest thing down there and a lamp would give away every vein from across a
+  // cavern, which is the opposite of what makes finding one worth anything. Blue
+  // rather than the tile's own blue-green, so the light reads as its own colour
+  // against the teal of the crystal rather than washing into it.
   Builder(B, "ore_aetherite", "Diamond Ore").cube().solidOpaque().tex("ore_aetherite").hard(2.8f)
-      .pick(tier::kFerralite).drops("aetherite");
+      .pick(tier::kFerralite).drops("aetherite").emits(5, 0.34f, 0.62f, 1.0f);
+  // Sparkstone's light matches the stone. It was cyan while the tile it lit was
+  // 0xe0432f red — the ore looked like an ember and glowed like ice, because the
+  // texture colour and the light colour are two different numbers and only one of
+  // them had been chosen.
   Builder(B, "ore_sparkstone", "Sparkstone Ore").cube().solidOpaque().tex("ore_sparkstone")
-      .hard(2.2f).pick(tier::kFerralite).drops("sparkstone", 4).emits(6, 0.45f, 0.85f, 0.98f);
+      .hard(2.2f).pick(tier::kFerralite).drops("sparkstone", 4).emits(6, 1.0f, 0.42f, 0.24f);
   Builder(B, "ore_azurite", "Azurite Ore").cube().solidOpaque().tex("ore_azurite").hard(2.2f)
       .pick(tier::kStone).drops("azurite");
   // Gloamite: dusk-violet, deep only. Powers the Wayshard, reserved for future

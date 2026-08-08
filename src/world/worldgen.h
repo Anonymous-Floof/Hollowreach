@@ -164,6 +164,12 @@ void dungeonChestsIn(int cx, int cz, const NoiseSet& n, std::uint32_t seed, int 
 struct DungeonSite {
   int x = 0, y = 0, z = 0;
   int rooms = 0;
+  // Whether this one found a cave to open into, and how far it had to reach. A
+  // sealed dungeon is a legal outcome, not a bug, so the finder reports it rather
+  // than hiding it.
+  bool tunnel = false;
+  int tunnelLen = 0;
+  int tunnelDx = 0, tunnelDz = 0;
 };
 bool findDungeon(const NoiseSet& n, std::uint32_t seed, int ver, int nearX, int nearZ,
                  int searchCells, DungeonSite& out);

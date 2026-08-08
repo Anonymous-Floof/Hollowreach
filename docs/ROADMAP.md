@@ -405,6 +405,43 @@ which is good defence and a trap when verifying — a sabotage that "passes" may
 simply not have taken effect. Check that a sabotage actually altered behaviour
 before concluding a check is vacuous.
 
+## The settings gate, and where a rule belongs
+
+Two small additions to `ui/settings.h` carry the whole of the cheats and debug
+work, and both are worth knowing about before adding anything near them.
+
+**`SettingDef::gate`** names a flag that must be on before the row exists at all —
+hidden, uneditable, absent. One switch therefore reveals a family, and a category
+whose every row is gated off is not an empty tab but no tab. (`requires` would have
+read better and is a C++20 keyword.)
+
+A gate may name a **virtual flag**, which is a fact about the session that no row
+can set: `worldIsCreative` is written by App from the save and is the entire reason
+a survival world can never become a creative one. If it were a row, the host could
+flip it, and the choice made when the world was created would mean nothing.
+
+**Where a rule lives is a real decision, not a formality.** The split that came out
+of this one is worth reusing:
+
+- *Permission* is the world's, and therefore world-scoped, replicated, and the
+  host's to set — `debugTools`, `creativeMode`, `noHealth`, `noClip`.
+- *Preference* is the player's, and therefore Global and never sent — which
+  overlay you like looking at follows you between worlds and is nobody else's
+  business. It also keeps them out of `WorldSettingsMsg`, which caps at 64 pairs.
+
+`SettingType::Action` is a row that stores nothing and fires the change callback.
+"Locate the nearest dungeon" is something you do once, and the schema had no way
+to say that.
+
+### A note on PlayerOptions
+
+Every rule about the local body belongs on `PlayerOptions`, and every consumer must
+be handed the real one. `mobs.cpp` used to build its own carrying only the armour
+figure, which was harmless while every field it dropped was cosmetic and stopped
+being harmless the moment one of them was `invulnerable` — a zombie was the last
+thing in the world that could kill a player nothing else could touch. If a hook
+needs the options, give it `ctx.playerOptions`; do not construct one.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

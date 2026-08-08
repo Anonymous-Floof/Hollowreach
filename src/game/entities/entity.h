@@ -36,6 +36,7 @@ class Input;
 namespace hr::game {
 
 class Player;
+struct PlayerOptions;
 class Inventory;
 class EntityManager;
 
@@ -145,6 +146,12 @@ struct EntityContext {
   world::World* world = nullptr;
   Player* player = nullptr;
   Inventory* inventory = nullptr;
+  // The rules the local body is played under. Only the zombie reads it, and only
+  // to find out whether its blow lands at all — but it has to be the real ones: a
+  // hook that builds its own PlayerOptions silently opts out of every rule added
+  // to that struct afterwards, which is how a zombie ended up able to kill a
+  // player nothing else could touch.
+  const PlayerOptions* playerOptions = nullptr;
   EntityManager* entities = nullptr;
   const render::Sky* sky = nullptr;
   const Input* input = nullptr;  // only the rideable boat reads this

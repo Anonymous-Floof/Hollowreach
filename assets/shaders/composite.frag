@@ -47,7 +47,9 @@ uniform int uCloudSteps;
 uniform vec3 uCloudSunDir, uCloudAmb;
 uniform float uCloudDay;
 
-uniform float uDebug;  // 1 = show the AO term, 2 = show the sun shadow term
+uniform float uDebug;  // 1 = AO, 2 = sun shadow, 3..5 = the light views
+// 0..1, eased. Non-zero only while no-clipping with the head inside a solid block.
+uniform float uXray;
 
 out vec4 frag;
 
@@ -173,8 +175,27 @@ void main() {
       frag = vec4(vec3(ssao), 1.0);
       return;
     }
-    float ndlD = max(dot(N, uSunDir), 0.0);
-    frag = vec4(vec3(sunShadow(wpos, N, ndlD)), 1.0);
+    if (uDebug < 2.5) {
+      float ndlD = max(dot(N, uSunDir), 0.0);
+      frag = vec4(vec3(sunShadow(wpos, N, ndlD)), 1.0);
+      return;
+    }
+    // The light views. Nothing is sampled that the lighting pass below does not
+    // already have — sky and block came out of the G-buffer at the top of this
+    // function — so these cost a branch and nothing else.
+    if (uDebug < 3.5) {
+      // Both at once: block light red, skylight blue. Where they overlap is
+      // magenta and where neither reaches is black, which is the thing you are
+      // actually looking for when you ask why something is dark.
+      frag = vec4(block, 0.0, sky, 1.0);
+      return;
+    }
+    // One at a time, as a ramp through the same colours a light level reads as:
+    // black to red to yellow to white, so 4 and 12 are told apart at a glance in a
+    // way a plain greyscale ramp does not manage.
+    float v = uDebug < 4.5 ? block : sky;
+    vec3 ramp = clamp(vec3(v * 3.0, v * 3.0 - 1.0, v * 3.0 - 2.0), 0.0, 1.0);
+    frag = vec4(ramp, 1.0);
     return;
   }
 
@@ -233,5 +254,22 @@ void main() {
   float dist = distance(wpos, uCamPos);
   float fog = clamp((dist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
   col = mix(col, uFogColor, fog);
+
+  // Inside the world, with no-clip on.
+  //
+  // The mesher never builds interior faces, so a camera inside rock is already
+  // looking at the OUTSIDE skin of the terrain from behind — the shell of the hill
+  // you are in, and the landscape past it. The problem was never that the geometry
+  // was missing. It is that every one of those faces is at light level zero,
+  // because nothing underground is lit, so the whole view is black.
+  //
+  // So this lifts the floor rather than trying to make anything transparent. A
+  // deferred G-buffer holds one surface per pixel and cannot show what is behind
+  // one; what it can do is show what is already there. Flying through a mountain
+  // now looks like flying through a dim glass model of it.
+  if (uXray > 0.001) {
+    vec3 lifted = albedo * mix(0.25, 0.55, shade);
+    col = mix(col, max(col, lifted), uXray);
+  }
   frag = vec4(col, 1.0);
 }

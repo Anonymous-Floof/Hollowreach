@@ -83,6 +83,14 @@ inline constexpr float kLandThud = 1.4f;
 // player stays testable.
 struct PlayerOptions {
   bool flightAllowed = true;
+  // Creative. Nothing can take health off you, and the world is not solid.
+  //
+  // No-clip implies flight rather than standing alone: moveAxis is what reports
+  // whether a move was blocked, and that report is what sets onGround_ and drives
+  // fall damage. A body that never collides also never lands, so walking through
+  // walls without flying means falling through the floor forever.
+  bool invulnerable = false;
+  bool noClip = false;
   bool hungerEnabled = false;
   bool fallDamageEnabled = true;
   float stepHeight = playerConst::kStep;
@@ -285,6 +293,7 @@ class Player {
   float regenTimer_ = 0.0f;
   float regenDelay_ = 0.0f;
   bool hungerOn_ = false;
+  bool noClip_ = false;
 };
 
 }  // namespace hr::game

@@ -299,14 +299,17 @@ void Gallery::handle(const UiEvent& event) {
       // would go stale the moment they deleted the original.
       settings().setText("menuBackground", item.path);
       break;
-    case kTagDelete:
-      // If the wallpaper is the picture being deleted, stop pointing at it.
-      if (settings().text("menuBackground") == item.path) {
-        settings().setText("menuBackground", "");
-      }
-      save::gallery::erase(item.path);
-      onShow();
+    case kTagDelete: {
+      const std::string path = item.path;
+      const std::string name = item.name.empty() ? "this picture" : item.name;
+      confirm_.open("Delete " + name + "?", "Delete", [this, path] {
+        // If the wallpaper is the picture being deleted, stop pointing at it.
+        if (settings().text("menuBackground") == path) settings().setText("menuBackground", "");
+        save::gallery::erase(path);
+        onShow();
+      });
       break;
+    }
     default: break;
   }
 }
@@ -314,7 +317,9 @@ void Gallery::handle(const UiEvent& event) {
 void Gallery::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens) {
   decodeSome(kDecodeBudgetPerFrame);
   build(ui, text, event);
-  handle(event);
+  // Ahead of the screen's own handling, so the click that answers the question is
+  // not also a click on the tile behind it.
+  if (!confirm_.handle(ui.width(), ui.height(), event)) handle(event);
   build(ui, text, event);
   (void)tweens;
 }
@@ -382,6 +387,8 @@ void Gallery::draw(Ui2D& ui, Text& text) {
     text.drawInBox(ui, {0, box.bottom() + 10, ui.width(), 20}, label, hint,
                    TextAlign::Center);
   }
+
+  confirm_.draw(ui, text);
 }
 
 }  // namespace hr::ui

@@ -33,6 +33,15 @@ class RecipeBook {
   // the ingredients are there is decided by the crafting screen, which is the only
   // thing that knows either.
   std::function<void(const game::Recipe&)> onAutoFill;
+  // Clicking a recipe's OUTPUT asks for one, which App grants only in a creative
+  // world. A request like onAutoFill above: this screen has no inventory pointer
+  // and no idea what mode the world is in, and should not learn either.
+  //
+  // Set `canGive` for the book to light the output icons and say so in the footer.
+  // Without it a player in a survival world would be clicking a thing that looks
+  // like a button and silently does nothing.
+  std::function<void(const std::string& key, int count)> onGive;
+  std::function<bool()> canGive;
 
   // Built lazily on first open, like the JS `built` flag: it walks every recipe and
   // groups it, which is not work to do at startup for a screen most sessions never open.
@@ -93,6 +102,14 @@ class RecipeBook {
   // Rebuilt with the tree every frame: the icon a node shows, so a hover can name it,
   // and the shapeless chip counts, which the CSS positions absolutely over their chip.
   std::vector<std::string> iconKeys_;
+  // Which of those are a recipe's OUTPUT rather than one of its ingredients. One
+  // flat table holds all three kinds — grid cells, shapeless chips and the result —
+  // and only the result is a thing you can be handed. An ingredient may also be a
+  // "#planks"-style tag, which is not an item at all and would be refused anyway.
+  std::vector<bool> iconIsOutput_;
+  // How many that recipe makes, so one click hands over a batch rather than one of
+  // something that is only ever crafted four at a time.
+  std::vector<int> outCounts_;
   std::vector<std::pair<int, int>> chipCounts_;
   TextField search_;
   int hoveredTag_ = 0;

@@ -126,6 +126,11 @@ struct WorldSave {
   // nothing else. Unknown keys are dropped on load, so a world written by a newer
   // build opens in an older one with the settings it still understands.
   std::vector<std::pair<std::string, std::string>> worldSettings;
+  // What this world was made as, decided once and never again. A world created
+  // Creative may switch between creative and survival freely; one created Survival
+  // never can, which is what makes the choice on the New World screen mean
+  // something. Its own section, so no version bump — see kTagWorldMode.
+  bool createdCreative = false;
 };
 
 // Encodes to bytes. Deterministic: every map is written in sorted key order, so

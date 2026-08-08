@@ -36,6 +36,17 @@ std::vector<std::string> visibleCategories() {
   std::vector<std::string> out;
   for (const std::string& c : settingsCategories()) {
     if (categoryScope(c) == SettingScope::World && !settings().inWorld()) continue;
+    // A tab whose every row is gated off is not an empty tab, it is no tab. The
+    // Debug tab does not exist until somebody switches the tools on.
+    bool any = false;
+    for (const SettingDef& def : settingsSchema()) {
+      if (def.hidden || def.category != c) continue;
+      if (settings().available(def)) {
+        any = true;
+        break;
+      }
+    }
+    if (!any) continue;
     out.push_back(c);
   }
   return out;
@@ -99,6 +110,9 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
   for (std::size_t i = 0; i < schema.size(); ++i) {
     const SettingDef& def = schema[i];
     if (def.hidden || def.category != activeTab_) continue;
+    // Gated off means absent, not greyed. A row explaining that you cannot use it
+    // is a row about the interface rather than about the game.
+    if (!settings().available(def)) continue;
 
     // .setting { display: flex; justify-content: space-between; align-items: center;
     //            padding: 8px 4px; border-bottom: 1px solid #141a22 }
@@ -140,6 +154,19 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
         doc_.end();
         break;
       }
+      case SettingType::Action: {
+        // A button with no state behind it. Primary, because unlike every other row
+        // here pressing it makes something happen rather than setting how things are.
+        const bool hovered = hoveredTag_ == kTagControl && hoveredIndex_ == static_cast<int>(i);
+        Style s = widget::btnSmall(hovered, false, widget::ButtonKind::Primary);
+        s.width = kAuto;
+        s.margin = Edges(0);
+        doc_.begin(s, kTagControl, static_cast<int>(i));
+        doc_.label("Go", widget::btnSmallText(hovered, widget::ButtonKind::Primary));
+        doc_.end();
+        break;
+      }
+      case SettingType::Text: break;  // set elsewhere; see SettingDef::hidden
     }
     doc_.end();
 
@@ -252,6 +279,9 @@ void SettingsScreen::handle(const UiEvent& event) {
       const int next = (settings().selectedIndex(def.key) + 1) %
                        static_cast<int>(def.options.size());
       settings().setText(def.key, def.options[static_cast<std::size_t>(next)]);
+      if (onChange) onChange(def.key);
+    } else if (def.type == SettingType::Action) {
+      // Nothing stored, nothing toggled. The callback is the entire row.
       if (onChange) onChange(def.key);
     }
   }

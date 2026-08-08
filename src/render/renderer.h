@@ -79,6 +79,22 @@ class Renderer {
 
   // 0 = off, 1 = show the AO term, 2 = show the sun shadow term.
   void setDebugView(int mode) { debug_ = mode; }
+  // 0..1. Lifts the light floor so a camera inside solid rock can see the terrain
+  // it is inside rather than a black screen; see the note in composite.frag. Eased
+  // by the caller, like `underwater`.
+  void setXray(float amount) { xray_ = amount; }
+
+  // The world-space debug overlays. Drawn as lines beside the block-selection
+  // outline, which is the one place in the frame where the lit buffer is bound
+  // with the scene's depth still attached — so they occlude against terrain
+  // instead of floating over it.
+  struct DebugOverlays {
+    bool paths = false;
+    bool chunks = false;
+    bool boxes = false;
+    bool any() const { return paths || chunks || boxes; }
+  };
+  void setDebugOverlays(const DebugOverlays& o) { overlays_ = o; }
   int debugView() const { return debug_; }
 
   // `selection` is the block the crosshair is on, or null. `underwater` is the
@@ -159,6 +175,13 @@ class Renderer {
 
   QualitySettings quality_;
   int debug_ = 0;
+  float xray_ = 0.0f;
+  DebugOverlays overlays_;
+  // Rebuilt each frame the overlays are on, and kept between frames so the
+  // allocation happens once rather than per frame.
+  std::vector<float> debugLines_;
+  std::size_t lineCapacity_ = 0;
+  void drawDebugLines(const Camera& camera);
   FrameProfiler profiler_;
 
   GLuint shadowTex_ = 0, shadowFbo_ = 0;

@@ -95,6 +95,10 @@ struct AppOptions {
   int threads = -1;
   // --debug-view 1 = AO term, 2 = sun shadow term
   int debugView = 0;
+  // --debug-lines: turns the world-space overlays on without going through the
+  // settings screen, which a headless capture cannot click. Same reason --screen
+  // exists.
+  bool debugLines = false;
   // --no-hud: the same thing F1 does, for a capture of the world alone.
   bool hideHud = false;
   // --no-vsync: uncap the frame rate. With vsync on, frame time quantises to
@@ -309,6 +313,14 @@ class App {
   // to the world's own home", which is why it is a flag and not a sentinel value.
   bool hasSpawn_ = false;
   Vec3 spawn_;
+
+  // What the open world was CREATED as, and what the next one to be created should
+  // be. Deliberately not a setting: `creativeMode` is a world rule the host can
+  // flip, and this is the thing that decides whether they are allowed to. A world
+  // made Survival can never become Creative, which is what makes the choice on the
+  // New World screen a choice rather than a starting position.
+  bool createdCreative_ = false;
+  bool pendingCreative_ = false;
   // The world's home: what findSpawn chose on entry, and where an unbound player
   // respawns. Derived from the seed rather than saved, so it is the same place for
   // a world made today and one loaded from before this field existed.
@@ -365,6 +377,8 @@ class App {
 
   // 0..1 strength of the submerged post, eased toward the target each frame.
   float underwater_ = 0.0f;
+  // 0..1 strength of the see-inside-terrain lift, eased the same way.
+  float xray_ = 0.0f;
 
   // An Input nothing ever feeds. It is what the body and the entities are given
   // while a screen is open in a shared world: the simulation carries on, and reads

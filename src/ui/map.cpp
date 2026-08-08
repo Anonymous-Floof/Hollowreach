@@ -403,6 +403,9 @@ void Atlas::update(Ui2D& ui, Text& text, const UiEvent& event, world::World& wor
   viewH_ = ui.height();
 
   buildPanel(ui, text, event);
+  // Before the panel is consulted at all, so a click answering the question cannot
+  // also pan the map or land on a waypoint row.
+  if (confirm_.handle(ui.width(), ui.height(), event)) return;
   const int hit = panel_.hitTest(event.mouseX, event.mouseY);
   // main.js:120 hung one listener on the document and ticked whenever the click
   // landed inside a <button>; this is that listener.
@@ -450,13 +453,26 @@ void Atlas::update(Ui2D& ui, Text& text, const UiEvent& event, world::World& wor
         centerX_ = waypoints_[static_cast<std::size_t>(hoveredIndex_)].x;
         centerZ_ = waypoints_[static_cast<std::size_t>(hoveredIndex_)].z;
         break;
-      case kTagDelete:
-        waypoints_.erase(waypoints_.begin() + hoveredIndex_);
-        if (editingWaypoint_ == hoveredIndex_) {
-          nameField_.setFocused(false, const_cast<Input*>(event.input));
-          editingWaypoint_ = -1;
-        }
+      case kTagDelete: {
+        const int index = hoveredIndex_;
+        const Waypoint& wp = waypoints_[static_cast<std::size_t>(index)];
+        const std::string name = wp.name.empty() ? "this waypoint" : wp.name;
+        Input* input = const_cast<Input*>(event.input);
+        confirm_.open("Delete " + name + "?", "Delete", [this, index, input] {
+          // Re-checked rather than trusted: the list can have changed between the
+          // question and the answer — a death waypoint can be pinned while the
+          // prompt is up, and erasing by a stale index would take the wrong one.
+          if (index < 0 || index >= static_cast<int>(waypoints_.size())) return;
+          waypoints_.erase(waypoints_.begin() + index);
+          if (editingWaypoint_ == index) {
+            nameField_.setFocused(false, input);
+            editingWaypoint_ = -1;
+          } else if (editingWaypoint_ > index) {
+            --editingWaypoint_;
+          }
+        });
         break;
+      }
       default:
         if (!overPanel) {
           nameField_.setFocused(false, const_cast<Input*>(event.input));
@@ -662,6 +678,8 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
       text.drawInBox(ui, box, waypoints_[static_cast<std::size_t>(n.index)].name, ts);
     }
   }
+
+  confirm_.draw(ui, text);
 }
 
 // ---------------------------------------------------------------------------

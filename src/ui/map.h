@@ -26,6 +26,7 @@
 #include "game/inventory.h"
 #include "game/player.h"
 #include "resource/atlas.h"
+#include "ui/confirm.h"
 #include "ui/dom.h"
 #include "ui/text.h"
 #include "ui/ui2d.h"
@@ -87,6 +88,10 @@ class Atlas {
                const Camera& camera, bool minimapEnabled, double dt);
 
  private:
+  // Asks before a waypoint is thrown away. Shared with the world list and the
+  // Gallery; see ui/confirm.h.
+  ConfirmPrompt confirm_;
+
   // One column as the map sees it.
   struct Column {
     world::BlockId id = 0;

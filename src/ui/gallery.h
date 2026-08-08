@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "core/gl.h"
+#include "ui/confirm.h"
 #include "ui/dom.h"
 #include "ui/text.h"
 #include "ui/ui2d.h"
@@ -69,6 +70,7 @@ class Gallery {
   int hoveredIndex_ = 0;
   bool picking_ = false;
   // The full-screen still viewer. -1 when closed.
+  ConfirmPrompt confirm_;
   int viewing_ = -1;
   GLuint viewTexture_ = 0;
   int viewWidth_ = 0, viewHeight_ = 0;

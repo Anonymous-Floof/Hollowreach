@@ -523,6 +523,132 @@ GBuffer::Aux* Renderer::renderGodrays(const Camera& camera, const Sky& sky) {
   return &a;
 }
 
+// Mob paths, chunk borders and entity boxes, in one pass.
+//
+// Shares the selection outline's shader and VAO, which are already exactly this:
+// world-space positions, one flat colour. What it cannot share is the buffer —
+// that one is a fixed 72 floats, sized for twelve edges of one cube — so this
+// grows its own and only reallocates when it has to.
+//
+// Colour is per-batch rather than per-vertex, because line.frag takes a uniform and
+// giving it an attribute would mean a second shader for the sake of three colours.
+void Renderer::drawDebugLines(const Camera& camera) {
+  if (!overlays_.any() || !lineProg_) return;
+
+  struct Batch {
+    std::size_t first = 0, count = 0;
+    float r = 1, g = 1, b = 1, a = 1;
+  };
+  std::vector<Batch> batches;
+  debugLines_.clear();
+
+  const auto line = [&](float x0, float y0, float z0, float x1, float y1, float z1) {
+    debugLines_.insert(debugLines_.end(), {x0, y0, z0, x1, y1, z1});
+  };
+  const auto box = [&](float x0, float y0, float z0, float x1, float y1, float z1) {
+    line(x0, y0, z0, x1, y0, z0); line(x1, y0, z0, x1, y0, z1);
+    line(x1, y0, z1, x0, y0, z1); line(x0, y0, z1, x0, y0, z0);
+    line(x0, y1, z0, x1, y1, z0); line(x1, y1, z0, x1, y1, z1);
+    line(x1, y1, z1, x0, y1, z1); line(x0, y1, z1, x0, y1, z0);
+    line(x0, y0, z0, x0, y1, z0); line(x1, y0, z0, x1, y1, z0);
+    line(x1, y0, z1, x1, y1, z1); line(x0, y0, z1, x0, y1, z1);
+  };
+  const auto batch = [&](std::size_t start, float r, float g, float b, float a) {
+    const std::size_t verts = (debugLines_.size() - start) / 3;
+    if (verts > 0) batches.push_back({start / 3, verts, r, g, b, a});
+  };
+
+  const Vec3 eye = camera.pos();
+
+  if (overlays_.chunks) {
+    // The column the player is standing in, and its eight neighbours. Every loaded
+    // chunk would be a thousand boxes and unreadable; the question this answers is
+    // "where exactly is the seam I am standing on".
+    const std::size_t start = debugLines_.size();
+    const int cx = static_cast<int>(std::floor(eye.x / 16.0f));
+    const int cz = static_cast<int>(std::floor(eye.z / 16.0f));
+    for (int dx = -1; dx <= 1; ++dx) {
+      for (int dz = -1; dz <= 1; ++dz) {
+        const float x0 = static_cast<float>((cx + dx) * 16);
+        const float z0 = static_cast<float>((cz + dz) * 16);
+        // Only the vertical edges and a band around the eye: a full 192-tall box
+        // per chunk is a wall of lines you cannot see the world through.
+        const float y0 = std::max(0.0f, eye.y - 24.0f);
+        const float y1 = std::min(static_cast<float>(world::WH), eye.y + 24.0f);
+        line(x0, y0, z0, x0, y1, z0);
+        line(x0 + 16, y0, z0, x0 + 16, y1, z0);
+        line(x0, y0, z0 + 16, x0, y1, z0 + 16);
+        line(x0 + 16, y0, z0 + 16, x0 + 16, y1, z0 + 16);
+      }
+    }
+    batch(start, 0.35f, 0.75f, 1.0f, 1.0f);
+  }
+
+  if (entities_ && (overlays_.boxes || overlays_.paths)) {
+    if (overlays_.boxes) {
+      const std::size_t start = debugLines_.size();
+      for (const game::Entity& e : entities_->all()) {
+        if (e.dead) continue;
+        box(e.pos.x - e.hw, e.pos.y, e.pos.z - e.hw, e.pos.x + e.hw, e.pos.y + e.h,
+            e.pos.z + e.hw);
+      }
+      batch(start, 1.0f, 0.85f, 0.2f, 1.0f);
+    }
+    if (overlays_.paths) {
+      // Two batches: a complete plan and a partial one are different diagnoses and
+      // should not look the same.
+      for (int pass = 0; pass < 2; ++pass) {
+        const std::size_t start = debugLines_.size();
+        for (const game::Entity& e : entities_->all()) {
+          if (e.dead || !e.data.hasFollower) continue;
+          const game::PathFollower& f = e.data.follower;
+          if ((pass == 0) != f.complete()) continue;
+          const std::vector<game::PathPoint>& pts = f.points();
+          for (std::size_t i = 1; i < pts.size(); ++i) {
+            // Lifted off the floor so the line is not z-fighting the ground it
+            // runs along.
+            line(pts[i - 1].x, pts[i - 1].y + 0.1f, pts[i - 1].z, pts[i].x,
+                 pts[i].y + 0.1f, pts[i].z);
+          }
+          // Where the mob has actually got to, as an upright tick.
+          if (f.index() > 0 && f.index() < static_cast<int>(pts.size())) {
+            const game::PathPoint& at = pts[static_cast<std::size_t>(f.index())];
+            line(at.x, at.y + 0.1f, at.z, at.x, at.y + 0.8f, at.z);
+          }
+        }
+        if (pass == 0) batch(start, 0.3f, 1.0f, 0.45f, 1.0f);   // complete
+        else batch(start, 1.0f, 0.35f, 0.3f, 1.0f);             // partial
+      }
+    }
+  }
+
+  if (debugLines_.empty()) return;
+
+  glBindVertexArray(lineVao_);
+  glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
+  // The selection outline's buffer is exactly 72 floats. Grow past it rather than
+  // silently drawing the first four lines of a path.
+  if (debugLines_.size() > lineCapacity_) {
+    lineCapacity_ = debugLines_.size() * 2;
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(lineCapacity_ * sizeof(float)),
+                 nullptr, GL_DYNAMIC_DRAW);
+  }
+  glBufferSubData(GL_ARRAY_BUFFER, 0,
+                  static_cast<GLsizeiptr>(debugLines_.size() * sizeof(float)),
+                  debugLines_.data());
+
+  lineProg_->use();
+  lineProg_->setMat4("uViewProj", camera.viewProj().data());
+  for (const Batch& b : batches) {
+    lineProg_->set("uColor", b.r, b.g, b.b, b.a);
+    glDrawArrays(GL_LINES, static_cast<GLint>(b.first), static_cast<GLsizei>(b.count));
+  }
+  glBindVertexArray(0);
+  // The selection outline shares this buffer and assumes it is at least 72 floats
+  // and freshly written each draw, which it is — drawSelection always uploads its
+  // own 72 before drawing.
+}
+
 void Renderer::drawSelection(const Camera& camera, const Selection& sel) {
   // A hair larger than the block, so the outline is not z-fighting its faces.
   const float e = 0.002f;
@@ -807,6 +933,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
   compositeProg_->set("uShadowDist", quality_.shadowDist);
   compositeProg_->set("uLightShadow", quality_.lightShadow);
   compositeProg_->set("uDebug", static_cast<float>(debug_));
+  compositeProg_->set("uXray", xray_);
 
   // Clouds march in the sky branch; their ground shadows use the TRUE sun direction,
   // since cel.dir flips to the moon at night.
@@ -909,6 +1036,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
     glDisable(GL_BLEND);
   }
 
+  drawDebugLines(camera);
   if (selection) drawSelection(camera, *selection);
   if (!heldItem.empty()) drawHeld(world, camera, sky, heldItem, aspect);
   profiler_.end();

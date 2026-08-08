@@ -114,6 +114,19 @@ float Player::fallDistance() const {
 }
 
 bool Player::moveAxis(const world::World& world, int axis, float delta) {
+  // Every move the player makes goes through here, including the probes auto-step
+  // uses, so this one branch is the whole of no-clip.
+  //
+  // Returning false says "nothing was in the way", which is true and also what
+  // keeps onGround_ clear and fall damage silent while phasing through rock.
+  if (noClip_) {
+    Vec3 p = body_.pos;
+    if (axis == 0) p.x += delta;
+    else if (axis == 1) p.y += delta;
+    else p.z += delta;
+    body_.pos = p;
+    return false;
+  }
   return sweepAxis(world, body_, axis, delta);
 }
 
@@ -201,8 +214,19 @@ void Player::update(float dt, const Input& input, const world::World& world,
                     const PlayerOptions& options, double simTime) {
   stepHeight_ = options.stepHeight;
   hungerOn_ = options.hungerEnabled;
+  // Mirrored for the same reason hunger is: moveAxis is reached from places that
+  // never saw the options, including the auto-step probes.
+  noClip_ = options.noClip;
 
-  const bool canFly = options.flightAllowed;
+  // No-clip flies, always. See the note on PlayerOptions::noClip: a body that never
+  // collides never lands, so without this it falls out of the world.
+  const bool canFly = options.flightAllowed || options.noClip;
+  // Switched into no-clip mid-stride: start flying rather than waiting for a
+  // double tap, since the floor has just stopped being there.
+  if (options.noClip && !flying_) {
+    flying_ = true;
+    vel_.y = 0.0f;
+  }
   if (!canFly && flying_) {
     flying_ = false;
     vel_.y = 0.0f;
@@ -440,6 +464,10 @@ void Player::survival(float dt, const world::World& world, const PlayerOptions& 
 }
 
 void Player::damage(float amount, const PlayerOptions& options, bool ignoreArmor) {
+  // The single door every kind of harm comes through — falling, drowning, starving,
+  // a zombie, and both network paths. Closing it here closes all of them, which is
+  // the whole reason this method exists rather than each caller subtracting health.
+  if (options.invulnerable) return;
   if (!ignoreArmor && options.defense > 0.0f) {
     amount *= 1.0f - std::min(0.7f, options.defense * 0.04f);
   }

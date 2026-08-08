@@ -262,6 +262,9 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
         doc_.icon(iconFor(cellKey), metric::rbIcon, metric::rbIcon, {}, kTagIcon,
                   static_cast<int>(iconKeys_.size()));
         iconKeys_.push_back(cellKey);
+        iconIsOutput_.push_back(false);
+      outCounts_.push_back(0);
+        outCounts_.push_back(0);
       }
       doc_.end();
     }
@@ -276,6 +279,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
       doc_.icon(iconFor(key), metric::rbIcon, metric::rbIcon, {}, kTagIcon,
                 static_cast<int>(iconKeys_.size()));
       iconKeys_.push_back(key);
+      iconIsOutput_.push_back(false);
       if (count > 1) {
         // .rb-chip i — the count, bottom-right of the chip. Absolutely positioned in
         // the CSS, so it is drawn in draw() rather than laid out.
@@ -298,6 +302,8 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   doc_.icon(iconFor(e.outKey), metric::rbIconOut, metric::rbIconOut, {}, kTagIcon,
             static_cast<int>(iconKeys_.size()));
   iconKeys_.push_back(e.outKey);
+  iconIsOutput_.push_back(true);
+  outCounts_.push_back(e.outCount);
 
   Style meta = Doc::column(2, Align::Start);
   meta.minWidth = 0;
@@ -342,6 +348,8 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
 void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens) {
   doc_.reset(&text);
   iconKeys_.clear();
+  iconIsOutput_.clear();
+  outCounts_.clear();
   chipCounts_.clear();
 
   doc_.begin(widget::screen());
@@ -490,6 +498,20 @@ void RecipeBook::handle(const UiEvent& event, Text& text) {
   if (hoveredTag_ == kTagBack) {
     if (onBack) onBack();
     return;
+  }
+  // An output icon, in a world that allows it: have one.
+  //
+  // Ahead of the card handler below rather than inside it, because Doc::hitTest
+  // returns the topmost node and an icon always shadows the card it sits on — so a
+  // click on the result never reaches kTagCard at all. Ingredients are excluded:
+  // half of them are "#tag" strings that no inventory would accept.
+  if (hoveredTag_ == kTagIcon && hoveredIndex_ < static_cast<int>(iconKeys_.size()) &&
+      iconIsOutput_[static_cast<std::size_t>(hoveredIndex_)]) {
+    if (onGive && canGive && canGive()) {
+      onGive(iconKeys_[static_cast<std::size_t>(hoveredIndex_)],
+             outCounts_[static_cast<std::size_t>(hoveredIndex_)]);
+      return;
+    }
   }
   if (hoveredTag_ == kTagTab && hoveredIndex_ < static_cast<int>(std::size(kTabs))) {
     tab_ = kTabs[static_cast<std::size_t>(hoveredIndex_)].id;

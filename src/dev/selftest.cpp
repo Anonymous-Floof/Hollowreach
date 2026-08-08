@@ -44,6 +44,7 @@
 #include "platform/paths.h"
 #include "save/storage.h"
 #include "save/transfer.h"
+#include "ui/confirm.h"
 #include "ui/dom.h"
 #include "ui/text.h"
 #include "ui/settings.h"
@@ -2568,6 +2569,224 @@ std::unique_ptr<world::World> makeWaterWorld() {
 // The numbers are asserted loosely, as bands rather than exact values: the point
 // is "caves are mostly dry and water is a thing you come across", and pinning that
 // to three significant figures would just break every time the field is retuned.
+// Creative: the three rules, each at the chokepoint it is enforced in.
+void testCreative() {
+  std::printf("\n-- creative --\n");
+
+  // --- nothing can take health off you ---------------------------------------
+  {
+    game::Player p(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::PlayerOptions opts;
+    p.damage(5.0f, opts);
+    checkf(p.health() < 20.0f, "an ordinary hit lands (%.1f)", p.health());
+
+    game::Player safe(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::PlayerOptions god;
+    god.invulnerable = true;
+    safe.damage(5.0f, god);
+    checkf(safe.health() == 20.0f, "an invulnerable player takes none of it (%.1f)",
+           safe.health());
+    // Drowning and starving both come through here with ignoreArmor set, which is
+    // a different path through the same door.
+    safe.damage(1.0f, god, /*ignoreArmor=*/true);
+    checkf(safe.health() == 20.0f, "including the kinds armour cannot stop (%.1f)",
+           safe.health());
+    check(!safe.dead(), "and so cannot die");
+  }
+
+  // --- and that includes the zombie ------------------------------------------
+  // Its own check because this one site builds its own PlayerOptions rather than
+  // being handed the real ones, which meant it silently opted out of every rule
+  // added to that struct. A zombie was the last thing in the world that could
+  // kill a player nothing else could touch.
+  {
+    auto world = makeArena();
+    game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::Inventory inv;
+    game::EntityManager entities;
+    render::Sky sky;
+    game::PlayerOptions god;
+    god.invulnerable = true;
+    game::EntityContext ctx;
+    ctx.world = world.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+    ctx.sky = &sky;
+    ctx.playerOptions = &god;
+
+    game::Entity* zombie = entities.spawn(game::EntityType::Zombie,
+                                          Vec3{kOriginX + 0.8f, static_cast<float>(kY),
+                                               kOriginZ});
+    check(zombie != nullptr, "a zombie is standing next to an invulnerable player");
+    const float before = player.health();
+    for (int i = 0; i < 400; ++i) entities.tick(1.0f / 60.0f, ctx);
+    checkf(player.health() == before, "and cannot lay a finger on them (%.1f -> %.1f)", before,
+           player.health());
+
+    // The control: the same zombie, the same seconds, an ordinary player.
+    game::Player mortal(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::PlayerOptions plain;
+    ctx.player = &mortal;
+    ctx.playerOptions = &plain;
+    entities.spawn(game::EntityType::Zombie,
+                   Vec3{kOriginX + 0.8f, static_cast<float>(kY), kOriginZ});
+    for (int i = 0; i < 400; ++i) entities.tick(1.0f / 60.0f, ctx);
+    checkf(mortal.health() < 20.0f, "while an ordinary one is bitten (%.1f)", mortal.health());
+  }
+
+  // --- the world stops being solid -------------------------------------------
+  {
+    auto world = makeArena();
+    // A wall directly in front of the origin.
+    for (int y = kY; y <= kY + 2; ++y) {
+      for (int z = -2; z <= 24; ++z) world->setBlock(12, y, z, world::wk().greystone, 0);
+    }
+
+    // Driven through the real update loop with a real key held, which is what makes
+    // this a test of the game rather than of one method: the auto-step probes, the
+    // edge guard and the flight branch all sit between the key and the move.
+    const auto walkInto = [&](bool noClip) {
+      game::Player p(9.5f, static_cast<float>(kY), kOriginZ);
+      p.setLook(kYawPlusX, 0.0f);
+      game::PlayerOptions o;
+      o.noClip = noClip;
+      o.flightAllowed = true;
+      o.fallDamageEnabled = false;
+      Input in;
+      for (int i = 0; i < 240; ++i) {
+        in.endFrame();
+        in.feedKey(Key::W, true, false);
+        p.update(1.0f / 60.0f, in, *world, o, i / 60.0);
+      }
+      return p.pos().x;
+    };
+    const float stopped = walkInto(false);
+    const float through = walkInto(true);
+    checkf(stopped < 12.0f, "a solid wall stops an ordinary player (x %.1f)", stopped);
+    checkf(through > 13.0f, "and no-clip walks straight through it (x %.1f)", through);
+  }
+
+  // --- flight follows the rule, in both directions ---------------------------
+  {
+    auto world = makeArena();
+    game::Player p(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::PlayerOptions o;
+    o.noClip = true;
+    Input in;
+    p.update(1.0f / 60.0f, in, *world, o, 0.0);
+    check(p.flying(), "switching no-clip on starts you flying, since the floor has gone");
+
+    o.noClip = false;
+    o.flightAllowed = false;
+    p.update(1.0f / 60.0f, in, *world, o, 0.1);
+    check(!p.flying(), "and taking the rule away puts you back on your feet");
+  }
+
+  // --- the world remembers what it was made as -------------------------------
+  {
+    save::WorldSave s;
+    s.meta.id = "wtestcreative";
+    s.meta.seed = 7u;
+    s.createdCreative = true;
+    std::vector<std::uint8_t> bytes = save::encode(s);
+    save::WorldSave back;
+    std::string error;
+    check(save::decode(bytes.data(), bytes.size(), back, &error), "a creative world encodes");
+    check(back.createdCreative, "and says so when it is read back");
+
+    save::WorldSave plain;
+    plain.meta.id = "wtestsurvival";
+    plain.meta.seed = 7u;
+    bytes = save::encode(plain);
+    check(save::decode(bytes.data(), bytes.size(), back, &error), "a survival world encodes");
+    check(!back.createdCreative, "and says that too");
+
+    // The section is new, so every world written before it existed simply has no
+    // such tag. That has to read as Survival rather than as anything else.
+    save::WorldSave fresh;
+    check(!fresh.createdCreative, "and a save with no mode section at all is survival");
+  }
+}
+
+// Asking before destroying something.
+//
+// Almost nothing in src/ui can be tested — it needs a GL context and a Doc — and
+// ConfirmPrompt is written the way it is partly so this test can exist. It is the
+// one piece of interface in the game standing between a misclick and a deleted
+// world, so it being untestable would have been the wrong trade.
+void testConfirmPrompt() {
+  std::printf("\n-- confirmations --\n");
+
+  // No Ui2D at all: handle() takes the viewport as two numbers precisely so this
+  // needs no GL context.
+  constexpr float kW = 1280.0f, kH = 720.0f;
+
+  const auto clickAt = [](float x, float y) {
+    ui::UiEvent e;
+    e.mouseX = x;
+    e.mouseY = y;
+    e.leftClick = true;
+    return e;
+  };
+  ui::UiEvent idle;
+  idle.mouseX = 640;
+  idle.mouseY = 360;
+
+  ui::ConfirmPrompt p;
+  check(!p.active(), "nothing is being asked to begin with");
+  check(!p.handle(kW, kH, clickAt(10, 10)), "and a click passes straight through");
+
+  int fired = 0;
+  p.open("Delete Elder?", "Delete", [&fired] { ++fired; });
+  check(p.active(), "opening one arms it");
+
+  // The click that opened it is still going. Without the guard the prompt appears
+  // under a cursor mid-click and answers itself with the same press.
+  check(p.handle(kW, kH, clickAt(760, 430)), "the click that opened it is swallowed");
+  checkf(fired == 0, "and does not answer it (%d)", fired);
+  check(p.handle(kW, kH, clickAt(760, 430)), "nor the frame after");
+  checkf(fired == 0, "still unanswered (%d)", fired);
+
+  // Past the guard: the screen behind must still see nothing.
+  check(p.handle(kW, kH, idle), "an armed prompt keeps the frame even when idle");
+  check(p.active(), "and stays up until it is answered");
+
+  // Confirm. The button is the right-hand one of a centred 380x150 card.
+  const float cx = kW * 0.5f, cy = kH * 0.5f;
+  const float confirmX = cx + 95.0f, confirmY = cy + 75.0f - 20.0f - 19.0f;
+  check(p.handle(kW, kH, clickAt(confirmX, confirmY)), "clicking Delete is taken");
+  checkf(fired == 1, "and runs the action exactly once (%d)", fired);
+  check(!p.active(), "and closes");
+  check(!p.handle(kW, kH, clickAt(confirmX, confirmY)), "after which clicks pass through again");
+  checkf(fired == 1, "and it does not run again (%d)", fired);
+
+  // Cancel, and anywhere-else, are both no.
+  fired = 0;
+  p.open("Delete Elder?", "Delete", [&fired] { ++fired; });
+  p.handle(kW, kH, idle);
+  p.handle(kW, kH, idle);
+  const float cancelX = cx - 95.0f;
+  p.handle(kW, kH, clickAt(cancelX, confirmY));
+  checkf(fired == 0, "cancelling runs nothing (%d)", fired);
+  check(!p.active(), "and closes it too");
+
+  fired = 0;
+  p.open("Delete Elder?", "Delete", [&fired] { ++fired; });
+  p.handle(kW, kH, idle);
+  p.handle(kW, kH, idle);
+  p.handle(kW, kH, clickAt(20, 20));
+  checkf(fired == 0, "clicking away from the card is a no, not a yes (%d)", fired);
+  check(!p.active(), "and dismisses it");
+
+  // A destroyed thing cannot be destroyed twice: close() must clear the action.
+  fired = 0;
+  p.open("Delete Elder?", "Delete", [&fired] { ++fired; });
+  p.close();
+  check(!p.active(), "closing it by hand disarms it");
+  checkf(fired == 0, "without running anything (%d)", fired);
+}
+
 // Loot tables. The arithmetic behind a chest, checked without a chest.
 void testLoot() {
   std::printf("\n-- loot --\n");
@@ -2869,20 +3088,28 @@ void testDungeons() {
 
     check(at(site.x, site.y, site.z) == altar, "the altar is where the finder says it is");
     check(at(site.x, site.y - 1, site.z) == cobbled, "standing on a laid floor");
-    // Flood the interior from the altar and confirm it never escapes into rock.
-    // Anything that leaks means an unsealed chamber.
+    // Flood the open space from the altar. This used to assert the dungeon was
+    // sealed rock to rock, which was right when it had no way in and is exactly
+    // wrong now: the point of the tunnel is that the flood escapes.
+    //
+    // What survives from that check is the surface: the flood may reach cave, but
+    // it must never reach daylight, or the altar is lit and the dungeon is off.
     std::vector<std::array<int, 3>> open {{site.x, site.y, site.z}};
     std::unordered_map<long long, bool> seen;
     std::size_t head = 0;
-    int leaked = 0, cells = 0;
-    while (head < open.size() && cells < 20000) {
+    int cells = 0, reachedSky = 0;
+    int farthest = 0;
+    while (head < open.size() && cells < 60000) {
       const std::array<int, 3> p = open[head++];
       ++cells;
+      const int span = std::max(std::abs(p[0] - site.x), std::abs(p[2] - site.z));
+      if (span > farthest) farthest = span;
       const int dirs[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
       for (const auto& d : dirs) {
         const int nx = p[0] + d[0], ny = p[1] + d[1], nz = p[2] + d[2];
-        if (std::abs(nx - site.x) > 34 || std::abs(nz - site.z) > 34) {
-          ++leaked;  // reached the edge of what we generated: not sealed
+        if (std::abs(nx - site.x) > 34 || std::abs(nz - site.z) > 34) continue;
+        if (ny >= world::heightAt(noise, nx, nz, world::kGenVersion)) {
+          ++reachedSky;
           continue;
         }
         const world::BlockId id = at(nx, ny, nz);
@@ -2894,8 +3121,12 @@ void testDungeons() {
         open.push_back({nx, ny, nz});
       }
     }
-    checkf(leaked == 0, "and the rooms are sealed rock to rock (%d cells reached the edge)",
-           leaked);
+    checkf(reachedSky == 0, "the altar chamber never opens to the sky (%d cells)", reachedSky);
+    // Past the dungeon's own footprint, which is 31 blocks at its very widest and
+    // usually much less. Getting well outside it from the altar means the tunnel
+    // reached natural cave and the two are joined.
+    checkf(farthest > 20, "and the way out reaches real cave (%d blocks from the altar)",
+           farthest);
     checkf(cells > 40, "with room enough inside to be a dungeon (%d open cells)", cells);
 
     // Sealed is not the same as connected, and only one of the two is obvious from
@@ -6517,6 +6748,8 @@ int runSelfTest() {
   testSleep();
   testBlockSupport();
   testCaveWater();
+  testConfirmPrompt();
+  testCreative();
   testLoot();
   testDungeons();
   testWorldUpgrade();

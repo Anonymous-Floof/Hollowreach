@@ -407,10 +407,28 @@ void App::applySettings() {
   // web build used against the browser's already-accelerated movementX.
   playerOptions_.sensitivity = static_cast<float>(s.number("sensitivity")) * 0.0002f;
   playerOptions_.invertY = s.flag("invertY");
-  playerOptions_.flightAllowed = s.flag("flight");
-  playerOptions_.hungerEnabled = s.flag("hunger");
+  // Creative is a bundle, not a fourth switch beside the others: it turns flight on
+  // and does not ask, because a mode where you have to also find the flight row is
+  // not a mode. The rows it subsumes stay visible and stay honest — turning
+  // creative off puts every one of them back exactly where the player left it.
+  const bool creative = s.available("creativeMode") && s.flag("creativeMode");
+  playerOptions_.flightAllowed = creative || s.flag("flight");
+  playerOptions_.invulnerable = creative && s.flag("noHealth");
+  playerOptions_.noClip = creative && s.flag("noClip");
+  playerOptions_.hungerEnabled = s.flag("hunger") && !playerOptions_.invulnerable;
   playerOptions_.fallDamageEnabled = s.flag("fallDamage");
   playerOptions_.stepHeight = s.flag("highStep") ? 1.0f : game::playerConst::kStep;
+
+  // The debug view was launch-flag-only until now — set once in init and never
+  // again. The command line still wins, so a capture run is not at the mercy of
+  // whatever the settings file happens to say.
+  if (options_.debugView != 0) {
+    renderer_.setDebugView(options_.debugView);
+  } else if (s.available("debugView")) {
+    renderer_.setDebugView(s.selectedIndex("debugView"));
+  } else {
+    renderer_.setDebugView(0);
+  }
 
   window_.setRawMouseMotion(s.flag("rawMouse"));
   interface_.setUiScale(static_cast<float>(s.number("uiScale")) / 100.0f);
@@ -669,6 +687,35 @@ void App::wireInterface() {
   };
   interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
   interface_.callbacks.settingChanged = [this](const std::string& key) {
+    // Actions do nothing to the settings and everything here. Handled before
+    // applySettings, which would only re-read a row that stores nothing.
+    if (key == "locateDungeon") {
+      if (!world_ || !player_) return;
+      world::DungeonSite site;
+      const Vec3 at = player_->pos();
+      if (world::findDungeon(world_->noise(), world_->seed(), world_->genVersion(),
+                             static_cast<int>(at.x), static_cast<int>(at.z), 6, site)) {
+        char line[96];
+        std::snprintf(line, sizeof(line), "Dungeon at %d %d %d", site.x, site.y, site.z);
+        interface_.notify().push(line);
+        // Pinned as well as printed: a coordinate you have to remember while you
+        // walk is a coordinate you write on a sticky note. Straight into the list
+        // rather than through addWaypoint, which derives its own height from the
+        // surface and numbers its own name — neither of which suits a thing that is
+        // forty blocks underground and has a name already.
+        std::vector<ui::Waypoint>& pins = interface_.atlas().waypoints();
+        ui::Waypoint pin;
+        pin.x = static_cast<float>(site.x);
+        pin.y = static_cast<float>(site.y);
+        pin.z = static_cast<float>(site.z);
+        pin.name = "Dungeon";
+        pin.color = ui::kWaypointColors[0];
+        pins.push_back(std::move(pin));
+      } else {
+        interface_.notify().push("No dungeon within range");
+      }
+      return;
+    }
     applySettings();
     // A world's own rule changed, and everyone in it plays by it. Guests cannot
     // reach these rows at all, so this only ever fires on the host.
@@ -761,6 +808,23 @@ void App::wireInterface() {
     interface_.notify().push("You sleep for " +
                              render::Sky::spanString(span <= 0.0005f ? 1.0f : span));
   };
+  // Creative's stopgap item source. The book only lists things with a recipe, so
+  // raw ore and mob drops are not reachable this way — a proper item picker is the
+  // eventual answer; this is the half of it that costs nothing.
+  interface_.recipeBook().canGive = [this] {
+    return ui::settings().available("creativeMode") && ui::settings().flag("creativeMode");
+  };
+  interface_.recipeBook().onGive = [this](const std::string& key, int count) {
+    if (!game::getItem(key)) return;
+    const int want = count > 0 ? count : 1;
+    const int left = inventory_.give(key, want);
+    // Spilled rather than swallowed, which is what every other give in the game
+    // does with its remainder.
+    if (left > 0 && player_) tossStack(key, left, -1);
+    interface_.notify().push(std::to_string(want - left) + "x " +
+                             game::getItem(key)->name);
+  };
+
   interface_.recipeBook().onAutoFill = [this](const game::Recipe& recipe) {
     // Only from a crafting screen: the book reached with H from the world has no
     // grid behind it, and opening one uninvited would be a surprise rather than a
@@ -793,7 +857,12 @@ void App::wireInterface() {
     interface_.notify().push(saved ? "Saved and left the world" : "Left the world");
   };
 
-  interface_.menu().actions.createWorld = [this](const std::string& name, std::uint32_t seed) {
+  interface_.menu().actions.createWorld = [this](const std::string& name, std::uint32_t seed,
+                                                 bool creative) {
+    // Set before startWorld, which is what reads it: the mode has to be in place by
+    // the time the world's settings come into scope, or the first frame is played
+    // under the wrong rules and saved that way.
+    pendingCreative_ = creative;
     AppOptions fresh = options_;
     fresh.seed = seed;
     fresh.haveSpawnOverride = false;
@@ -1118,6 +1187,15 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
   // in a session would read whatever the menu happened to be showing.
   ui::settings().beginWorld(loaded ? loaded->worldSettings
                                    : ui::SettingsStore::WorldValues{});
+  // What the world was made as. A loaded world says so in its own section; a fresh
+  // one is whatever the New World screen asked for, which createWorld left here
+  // before calling in. Not a setting, so nothing in the interface can change it —
+  // that is the entire point of it being separate.
+  createdCreative_ = loaded ? loaded->createdCreative : pendingCreative_;
+  ui::settings().setVirtualFlag("worldIsCreative", createdCreative_);
+  // A world made Creative starts in it. Anything else and the row is not there to
+  // be read, so this is the only place the mode is ever assumed rather than stored.
+  if (createdCreative_ && !loaded) ui::settings().setFlag("creativeMode", true);
   if (loaded) {
     inventory_ = loaded->inventory;
     entities_.load(loaded->entities);
@@ -1410,6 +1488,7 @@ save::WorldSave App::buildSave() {
   out.meta.time = sky_.time;
   out.hoursAwake = sky_.hoursAwake();
   out.worldSettings = ui::settings().worldValues();
+  out.createdCreative = createdCreative_;
   out.meta.hasSpawn = hasSpawn_;
   out.meta.spawn = spawn_;
   if (world_) {
@@ -1490,6 +1569,8 @@ bool App::loadWorldFromDisk(const std::string& id) {
 void App::leaveWorld() {
   leaveNetwork("");
   ui::settings().endWorld();
+  ui::settings().clearVirtualFlags();
+  createdCreative_ = false;
   audio::director().stop();  // settle the ambience beds before the menu
   entities_.clear();
   world_.reset();
@@ -1895,6 +1976,7 @@ void App::refreshEntityContext() {
   // EntityContext. True for the host only — a guest owns no entities at all, so
   // there is nothing on that side for the rule to apply to.
   entityContext_.sharedWorld = netHosting();
+  entityContext_.playerOptions = &playerOptions_;
   if (!entityContext_.notify) {
     entityContext_.notify = [this](const std::string& message) {
       interface_.notify().push(message);
@@ -1970,6 +2052,35 @@ void App::renderWorld() {
   // transition instead of a flicker.
   const float target = player_->headInWater(*world_) ? 1.0f : 0.0f;
   underwater_ += (target - underwater_) * std::min(1.0f, static_cast<float>(clock_.dt()) * 9.0f);
+
+  // The same shape, for the same reason: a snap would flicker every time the eye
+  // crossed a block face while flying through a hillside. One lookup at the eye,
+  // and only while no-clip is actually on — off, this costs a bool and nothing.
+  float xrayTarget = 0.0f;
+  if (playerOptions_.noClip) {
+    const Vec3 e = player_->eye();
+    const world::BlockId at = world_->getBlock(static_cast<int>(std::floor(e.x)),
+                                               static_cast<int>(std::floor(e.y)),
+                                               static_cast<int>(std::floor(e.z)));
+    if (world::blocks().solid(at)) xrayTarget = 1.0f;
+  }
+  xray_ += (xrayTarget - xray_) * std::min(1.0f, static_cast<float>(clock_.dt()) * 9.0f);
+  renderer_.setXray(xray_);
+
+  // The wireframe overlays go with the HUD, for the same reason the block selection
+  // does: they are diagnostics rather than part of the world, and F1 is pressed to
+  // get exactly this sort of thing out of a screenshot.
+  render::Renderer::DebugOverlays overlays;
+  if (options_.debugLines) {
+    // The capture flag turns all three on and skips the gate, the same way
+    // --debug-view outranks the settings row.
+    overlays.paths = overlays.chunks = overlays.boxes = true;
+  } else if (interface_.hudVisible() && ui::settings().available("debugPaths")) {
+    overlays.paths = ui::settings().flag("debugPaths");
+    overlays.chunks = ui::settings().flag("debugChunks");
+    overlays.boxes = ui::settings().flag("debugBoxes");
+  }
+  renderer_.setDebugOverlays(overlays);
 
   render::Renderer::Selection selection {interact_.selectionX(), interact_.selectionY(),
                                          interact_.selectionZ()};

@@ -221,9 +221,16 @@ void zombieUpdate(Entity& e, float dt, EntityContext& ctx) {
     d.attackCooldown = 1.0f;
     const float l = std::max(1e-4f, dist);
     const float defense = ctx.inventory ? static_cast<float>(ctx.inventory->totalDefense()) : 0.0f;
-    PlayerOptions hit;
+    // Built from the real options rather than from nothing. This site used to
+    // fabricate a bare PlayerOptions carrying only the armour figure, which was
+    // harmless while every field it dropped was cosmetic — and stopped being
+    // harmless the moment one of them was "cannot be hurt". A zombie was the one
+    // thing in the world that could still kill an invulnerable player.
+    PlayerOptions hit = ctx.playerOptions ? *ctx.playerOptions : PlayerOptions{};
     hit.defense = defense;
+    const bool wasHurt = !hit.invulnerable;
     target->damage(kHitDamage, hit);
+    if (!wasHurt) return;  // no hit, no shove, no notification
     Vec3 v = target->velocity();  // shove the target back
     v.x += (dx / l) * 4.0f;
     v.z += (dz / l) * 4.0f;

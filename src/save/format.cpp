@@ -39,6 +39,17 @@ constexpr std::uint32_t kTagRest = makeTag('R', 'E', 'S', 'T');
 // The world's own difficulty and cheat settings. A new tag, so an older build
 // skips it and opens the world under the defaults.
 constexpr std::uint32_t kTagWorldSettings = makeTag('W', 'S', 'E', 'T');
+// What the world was CREATED as, which is not the same question as what mode it is
+// being played in right now. The current mode is an ordinary world setting the host
+// can flip; this is the thing that decides whether they are allowed to, and nothing
+// can change it after the world is made.
+//
+// Its own tag rather than a WorldMeta field, which would have frozen the META
+// layout and cost a save version bump and a migration. An older build skips it, and
+// a save written before this existed has no such section — which reads as Survival,
+// the honest answer to "we do not know" and the right one for every world that
+// already exists.
+constexpr std::uint32_t kTagWorldMode = makeTag('W', 'M', 'O', 'D');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -600,6 +611,9 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
     worldSettings.str(value);
   }
 
+  ByteWriter mode;
+  mode.boolean(save.createdCreative);
+
   ByteWriter payload;
   appendSection(payload, kTagMeta, meta);
   appendSection(payload, kTagPlayer, player);
@@ -614,6 +628,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagPaintings, paintings);
   appendSection(payload, kTagRest, rest);
   appendSection(payload, kTagWorldSettings, worldSettings);
+  appendSection(payload, kTagWorldMode, mode);
 
   ByteWriter out;
   out.bytes(kMagic, sizeof kMagic);
@@ -676,6 +691,7 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
       case kTagWaypoints: decodeWaypoints(body, out.waypoints); break;
       case kTagGuests: decodeGuests(body, out.guests); break;
       case kTagRest: out.hoursAwake = body.f32(); break;
+      case kTagWorldMode: out.createdCreative = body.boolean(); break;
       case kTagWorldSettings: {
         const int n = body.u16();
         for (int i = 0; i < n && body.ok(); ++i) {

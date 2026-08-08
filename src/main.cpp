@@ -246,6 +246,8 @@ int main(int argc, char** argv) {
     } else if (std::strcmp(arg, "--freeze") == 0) {
       options.freezePlayer = true;
       wantsWorld = true;
+    } else if (std::strcmp(arg, "--debug-lines") == 0) {
+      options.debugLines = true;
     } else if (std::strcmp(arg, "--debug-view") == 0) {
       if (!takeValue(argc, argv, i, arg, value)) return 2;
       options.debugView = std::atoi(value.c_str());

@@ -77,7 +77,13 @@ namespace hr::net {
 // would mount the boat and then drag its OWN player into the seat and steer the
 // thing with its own keyboard. A silent version match would turn "boats do not
 // work" into "the host is abducted by anyone who touches a boat".
-inline constexpr std::uint16_t kNetVersion = 7;
+// 8: the creative and debug rules. The layout is unchanged again, and again that
+// is the reason: world rules travel as key/value text, so an older guest does not
+// fail to parse the new ones -- it drops them and falls back to the defaults it
+// was compiled with. In a creative world that guest takes fall damage, drowns and
+// cannot fly while everybody else is invulnerable, and neither end is told they
+// disagree. Exactly the shape of version 5, which was bumped for exactly this.
+inline constexpr std::uint16_t kNetVersion = 8;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

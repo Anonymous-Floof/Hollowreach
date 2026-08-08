@@ -15,7 +15,7 @@ version heading when it's time to ship.
 
 ## [Latest]
 
-## [2.9.0] - 2026-08-07
+## [2.9.0] - 2026-08-08
 
 > **Your existing worlds keep the ground they have until you say otherwise.**
 > Hollowreach does not store terrain. It keeps everything you have built, mined
@@ -24,18 +24,25 @@ version heading when it's time to ship.
 > uses that one. Dungeons therefore do not appear in a world made before this
 > release until you update it, which the world list now offers to do, keeping a
 > copy of the world as it is first. Worlds you make from now on have them
-> immediately. **Saves still load in both directions**, and multiplayer is
-> unchanged — this release does not touch the network protocol.
+> immediately. **Saves still load in both directions.**
+>
+> **Multiplayer needs both machines on this version.** A world's rules travel as
+> text, so an older build does not fail to read the new ones — it drops them and
+> plays by its own defaults instead. In a creative world that guest would take
+> fall damage, drown, and be unable to fly while everybody else was invulnerable,
+> with neither end told they disagreed. So the two refuse each other at the join
+> screen.
 
 ### Added
 - **Dungeons — the first real structure.** Brick chambers buried well
   underground, joined by corridors, with an Evil Altar standing in the largest
-  room and a chest in each of the others. They are sealed, with no way in from the
-  surface, so you find one by mining into a wall or by following a cave into it —
-  and the altar is still breeding monsters when you do. They are also completely
-  unlit, and that is the point rather than an oversight: an altar only spawns
-  anything in pitch dark, so the moment you light the room properly you have
-  turned the dungeon off. Deciding when to do that is the fight.
+  room and a chest in each of the others. Each one bores a tunnel out to the
+  nearest real cave, so you find them by following a cave system down rather than
+  by mining blindly and hoping — and the altar is still breeding monsters when you
+  arrive. They are completely unlit, and that is the point rather than an
+  oversight: an altar only spawns anything in pitch dark, so the moment you light
+  the room properly you have turned the dungeon off. Deciding when to do that is
+  the fight.
 - **Loot, and the tables behind it.** Dungeon chests hold something worth the
   walk — fuel, ore, food, and now and then a tool a tier above whatever got you
   down there. The chest in the altar's own room draws from a better table, and is
@@ -50,6 +57,36 @@ version heading when it's time to ship.
   own name. You can also take a copy and change nothing, or go on playing the
   world exactly as it is. Nothing is forced, and nothing stops working if you
   never touch it.
+- **Creative worlds.** Chosen when you make a world, and only then: a world made
+  Creative can be switched between creative and survival whenever you like, and a
+  world made Survival stays survival forever. In creative you fly, nothing can hurt
+  you, you can walk through the ground — and while you are inside it you can see
+  where you are going instead of a black screen — and clicking a recipe's result in
+  the book hands you one. The book only lists things that have a recipe, so raw ore
+  and mob drops are not reachable this way yet.
+- **Debug tools.** A switch in Cheats reveals a Debug tab with a set of overlays:
+  surface light as a colour ramp, block light and skylight separately, the ambient
+  occlusion and sun shadow terms that were previously only reachable from the
+  command line, mob paths drawn as you watch them walk, chunk borders, and entity
+  hitboxes. A partial path — one the planner gave up on — is drawn in a different
+  colour from a complete one, because "walking into a wall" and "never had a route"
+  look identical from outside.
+- **Locate the nearest dungeon**, in a creative world: it prints the coordinates and
+  pins them on the Atlas.
+
+### Changed
+- **Sparkstone glows red**, which is the colour it looks. It glowed cyan over a red
+  tile, because the texture colour and the light colour are two different numbers
+  and only one of them had ever been chosen.
+- **Diamond ore glows**, faintly and blue. Dimmer than sparkstone on purpose: it is
+  the rarest thing down there and a lamp would give away every vein from across a
+  cavern.
+
+### Fixed
+- **Nothing is deleted without asking.** A world, a screenshot and an Atlas waypoint
+  all vanished on the first click. All three now ask, and name the thing they are
+  about to remove rather than saying "are you sure" about nothing in particular.
+
 
 ## [2.8.0] - 2026-08-05
 

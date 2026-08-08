@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/gl.h"
+#include "ui/confirm.h"
 #include "ui/dom.h"
 #include "ui/settings.h"
 #include "ui/text.h"
@@ -56,7 +57,7 @@ struct LanGame {
 // What the menu asks the app to do.
 struct MenuActions {
   std::function<void()> playSingle;   // Play with no worlds yet: straight to New World
-  std::function<void(const std::string& name, std::uint32_t seed)> createWorld;
+  std::function<void(const std::string& name, std::uint32_t seed, bool creative)> createWorld;
   std::function<void(const std::string& id)> loadWorld;
   std::function<void(const std::string& id)> deleteWorld;
   // Moves a world onto the current terrain generator, taking a copy first. One
@@ -173,6 +174,10 @@ class Menu {
   std::string pendingWorldId_;
   std::string pendingWorldName_;
   int pendingWorldGen_ = 0;
+  ConfirmPrompt confirm_;
+  // The New World screen's mode choice. Reset to Survival every time the page
+  // opens, so a creative world made once does not quietly become the default.
+  bool newWorldCreative_ = false;
 
   TextField nameField_;
   TextField seedField_;

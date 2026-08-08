@@ -83,6 +83,16 @@ class PathFollower {
 
   Status step(Entity& entity, float dt, float speed);
 
+  // For the debug overlay, which needs both the route and how far along it the mob
+  // has got — a drawn path with no progress marker cannot show the difference
+  // between a mob following its plan and a mob stuck at the first corner.
+  const std::vector<PathPoint>& points() const { return points_; }
+  int index() const { return index_; }
+  // False marks a partial path: the planner ran out of budget and headed roughly
+  // the right way. Worth drawing differently, because "walking into a wall" and
+  // "never had a route" look identical from outside.
+  bool complete() const { return found_; }
+
  private:
   std::vector<PathPoint> points_;
   bool found_ = false;

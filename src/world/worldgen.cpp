@@ -540,6 +540,13 @@ struct DungeonPlan {
   int roomCount = 0;
   DungeonRoom rooms[kMaxRooms];
   int altarRoom = 0;  // which room holds the altar; the rest hold chests
+  // The way in. A sealed dungeon can only be found by mining blindly into one,
+  // which in practice means never — so the hub reaches out to whatever cave is
+  // nearest and opens into it. False when there is no cave within reach, which
+  // leaves that one sealed rather than tunnelling until it finds something.
+  bool tunnel = false;
+  int tunnelDx = 0, tunnelDz = 0;  // unit direction, one axis only
+  int tunnelLen = 0;               // cells from the hub's centre
 };
 
 const struct DungeonBlocks {
@@ -619,6 +626,73 @@ DungeonPlan dungeonPlan(const NoiseSet& n, std::uint32_t seed, int cellX, int ce
   if (ceiling + kRockAbove > lowest) return plan;  // still exists = false
 
   plan.exists = true;
+
+  // The way in. Probe the four cardinals from the hub for the nearest cave and
+  // run a tunnel to it.
+  //
+  // Straight and axis-aligned rather than a path toward some chosen cave: this is
+  // re-derived by every chunk that overlaps the dungeon, so it has to be the same
+  // answer computed from nothing but the seed and a handful of samples. A search
+  // would not be.
+  //
+  // Direction order breaks ties, and the surface check ends a direction rather
+  // than skipping past it — a tunnel that dives under a valley and comes up inside
+  // it would light the altar from the far end, which is the one thing a dungeon
+  // cannot survive.
+  const DungeonRoom& hub = plan.rooms[0];
+  const int hx = hub.x + hub.w / 2, hz = hub.z + hub.d / 2;
+  constexpr int kTunnelMax = 40;
+  constexpr int dirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+  // A cave inside the dungeon's own footprint is not a way out. isCave is pure
+  // noise and knows nothing about what is about to be built on top of it, so it
+  // happily reports the natural cavern the altar chamber is going to replace —
+  // and the first version of this accepted one three blocks from the hub's centre,
+  // which is still inside a room eight across. The tunnel was real, deterministic,
+  // and entirely enclosed by the room it started in.
+  const auto insideDungeon = [&plan](int x, int z) {
+    for (int i = 0; i < plan.roomCount; ++i) {
+      const DungeonRoom& r = plan.rooms[i];
+      if (x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d) return true;
+    }
+    return false;
+  };
+
+  int bestLen = -1, bestDir = -1;
+  for (int d = 0; d < 4; ++d) {
+    for (int dist = 1; dist <= kTunnelMax; ++dist) {
+      const int px = hx + dirs[d][0] * dist, pz = hz + dirs[d][1] * dist;
+      if (heightAt(n, px, pz, ver) < ceiling + kRockAbove) break;
+      if (insideDungeon(px, pz)) continue;  // still indoors; keep walking
+      // Somewhere you can actually stand, not the first cell the noise says yes to.
+      //
+      // isCave is true for the thin spaghetti tunnels as well as the caverns, and
+      // those are frequent enough that the nearest hit is usually a one-cell speck
+      // a few blocks past the wall. A tunnel to one of those is a corridor ending
+      // in a dead end, which is worse than no tunnel: it looks like the way out.
+      // So count the open space around the candidate and insist on a real opening.
+      int open = 0;
+      for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+          for (int dz = -1; dz <= 1; ++dz) {
+            if (isCave(n, px + dx, plan.floorY + 1 + dy, pz + dz, ver)) ++open;
+          }
+        }
+      }
+      if (open < 9) continue;  // a third of the neighbourhood, and the centre with it
+      if (bestLen < 0 || dist < bestLen) {
+        bestLen = dist;
+        bestDir = d;
+      }
+      break;
+    }
+  }
+  if (bestLen > 0) {
+    plan.tunnel = true;
+    plan.tunnelDx = dirs[bestDir][0];
+    plan.tunnelDz = dirs[bestDir][1];
+    plan.tunnelLen = bestLen;
+  }
   return plan;
 }
 
@@ -626,6 +700,14 @@ DungeonPlan dungeonPlan(const NoiseSet& n, std::uint32_t seed, int cellX, int ce
 // outside it on every face.
 struct DungeonBox {
   int x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+  // Whether this space is built or merely bored.
+  //
+  // Rooms and the corridors between them are masonry: shell first, then hollow.
+  // The tunnel out to the cave is not — it is a hole through rock, and shelling it
+  // would lay a brick wall across its far end, one block short of the cave it
+  // exists to reach. Which is exactly what it did: every dungeon had a beautifully
+  // built corridor to nowhere.
+  bool shell = true;
 };
 
 // Masonry: the shell around a box, and the floor under it.
@@ -697,6 +779,20 @@ int dungeonBoxes(const DungeonPlan& plan, DungeonBox* out) {
     out[n++] = DungeonBox{lox, y0, hz, hix, y0 + 2, hz};
     out[n++] = DungeonBox{tx, y0, loz, tx, y0 + 2, hiz};
   }
+
+  // And the way out, which starts inside the hub and ends in open cave. Overlapping
+  // the room costs nothing once the interior pass runs last, and starting at the
+  // centre rather than the wall means the mouth is always cut through the wall
+  // rather than stopping a block short of it.
+  if (plan.tunnel) {
+    // One past the cave cell that was found, so the bore ends inside open space
+    // rather than against the last block of rock in front of it.
+    const int ex = hx + plan.tunnelDx * (plan.tunnelLen + 1);
+    const int ez = hz + plan.tunnelDz * (plan.tunnelLen + 1);
+    const int lox = hx < ex ? hx : ex, hix = hx < ex ? ex : hx;
+    const int loz = hz < ez ? hz : ez, hiz = hz < ez ? ez : hz;
+    out[n++] = DungeonBox{lox, y0, loz, hix, y0 + 2, hiz, /*shell=*/false};
+  }
   return n;
 }
 
@@ -705,12 +801,15 @@ void stampDungeon(Chunk& chunk, const DungeonPlan& plan) {
   const DungeonBlocks& b = dungeonBlocks();
   const int y0 = plan.floorY;
 
-  DungeonBox boxes[kMaxRooms + (kMaxRooms - 1) * 2];
+  // Rooms, two corridor legs per room after the first, and the way out.
+  DungeonBox boxes[kMaxRooms + (kMaxRooms - 1) * 2 + 1];
   const int count = dungeonBoxes(plan, boxes);
 
   // Masonry, then air, then furniture. Three passes over the whole dungeon rather
   // than one pass per box: see stampShell.
-  for (int i = 0; i < count; ++i) stampShell(chunk, boxes[i]);
+  for (int i = 0; i < count; ++i) {
+    if (boxes[i].shell) stampShell(chunk, boxes[i]);
+  }
   for (int i = 0; i < count; ++i) stampHollow(chunk, boxes[i]);
 
   for (int i = 0; i < plan.roomCount; ++i) {
@@ -959,6 +1058,10 @@ bool findDungeon(const NoiseSet& n, std::uint32_t seed, int ver, int nearX, int 
       out.y = plan.floorY;
       out.z = az;
       out.rooms = plan.roomCount;
+      out.tunnel = plan.tunnel;
+      out.tunnelLen = plan.tunnelLen;
+      out.tunnelDx = plan.tunnelDx;
+      out.tunnelDz = plan.tunnelDz;
     }
   }
   return found;

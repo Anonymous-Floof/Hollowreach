@@ -34,6 +34,8 @@ enum : int {
   kTagUpgradeGo,     // back it up, then move it forward
   kTagUpgradePlay,   // leave it exactly as it is
   kTagUpgradeBackup, // take a copy and change nothing
+  kTagTypeSurvival,  // the New World screen's mode choice
+  kTagTypeCreative,
   kTagCreate,
   kTagCancel,
   kTagNameField,
@@ -208,6 +210,9 @@ void Menu::setPage(MenuPage page) {
     lanRefresh_ = 0;
   }
   if (page == MenuPage::NewWorld) {
+    // Survival every time the page opens. Making one creative world should not
+    // quietly change what the button means the next time.
+    newWorldCreative_ = false;
     nameField_.clear();
     nameField_.placeholder = "New World";
     nameField_.maxLength = 28;
@@ -410,6 +415,42 @@ void Menu::buildPageNewWorld(const UiEvent& event, TweenStore& tweens) {
   main_.box(widget::textInput(nameField_.focused()), kTagNameField);
   main_.label("Seed (leave blank for random)", widget::fieldLabel(), label);
   main_.box(widget::textInput(seedField_.focused()), kTagSeedField);
+
+  // Two buttons rather than a dropdown, because there is no dropdown in this
+  // codebase — the settings screen's "select" is a button that cycles, and a
+  // two-way choice you have to click twice to see both sides of is worse than
+  // showing both. The chosen one is Primary, which is the same language the Create
+  // button directly below already speaks.
+  main_.label("World type", widget::fieldLabel(), label);
+  Style typeRow = Doc::row(8, Justify::Start, Align::Center);
+  main_.begin(typeRow);
+  struct TypeChoice {
+    int tag;
+    const char* label;
+    bool creative;
+  };
+  for (const TypeChoice& t : {TypeChoice {kTagTypeSurvival, "Survival", false},
+                              TypeChoice {kTagTypeCreative, "Creative", true}}) {
+    const bool chosen = newWorldCreative_ == t.creative;
+    const bool hovered = hoveredTag_ == t.tag;
+    Style s = widget::btnSmall(hovered, false,
+                               chosen ? widget::ButtonKind::Primary : widget::ButtonKind::Normal);
+    s.width = kAuto;
+    main_.begin(s, t.tag);
+    main_.label(t.label, widget::btnSmallText(hovered, chosen ? widget::ButtonKind::Primary
+                                                             : widget::ButtonKind::Normal));
+    main_.end();
+  }
+  main_.end();
+  // Said once, here, because it is the only moment it can be acted on.
+  Style note;
+  note.margin = Edges(4, 0, 0, 0);
+  note.maxWidth = 420;
+  main_.label(newWorldCreative_
+                  ? "Fly, take no damage, and help yourself from the recipe book. You can "
+                    "switch a creative world back to survival whenever you like."
+                  : "The ordinary game. A survival world cannot be turned creative later.",
+              widget::worldMeta(), note);
 
   // .row.end { justify-content: flex-end; margin-top: 14px }
   Style row = Doc::row(10, Justify::End, Align::Center);
@@ -776,7 +817,7 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
         const std::uint32_t seed = seedField_.text().empty()
                                        ? randomSeed()
                                        : hashSeed(seedField_.text());
-        actions.createWorld(name, seed);
+        actions.createWorld(name, seed, newWorldCreative_);
       }
       return;
     }
@@ -834,6 +875,8 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
                   : MenuPage::Main);
       break;
     case kTagNewWorld: setPage(MenuPage::NewWorld); break;
+    case kTagTypeSurvival: newWorldCreative_ = false; break;
+    case kTagTypeCreative: newWorldCreative_ = true; break;
     case kTagSettings:
       if (actions.openSettings) actions.openSettings();
       break;
@@ -845,7 +888,7 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
       const std::string name = nameField_.text().empty() ? "New World" : nameField_.text();
       const std::uint32_t seed =
           seedField_.text().empty() ? randomSeed() : hashSeed(seedField_.text());
-      actions.createWorld(name, seed);
+      actions.createWorld(name, seed, newWorldCreative_);
       break;
     }
     case kTagWorldPlay:
@@ -901,9 +944,17 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
       if (actions.loadWorld && !pendingWorldId_.empty()) actions.loadWorld(pendingWorldId_);
       break;
     case kTagWorldDelete:
-      if (actions.deleteWorld && hoveredIndex_ < static_cast<int>(worlds_.size())) {
-        actions.deleteWorld(worlds_[static_cast<std::size_t>(hoveredIndex_)].id);
-        worldsLoaded_ = false;
+      // Asks first. This is the one delete in the game with nothing behind it —
+      // no copy, no undo, no export unless the player thought to make one.
+      if (hoveredIndex_ < static_cast<int>(worlds_.size())) {
+        const WorldEntry& w = worlds_[static_cast<std::size_t>(hoveredIndex_)];
+        const std::string id = w.id;
+        const std::string name = w.name.empty() ? "this world" : w.name;
+        confirm_.open("Delete " + name + "?", "Delete", [this, id] {
+          if (!actions.deleteWorld) return;
+          actions.deleteWorld(id);
+          worldsLoaded_ = false;
+        });
       }
       break;
     default: break;
@@ -927,7 +978,11 @@ void Menu::updateMain(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tw
   // Build twice: the first pass gives the geometry the hit test needs, the second
   // applies the resulting hover state. Cheaper than a frame of hover lag.
   buildMainCard(ui, text, event, tweens, version);
-  handleMain(event, text);
+  // The prompt eats the frame when it is up, so a click meant for "yes, delete it"
+  // never also lands on whatever row happens to be under it. Between the two
+  // builds, because the first is what the hit test needs and the second is what
+  // gets painted.
+  if (!confirm_.handle(ui.width(), ui.height(), event)) handleMain(event, text);
   buildMainCard(ui, text, event, tweens, version);
 }
 
@@ -1009,6 +1064,9 @@ void Menu::drawMain(Ui2D& ui, Text& text) {
   const std::string signature = "Built from scratch \xE2\x80\x94 no engine, no libraries";
   text.draw(ui, ui.width() - 16 - text.measure(signature, sig), footerY + vm.ascent, signature,
             sig);
+
+  // Over everything, including the footer.
+  confirm_.draw(ui, text);
 }
 
 // ---------------------------------------------------------------------------

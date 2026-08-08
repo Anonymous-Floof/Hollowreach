@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace hr::ui {
@@ -24,7 +25,11 @@ namespace hr::ui {
 // that a renamed preset falls back to the default instead of selecting nothing;
 // a free-form path has no option list to be in, so storing it as a Select meant
 // it saved correctly and was silently dropped on every load.
-enum class SettingType { Slider, Toggle, Select, Text };
+// Action is not a setting at all: it stores nothing and remembers nothing. It is a
+// row that renders as a button and fires the change callback when pressed, because
+// "locate the nearest dungeon" is a thing you do once, not a preference you hold,
+// and the schema had no way to say that.
+enum class SettingType { Slider, Toggle, Select, Text, Action };
 
 // Who a setting belongs to.
 //
@@ -57,6 +62,19 @@ struct SettingDef {
   // values the player picks somewhere they can actually see the choice — the menu
   // background is chosen from the Gallery, where the pictures are.
   bool hidden = false;
+  // The key of a toggle that must be on before this row exists at all — not
+  // greyed out, not visible-but-refused: absent.
+  //
+  // This is how one switch reveals a whole family. Turning "Debug Tools" on is what
+  // makes the debug overlays appear; being in a world that was created Creative is
+  // what makes the creative cheats appear. Without it each of those would need its
+  // own bespoke check in the settings screen, and the screen is meant to be driven
+  // entirely by this table.
+  //
+  // A gate may name a synthetic flag the schema does not contain — see
+  // SettingsStore::setVirtualFlag — which is how "this world was created Creative"
+  // gates rows without itself being a row anyone can flip.
+  const char* gate = nullptr;
   // Derived from the category rather than written per row: every row in a category
   // shares it, and settings.cpp static-checks that.
   SettingScope scope = SettingScope::Global;
@@ -149,6 +167,19 @@ class SettingsStore {
   std::uint32_t revision() const { return revision_; }
 
   bool isWorldScoped(const std::string& key) const;
+
+  // Facts about the session that rows can be gated on but nobody can set.
+  //
+  // "This world was created Creative" is the one that matters: it has to gate the
+  // creative cheats, it must survive being written to the save, and it must NOT be
+  // a row, because a row is by definition something the host can switch — and the
+  // whole point is that a survival world can never become a creative one.
+  void setVirtualFlag(const std::string& key, bool on);
+  void clearVirtualFlags();
+
+  // Whether a row's gate is satisfied. Rows with no gate are always available.
+  bool available(const SettingDef& def) const;
+  bool available(const std::string& key) const;
   // Whether the settings screen should let this row be touched at all.
   bool editable(const std::string& key) const;
 
@@ -172,6 +203,8 @@ class SettingsStore {
   // The open world's, for world-scoped keys only.
   std::vector<Value> world_;
   std::uint32_t revision_ = 0;
+  // Not persisted anywhere: rebuilt from the world every time one is opened.
+  std::unordered_map<std::string, bool> virtualFlags_;
   bool inWorld_ = false;
   bool worldLocked_ = false;
   std::string path_;

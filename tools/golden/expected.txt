@@ -5,3 +5,24 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
+
+# --- The Debug Update -------------------------------------------------------
+#
+# The first time this file has declared CHANGED values rather than merely new
+# ones, so both were read field by field rather than waved through.
+#
+# gen: dungeons now bore a tunnel out to the nearest cave, which moves terrain at
+# v5 and nowhere else. Checked: 2 labels changed, both v5, and zero labels at v1
+# through v4 moved at all. That last number is the one that matters — a world on
+# an older generator must come out of this byte for byte what it always did.
+chunk(*, v5, *)          # changed: the tunnel out
+chunkFull(*, v5, *)      # changed: same, over all 192 layers
+#
+# mesh: sparkstone's light was cyan over a red tile and is now red; diamond ore
+# did not glow at all and now glows blue. Both change block light, and block light
+# is packed into the terrain vertex, so the buffer hashes move without a single
+# vertex moving. Checked across all 30 labels: opaqueVerts, waterVerts and sky are
+# IDENTICAL everywhere, and only opaque, water, blk and emitters differ — which is
+# lighting, not geometry. A changed opaqueVerts here would have meant the world had
+# actually changed shape and would not have been declarable.
+mesh(*)                  # changed: block light only, counts and skylight untouched

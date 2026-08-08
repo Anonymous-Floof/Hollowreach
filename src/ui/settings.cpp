@@ -92,6 +92,46 @@ const std::vector<SettingDef>& schema() {
       // strange first thing to have happen in a survival world.
       {"flight", "Allow Flight (double-tap Space)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
        false},
+      // The switch that reveals the Debug tab. A cheat rather than a preference,
+      // because seeing through the world's floor is not a display option — and
+      // world-scoped like the rest, so a host decides whether their world is a
+      // place people can do that in.
+      {"debugTools", "Debug Tools", SettingType::Toggle, "Cheats", 0, 0, 0, 0, false},
+      // Only in a world that was CREATED creative. `worldIsCreative` is not a row;
+      // it is a fact about the save, set by App when the world opens, and that is
+      // the whole reason a survival world can never turn into a creative one.
+      {"creativeMode", "Creative Mode", SettingType::Toggle, "Cheats", 0, 0, 0, 0, false, "", {},
+       false, "worldIsCreative"},
+      {"noHealth", "No Health or Hunger", SettingType::Toggle, "Cheats", 0, 0, 0, 0, false, "",
+       {}, false, "creativeMode"},
+      {"noClip", "Walk Through Walls (fly to move)", SettingType::Toggle, "Cheats", 0, 0, 0, 0,
+       false, "", {}, false, "creativeMode"},
+      {"locateDungeon", "Locate Nearest Dungeon", SettingType::Action, "Cheats", 0, 0, 0, 0,
+       false, "", {}, false, "creativeMode"},
+
+      // --- Debug: how the world is drawn, not what it is ----------------------
+      // Global, deliberately, and the split is the point: whether these tools may
+      // be used at all is the WORLD's business and the host's, but which overlay a
+      // player likes looking at is theirs and follows them between worlds. It also
+      // keeps them off the wire, where the world-settings message caps at 64 pairs.
+      // Option order IS the uDebug value, and the first two are 1 and 2 because
+      // --debug-view has meant exactly that since before this screen existed. The
+      // light views are appended rather than slotted in front, so a documented flag
+      // and a shipped README go on being true.
+      //
+      // "Surface light" rather than "light level": what the shader has is the
+      // smoothed per-vertex value the mesher baked, not the integer a cell holds.
+      // It shows where the dark is, which is the question being asked, but a cell
+      // reading 7 may draw as 6.5 and the label should not pretend otherwise.
+      {"debugView", "Debug View", SettingType::Select, "Debug", 0, 0, 0, 0, false, "Off",
+       {"Off", "Ambient Occlusion", "Sun Shadow", "Surface Light", "Block Light", "Sky Light"},
+       false, "debugTools"},
+      {"debugPaths", "Draw Mob Paths", SettingType::Toggle, "Debug", 0, 0, 0, 0, false, "", {},
+       false, "debugTools"},
+      {"debugChunks", "Draw Chunk Borders", SettingType::Toggle, "Debug", 0, 0, 0, 0, false, "",
+       {}, false, "debugTools"},
+      {"debugBoxes", "Draw Entity Boxes", SettingType::Toggle, "Debug", 0, 0, 0, 0, false, "",
+       {}, false, "debugTools"},
       {"masterVolume", "Master Volume", SettingType::Slider, "Audio", 0, 100, 1, 80},
       {"sfxVolume", "Effects Volume", SettingType::Slider, "Audio", 0, 100, 1, 80},
       {"ambientVolume", "Ambience Volume", SettingType::Slider, "Audio", 0, 100, 1, 40},
@@ -261,9 +301,40 @@ bool SettingsStore::isWorldScoped(const std::string& key) const {
 }
 
 bool SettingsStore::editable(const std::string& key) const {
+  // A gate that is off means the row is not there at all, so there is nothing to
+  // edit — checked before scope, because an ungated global row is still unavailable
+  // when its gate is off.
+  if (!available(key)) return false;
   if (!isWorldScoped(key)) return true;
   // A world's rules need a world to belong to, and belong to whoever is hosting.
   return inWorld_ && !worldLocked_;
+}
+
+void SettingsStore::setVirtualFlag(const std::string& key, bool on) {
+  virtualFlags_[key] = on;
+  ++revision_;
+}
+
+void SettingsStore::clearVirtualFlags() {
+  if (virtualFlags_.empty()) return;
+  virtualFlags_.clear();
+  ++revision_;
+}
+
+bool SettingsStore::available(const SettingDef& def) const {
+  if (!def.gate) return true;
+  const std::string gate = def.gate;
+  // A synthetic fact first: those are not rows and flag() would report the schema
+  // default for one, which for an absent row is false — right by accident today and
+  // wrong the moment a gate names something real.
+  const auto it = virtualFlags_.find(gate);
+  if (it != virtualFlags_.end()) return it->second;
+  return flag(gate);
+}
+
+bool SettingsStore::available(const std::string& key) const {
+  const SettingDef* def = find(key);
+  return def ? available(*def) : true;
 }
 
 // --- the open world's own values ---------------------------------------------

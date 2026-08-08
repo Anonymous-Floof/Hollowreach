@@ -131,8 +131,13 @@ int dungeonInfo(std::uint32_t seed) {
     return 1;
   }
 
-  std::printf("seed %u: nearest dungeon altar at %d %d %d (%d rooms)\n", seed, site.x, site.y,
-              site.z, site.rooms);
+  std::printf("seed %u: nearest dungeon altar at %d %d %d (%d rooms, %s)\n", seed, site.x,
+              site.y, site.z, site.rooms,
+              site.tunnel
+                  ? ("tunnel " + std::to_string(site.tunnelLen) + " toward " +
+                     std::to_string(site.tunnelDx) + "," + std::to_string(site.tunnelDz))
+                        .c_str()
+                  : "sealed");
   std::printf("  --at %d,%d,%d,0,0\n\n", site.x, site.y + 2, site.z - 6);
 
   // Generate the chunks the plan could touch and read them back, rather than asking
