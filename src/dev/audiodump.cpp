@@ -10,7 +10,10 @@
 
 #include "audio/engine.h"
 #include "audio/sfx.h"
+#include "audio/soundbank.h"
 #include "platform/paths.h"
+#include "resource/pack.h"
+#include "ui/settings.h"
 #include "world/blocks.h"
 
 namespace fs = std::filesystem;
@@ -202,6 +205,22 @@ void listAudioEvents() {
 }
 
 bool dumpAudio(const std::string& name, const std::string& path) {
+  // Renders through whichever resource packs are enabled, because every event
+  // below goes through the sfx facade and that is where a pack takes over. Without
+  // this the dump always produced the synthesised sound, which made it useless for
+  // the one job a pack author most wants it for: hearing a pack in the game's own
+  // mixer — ducked, panned, through the compressor — without launching the game.
+  // Turn the pack off in the Resource Packs screen to get the A/B.
+  ui::settings().load(paths::settingsFile());
+  const std::vector<resource::PackInfo> installed = resource::scanPacks();
+  const std::vector<resource::PackInfo> active = resource::enabledPacks(installed);
+  audio::sounds().rebuild(active);
+  if (!active.empty()) {
+    std::printf("through %d resource pack(s): %d of %d events replaced\n",
+                static_cast<int>(active.size()), audio::sounds().stats().events,
+                static_cast<int>(audio::soundEventCatalogue().size()));
+  }
+
   if (name == "all") {
     std::error_code ec;
     fs::create_directories(path, ec);

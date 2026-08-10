@@ -11,6 +11,16 @@ if(NOT HOLLOWREACH_EMBED_ASSETS)
   install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/assets/ DESTINATION assets)
 endif()
 
+# The example sound pack, into the folder the game already scans, so it appears
+# in Resource Packs the first time the game is run rather than needing to be
+# moved somewhere by hand. It ships switched OFF: a fresh install should sound
+# like the game, and a pack nobody chose is not an example, it is a surprise.
+#
+# This is the one thing the release puts inside data/, and it is why the README's
+# note about updates names it explicitly.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/packs/FilmCowSFX
+        DESTINATION data/resourcepacks)
+
 # Documentation sits at the repository root, which since the fork is also the
 # CMake source directory — there is no longer a native/ folder to climb out of.
 set(_repo_root ${CMAKE_CURRENT_SOURCE_DIR})

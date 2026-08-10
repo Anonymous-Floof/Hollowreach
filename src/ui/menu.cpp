@@ -19,6 +19,7 @@ enum : int {
   kTagPlay = 10,
   kTagJoin,
   kTagGallery,
+  kTagPacks,
   kTagSettings,
   kTagAbout,
   kTagUpdate,
@@ -247,6 +248,7 @@ void Menu::buildPageMain(const UiEvent& event, TweenStore& tweens) {
       {kTagPlay, "Play", widget::ButtonKind::Primary},
       {kTagJoin, "Join a Friend", widget::ButtonKind::Normal},
       {kTagGallery, "Gallery", widget::ButtonKind::Normal},
+      {kTagPacks, "Resource Packs", widget::ButtonKind::Normal},
       {kTagSettings, "Settings", widget::ButtonKind::Normal},
       {kTagAbout, "About", widget::ButtonKind::Normal},
       // Last, and the only Danger button here. Escape has always quit from this
@@ -882,6 +884,9 @@ void Menu::handleMain(const UiEvent& event, Text& text) {
       break;
     case kTagGallery:
       if (actions.openGallery) actions.openGallery();
+      break;
+    case kTagPacks:
+      if (actions.openPacks) actions.openPacks();
       break;
     case kTagCreate: {
       if (!actions.createWorld) break;

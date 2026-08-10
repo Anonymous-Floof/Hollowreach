@@ -90,6 +90,21 @@ struct BurstOpts {
   FilterChain filters;
 };
 
+// A decoded clip from a resource pack. Mono, because the panner is (see
+// audio/decode.h), and referenced rather than owned: the audio thread reads these
+// samples directly out of the SoundBank's arena, which is why that arena never
+// frees anything while the game is running.
+struct SampleOpts {
+  float delay = 0.0f;
+  const float* samples = nullptr;
+  int frameCount = 0;
+  int sampleRate = 0;
+  float gain = 1.0f;
+  // Playback speed. 1.0 is the file's own pitch; the device's own rate conversion
+  // is folded in on top, so a 44.1 kHz clip on a 48 kHz device still sounds right.
+  float pitch = 1.0f;
+};
+
 struct ToneOpts {
   float delay = 0.0f;
   Wave wave = Wave::Sine;
@@ -140,6 +155,10 @@ class Engine {
   // ---- one-shots ---------------------------------------------------------
   void burst(const Dest& dest, const BurstOpts& opts);
   void tone(const Dest& dest, const ToneOpts& opts);
+  // A resource pack's clip, through the same voice pool, buses and panner as
+  // everything else — so a pack's footstep is ducked, muffled underwater and
+  // placed in the world exactly like the synthesised one it replaced.
+  void sample(const Dest& dest, const SampleOpts& opts);
 
   // ---- ambience beds -----------------------------------------------------
   // Persistent chains the ambience controller eases per frame, rather than voices.
@@ -174,6 +193,7 @@ class Engine {
   void renderInterleaved(float* interleaved, int frames);
   void startBurst(const Command& cmd);
   void startTone(const Command& cmd);
+  void startSample(const Command& cmd);
 
   // --- audio thread state -------------------------------------------------
   int sampleRate_ = 48000;

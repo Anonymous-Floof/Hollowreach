@@ -35,6 +35,7 @@ struct Engine::Command {
   enum class Type : std::uint8_t {
     Burst,
     Tone,
+    Sample,
     Volumes,
     MasterTarget,
     MuffleTarget,
@@ -48,6 +49,7 @@ struct Engine::Command {
   double scheduleTime = 0.0;
   BurstOpts burst;
   ToneOpts tone;
+  SampleOpts sample;
   float a = 0, b = 0, c = 0, d = 0, e = 0, f = 0;
 };
 
@@ -83,8 +85,13 @@ class Engine::Ring {
 };
 
 struct Engine::Voice {
+  // What feeds the filter and gain chain. Was a bool while there were only two;
+  // a resource pack's clip is a third, and it reads its samples from memory the
+  // SoundBank owns rather than from a table this engine built.
+  enum class Source : std::uint8_t { Noise, Tone, Sample };
+
   bool active = false;
-  bool isTone = false;
+  Source source = Source::Noise;
   std::int64_t startFrame = 0;
   std::int64_t endFrame = 0;
 
@@ -97,6 +104,14 @@ struct Engine::Voice {
   double noisePos = 0.0;
   double noiseRate = 1.0;
   double loopStart = 0.0;
+
+  // Sample source. `samples` points into SoundBank's append-only arena, which is
+  // what makes holding a raw pointer across the thread boundary safe: nothing in
+  // that arena is ever freed while the engine is running.
+  const float* samples = nullptr;
+  int sampleCount = 0;
+  double samplePos = 0.0;
+  double sampleStep = 1.0;
 
   // Oscillator source.
   Wave wave = Wave::Sine;
@@ -334,6 +349,17 @@ void Engine::burst(const Dest& dest, const BurstOpts& opts) {
   post(c);
 }
 
+void Engine::sample(const Dest& dest, const SampleOpts& opts) {
+  if (!dest.valid || !ready()) return;
+  if (!opts.samples || opts.frameCount <= 0 || opts.sampleRate <= 0) return;
+  Command c;
+  c.type = Command::Type::Sample;
+  c.dest = dest;
+  c.scheduleTime = now();
+  c.sample = opts;
+  post(c);
+}
+
 void Engine::tone(const Dest& dest, const ToneOpts& opts) {
   if (!dest.valid || !ready()) return;
   Command c;
@@ -369,7 +395,7 @@ void Engine::startBurst(const Command& cmd) {
   Voice& v = voices_[allocateVoice()];
   v = Voice{};
   v.active = true;
-  v.isTone = false;
+  v.source = Voice::Source::Noise;
   v.bus = cmd.dest.bus;
   v.positional = cmd.dest.positional;
   std::memcpy(v.pos, cmd.dest.pos, sizeof(v.pos));
@@ -429,7 +455,7 @@ void Engine::startTone(const Command& cmd) {
   Voice& v = voices_[allocateVoice()];
   v = Voice{};
   v.active = true;
-  v.isTone = true;
+  v.source = Voice::Source::Tone;
   v.bus = cmd.dest.bus;
   v.positional = cmd.dest.positional;
   std::memcpy(v.pos, cmd.dest.pos, sizeof(v.pos));
@@ -483,12 +509,60 @@ void Engine::startTone(const Command& cmd) {
   }
 }
 
+void Engine::startSample(const Command& cmd) {
+  const SampleOpts& o = cmd.sample;
+  if (!o.samples || o.frameCount <= 0 || o.sampleRate <= 0) return;
+  const double t0 = cmd.scheduleTime + o.delay;
+
+  // The device's rate conversion and the requested pitch are one multiply. A
+  // 44.1 kHz clip on a 48 kHz device steps at 0.919 per output frame; asking for
+  // 1.2x pitch makes it 1.103. Both are the same operation, so neither needs a
+  // resampling pass at load.
+  const double step =
+      (static_cast<double>(o.sampleRate) / sampleRate_) * (o.pitch > 0.0f ? o.pitch : 1.0f);
+  const double dur = (o.frameCount / step) / sampleRate_;
+
+  Voice& v = voices_[allocateVoice()];
+  v = Voice{};
+  v.active = true;
+  v.source = Voice::Source::Sample;
+  v.bus = cmd.dest.bus;
+  v.positional = cmd.dest.positional;
+  std::memcpy(v.pos, cmd.dest.pos, sizeof(v.pos));
+
+  v.startFrame = static_cast<std::int64_t>(std::ceil(t0 * sampleRate_));
+  // No +0.05 tail here, unlike a burst or a tone: those two ramp their gain down
+  // to 0.0001 rather than to zero and need room to finish, while a clip ends when
+  // its last sample has been read and anything past that is silence.
+  v.endFrame = static_cast<std::int64_t>(std::ceil((t0 + dur) * sampleRate_));
+  if (v.startFrame < renderedFrames_) v.startFrame = renderedFrames_;
+
+  v.samples = o.samples;
+  v.sampleCount = o.frameCount;
+  v.samplePos = 0.0;
+  v.sampleStep = step;
+
+  // A clip plays at a constant gain — it is a recording, and re-enveloping it
+  // would be shaping a sound the pack author already shaped. The only automation
+  // is a short release, because a file that does not end at zero crossing clicks
+  // when it stops, and plenty of hand-trimmed files do not.
+  const float peak = o.gain;
+  const double release = std::min(0.005, dur * 0.25);
+  v.gain.reset(peak, cmd.scheduleTime);
+  v.gain.setValueAtTime(peak, t0);
+  v.gain.linearRampToValueAtTime(peak, t0 + dur - release);
+  v.gain.linearRampToValueAtTime(0.0f, t0 + dur);
+
+  v.filterCount = 0;
+}
+
 void Engine::drainCommands() {
   Command cmd;
   while (ring_->pop(cmd)) {
     switch (cmd.type) {
       case Command::Type::Burst: startBurst(cmd); break;
       case Command::Type::Tone: startTone(cmd); break;
+      case Command::Type::Sample: startSample(cmd); break;
       case Command::Type::Volumes:
         masterGain_.setTarget(cmd.a, 0.0f);
         busGain_[0] = cmd.b;
@@ -542,7 +616,7 @@ void Engine::renderVoice(Voice& v, float* sfxL, float* sfxR, float* ambL, float*
   float freqA = 0.0f, freqB = 0.0f;
   PeriodicWave::Reader reader;
   const PeriodicWave* wave = nullptr;
-  if (v.isTone) {
+  if (v.source == Voice::Source::Tone) {
     freqA = v.freq.valueAt(ta);
     freqB = v.freq.valueAt(tb);
     wave = &waves_.wave(v.wave);
@@ -577,7 +651,8 @@ void Engine::renderVoice(Voice& v, float* sfxL, float* sfxR, float* ambL, float*
     dstR = uiR;
   }
 
-  const std::vector<float>* buffer = v.isTone ? nullptr : &noise_.buffer(v.noise);
+  const std::vector<float>* buffer =
+      v.source == Voice::Source::Noise ? &noise_.buffer(v.noise) : nullptr;
   const double bufferLen = buffer ? static_cast<double>(buffer->size()) : 0.0;
   const double tableScale = wave ? wave->tableSize() / sr : 0.0;
   const double tableSize = wave ? wave->tableSize() : 1.0;
@@ -586,7 +661,7 @@ void Engine::renderVoice(Voice& v, float* sfxL, float* sfxR, float* ambL, float*
   for (int i = i0; i < i1; ++i) {
     const double u = (i - i0) * invSpan;
     float x;
-    if (v.isTone) {
+    if (v.source == Voice::Source::Tone) {
       double f = freqA + (freqB - freqA) * u;
       if (v.vibRate > 0.0) {
         f += v.vibDepth * std::sin(kTwoPi * v.vibPhase);
@@ -597,6 +672,21 @@ void Engine::renderVoice(Voice& v, float* sfxL, float* sfxR, float* ambL, float*
       v.oscPhase += f * tableScale;
       while (v.oscPhase >= tableSize) v.oscPhase -= tableSize;
       while (v.oscPhase < 0.0) v.oscPhase += tableSize;
+    } else if (v.source == Voice::Source::Sample) {
+      // Linearly interpolated, not nearest-neighbour. The step is almost never
+      // 1.0 — a 44.1 kHz clip on a 48 kHz device runs at 0.919, and any pitch
+      // at all moves it further — so nearest-neighbour would resample every clip
+      // in the pack with audible aliasing on the transients, which for a pack of
+      // short percussive hits is the whole content.
+      const int i_ = static_cast<int>(v.samplePos);
+      if (i_ >= v.sampleCount) {
+        x = 0.0f;
+      } else {
+        const float a = v.samples[i_];
+        const float b = (i_ + 1 < v.sampleCount) ? v.samples[i_ + 1] : 0.0f;
+        x = a + (b - a) * static_cast<float>(v.samplePos - i_);
+      }
+      v.samplePos += v.sampleStep;
     } else {
       auto idx = static_cast<std::size_t>(v.noisePos);
       if (idx >= buffer->size()) idx = buffer->size() - 1;

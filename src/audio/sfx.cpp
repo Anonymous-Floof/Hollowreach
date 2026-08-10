@@ -1,8 +1,12 @@
 #include "audio/sfx.h"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
 #include <string_view>
 
 #include "audio/engine.h"
+#include "audio/soundbank.h"
 #include "core/prng.h"
 
 namespace hr::audio::sfx {
@@ -20,6 +24,107 @@ Dest go(float dur, Bus bus) {
 Dest go(float dur, Bus bus, const Vec3& pos) {
   if (!engine().ready() || !engine().tryVoice(dur)) return Dest{};
   return engine().out(bus, pos);
+}
+
+// ---------------------------------------------------------------------------
+// Resource packs
+//
+// Every entry point below now asks the pack stack first, by name, and falls
+// through to its synthesised recipe when no pack supplies that name. That
+// fall-through is the whole design: a pack replacing four sounds replaces four
+// sounds, and the other ninety are still the recipes in this file.
+//
+// `reference` is what a clip at "volume": 1.0 plays back at, chosen per call site
+// to sit where the recipe it replaces sat. Without it a full-scale wav would be
+// two to five times louder than everything around it, and a pack that changed only
+// the footsteps would make walking the loudest thing in the game. A pack author
+// who disagrees has sounds.json's own `volume` to say so with.
+// ---------------------------------------------------------------------------
+
+// Wide enough that repeated hits do not sound like a loop, narrow enough that the
+// material still reads. Minecraft varies its own block sounds by about this much.
+constexpr float kBlockJitter = 0.08f;
+constexpr float kVoiceJitter = 0.06f;
+
+bool playPack(std::string_view event, Bus bus, const Vec3* pos, float reference, float jitter,
+              float roll) {
+  if (!engine().ready()) return false;
+  const SoundPick picked = sounds().pick(event, roll);
+  if (!picked.valid()) return false;
+
+  float pitch = picked.pitch;
+  if (jitter > 0.0f) pitch *= 1.0f + R(-jitter, jitter);
+  pitch = std::clamp(pitch, 0.125f, 4.0f);
+  const float seconds = static_cast<float>(picked.clip->seconds() / pitch);
+
+  const Dest d = pos ? go(seconds, bus, *pos) : go(seconds, bus);
+  // Refused by the 32-event cap. Still "handled": falling through to the
+  // synthesised recipe here would push a second event at a mixer that has just
+  // said it has no room, which is the one thing the cap exists to prevent.
+  if (!d.valid) return true;
+
+  engine().sample(d, {.samples = picked.clip->mono.data(),
+                      .frameCount = static_cast<int>(picked.clip->mono.size()),
+                      .sampleRate = picked.clip->sampleRate,
+                      .gain = reference * picked.volume,
+                      .pitch = pitch});
+  return true;
+}
+
+bool playPack(std::string_view event, Bus bus, const Vec3* pos, float reference,
+              float jitter = 0.0f) {
+  return playPack(event, bus, pos, reference, jitter, static_cast<float>(randomUnit()));
+}
+
+// A mob's variant is chosen from its seed rather than at random, so one animal
+// keeps one voice across its calls the way the synthesised path already does by
+// feeding the seed into its formants.
+float seedRoll(int seed) {
+  const unsigned int h = static_cast<unsigned int>(seed) * 2654435761u + 0x9E3779B9u;
+  return static_cast<float>(h >> 8) / static_cast<float>(1u << 24);
+}
+
+std::string_view materialName(Material material) {
+  switch (material) {
+    case Material::Stone: return "stone";
+    case Material::Ore: return "ore";
+    case Material::Wood: return "wood";
+    case Material::Dirt: return "dirt";
+    case Material::Sand: return "sand";
+    case Material::Gravel: return "gravel";
+    case Material::Grass: return "grass";
+    case Material::Leaves: return "leaves";
+    case Material::Cloth: return "wool";  // Minecraft's spelling, so its packs fit
+    case Material::Glass: return "glass";
+  }
+  return "stone";
+}
+
+std::string blockEvent(Material material, std::string_view action) {
+  std::string out = "block.";
+  out += materialName(material);
+  out += '.';
+  out += action;
+  return out;
+}
+
+// "ambient" rather than "say": Minecraft's name for an idle call, and therefore
+// the key already sitting in any pack made for it.
+std::string_view callName(MobCall kind) {
+  switch (kind) {
+    case MobCall::Say: return "ambient";
+    case MobCall::Hurt: return "hurt";
+    case MobCall::Death: return "death";
+  }
+  return "ambient";
+}
+
+bool playMobPack(std::string_view species, MobCall kind, const Vec3& pos, int seed) {
+  std::string event = "entity.";
+  event += species;
+  event += '.';
+  event += callName(kind);
+  return playPack(event, Bus::Sfx, &pos, 0.6f, kVoiceJitter, seedRoll(seed));
 }
 
 // ---------------------------------------------------------------------------
@@ -177,34 +282,46 @@ Material materialOf(const world::BlockDef& block) {
 // ---- blocks ---------------------------------------------------------------
 
 void blockHit(const world::BlockDef& block, const Vec3& pos) {
+  const Material material = materialOf(block);
+  if (playPack(blockEvent(material, "hit"), Bus::Sfx, &pos, 0.4f, kBlockJitter)) return;
   const Dest d = go(0.15f, Bus::Sfx, pos);  // rhythmic dig tick while mining
-  if (d.valid) impact(materialOf(block), d, 0.45f);
+  if (d.valid) impact(material, d, 0.45f);
 }
 
 void blockBreak(const world::BlockDef& block, const Vec3& pos) {
+  const Material material = materialOf(block);
+  if (playPack(blockEvent(material, "break"), Bus::Sfx, &pos, 0.75f, kBlockJitter)) return;
   const Dest d = go(0.5f, Bus::Sfx, pos);
   if (!d.valid) return;
-  switch (materialOf(block)) {
+  switch (material) {
     case Material::Glass: breakGlass(d); break;
     case Material::Wood: breakWood(d); break;
     case Material::Stone: breakStone(d); break;
     case Material::Ore: breakOre(d); break;
-    default: breakGeneric(d, materialOf(block)); break;
+    default: breakGeneric(d, material); break;
   }
 }
 
 void blockPlace(const world::BlockDef& block, const Vec3& pos) {
+  const Material material = materialOf(block);
+  if (playPack(blockEvent(material, "place"), Bus::Sfx, &pos, 0.55f, kBlockJitter)) return;
   const Dest d = go(0.2f, Bus::Sfx, pos);
-  if (d.valid) impact(materialOf(block), d, 0.7f);
+  if (d.valid) impact(material, d, 0.7f);
 }
 
 void step(const world::BlockDef& block, bool sprint) {
+  const Material material = materialOf(block);
   // Steps live at the feet: no panner, just quiet short impacts.
+  if (playPack(blockEvent(material, "step"), Bus::Sfx, nullptr, sprint ? 0.38f : 0.3f,
+               kBlockJitter)) {
+    return;
+  }
   const Dest d = go(0.12f, Bus::Sfx);
-  if (d.valid) impact(materialOf(block), d, sprint ? 0.34f : 0.26f);
+  if (d.valid) impact(material, d, sprint ? 0.34f : 0.26f);
 }
 
 void wadeStep() {
+  if (playPack("entity.player.swim", Bus::Sfx, nullptr, 0.35f, kBlockJitter)) return;
   const Dest d = go(0.25f, Bus::Sfx);
   if (!d.valid) return;
   engine().burst(d, {.dur = 0.16f, .gain = 0.22f, .attack = 0.02f,
@@ -216,6 +333,10 @@ void wadeStep() {
 // ---- doors / containers / stations ----------------------------------------
 
 void doorToggle(const world::BlockDef& block, bool open, const Vec3& pos) {
+  const bool trapdoor = block.render == world::RenderKind::Trapdoor;
+  const std::string event = std::string(trapdoor ? "block.wooden_trapdoor." : "block.wooden_door.") +
+                            (open ? "open" : "close");
+  if (playPack(event, Bus::Sfx, &pos, 0.5f, kVoiceJitter)) return;
   const Dest d = go(0.55f, Bus::Sfx, pos);
   if (!d.valid) return;
   // Hinge creak = stick-slip: a bending tone juddered by a fast deep tremolo
@@ -238,6 +359,7 @@ void doorToggle(const world::BlockDef& block, bool open, const Vec3& pos) {
 }
 
 void chestOpen(const Vec3& pos) {
+  if (playPack("block.chest.open", Bus::Sfx, &pos, 0.5f, kVoiceJitter)) return;
   const Dest d = go(0.65f, Bus::Sfx, pos);
   if (!d.valid) return;
   // A heavier, slower hinge than a door: low grind rising as the lid lifts.
@@ -253,6 +375,7 @@ void chestOpen(const Vec3& pos) {
 }
 
 void chestClose(const Vec3& pos) {
+  if (playPack("block.chest.close", Bus::Sfx, &pos, 0.5f, kVoiceJitter)) return;
   const Dest d = go(0.5f, Bus::Sfx, pos);
   if (!d.valid) return;
   engine().tone(d, {.wave = Wave::Sawtooth, .freq = 112.0f, .sweepTo = 72.0f, .dur = 0.26f,
@@ -266,6 +389,7 @@ void chestClose(const Vec3& pos) {
 }
 
 void craft() {
+  if (playPack("entity.player.craft", Bus::Sfx, nullptr, 0.45f)) return;
   const Dest d = go(0.4f, Bus::Sfx);
   if (!d.valid) return;
   impactWood(d, 0.5f, 0.0f);
@@ -279,6 +403,7 @@ void craft() {
 }
 
 void smeltDone(const Vec3& pos) {
+  if (playPack("block.furnace.smelt", Bus::Sfx, &pos, 0.4f)) return;
   const Dest d = go(0.3f, Bus::Sfx, pos);
   if (!d.valid) return;
   engine().tone(d, {.freq = 1320.0f, .dur = 0.18f, .gain = 0.07f});
@@ -288,6 +413,7 @@ void smeltDone(const Vec3& pos) {
 // ---- player ---------------------------------------------------------------
 
 void hurt() {
+  if (playPack("entity.player.hurt", Bus::Sfx, nullptr, 0.5f, kVoiceJitter)) return;
   const Dest d = go(0.3f, Bus::Sfx);
   if (!d.valid) return;
   // A short "uhh": saw larynx dropping through a closing formant, plus breath.
@@ -299,6 +425,7 @@ void hurt() {
 }
 
 void died() {
+  if (playPack("entity.player.death", Bus::Sfx, nullptr, 0.55f)) return;
   const Dest d = go(0.8f, Bus::Sfx);
   if (!d.valid) return;
   const float f0 = 130.0f;
@@ -310,9 +437,16 @@ void died() {
 }
 
 void land(float intensity) {
+  const float s = 0.35f + intensity * 0.65f;
+  // Minecraft splits the landing thump in two at roughly this height, and its
+  // packs supply both, so the split is worth honouring rather than scaling one
+  // clip's gain across the whole range.
+  if (playPack(intensity > 0.45f ? "entity.player.big_fall" : "entity.player.small_fall",
+               Bus::Sfx, nullptr, 0.6f * s, kBlockJitter)) {
+    return;
+  }
   const Dest d = go(0.25f, Bus::Sfx);
   if (!d.valid) return;
-  const float s = 0.35f + intensity * 0.65f;
   engine().burst(d, {.dur = 0.1f, .gain = 0.5f * s, .filters = lp(180.0f, 0.8f)});
   engine().tone(d, {.freq = 74.0f, .sweepTo = 46.0f, .dur = 0.12f, .gain = 0.3f * s});
   if (intensity > 0.45f) {
@@ -321,6 +455,7 @@ void land(float intensity) {
 }
 
 void eat() {
+  if (playPack("entity.generic.eat", Bus::Sfx, nullptr, 0.5f, kVoiceJitter)) return;
   const Dest d = go(1.0f, Bus::Sfx);
   if (!d.valid) return;
   for (int i = 0; i < 3; ++i) {  // munch, munch, munch...
@@ -334,9 +469,10 @@ void eat() {
 }
 
 void splash(bool big) {
+  const float s = big ? 1.0f : 0.55f;
+  if (playPack("entity.player.splash", Bus::Sfx, nullptr, 0.6f * s, kBlockJitter)) return;
   const Dest d = go(0.6f, Bus::Sfx);
   if (!d.valid) return;
-  const float s = big ? 1.0f : 0.55f;
   engine().burst(d, {.dur = 0.3f, .gain = 0.4f * s, .attack = 0.012f,
                      .filters = bp(2400.0f, 0.6f, 420.0f, 0.3f)});
   for (int i = 0; i < 3; ++i) {  // droplets plink back down
@@ -346,6 +482,7 @@ void splash(bool big) {
 }
 
 void bubbles() {
+  if (playPack("entity.player.bubbles", Bus::Sfx, nullptr, 0.25f, kVoiceJitter)) return;
   const Dest d = go(0.3f, Bus::Sfx);  // sporadic underwater blips
   if (!d.valid) return;
   for (int i = 0; i < 2; ++i) {
@@ -356,6 +493,7 @@ void bubbles() {
 }
 
 void pickup() {
+  if (playPack("entity.item.pickup", Bus::Sfx, nullptr, 0.35f, kBlockJitter)) return;
   const Dest d = go(0.15f, Bus::Sfx);
   if (!d.valid) return;
   const float f = R(480.0f, 620.0f);
@@ -364,6 +502,7 @@ void pickup() {
 }
 
 void toss() {
+  if (playPack("entity.item.throw", Bus::Sfx, nullptr, 0.35f, kBlockJitter)) return;
   const Dest d = go(0.15f, Bus::Sfx);
   if (d.valid) {
     engine().burst(d, {.dur = 0.12f, .gain = 0.16f, .attack = 0.03f, .curve = Curve::Lin,
@@ -372,6 +511,7 @@ void toss() {
 }
 
 void swing() {
+  if (playPack("entity.player.attack.sweep", Bus::Sfx, nullptr, 0.3f, kBlockJitter)) return;
   const Dest d = go(0.15f, Bus::Sfx);  // melee whoosh
   if (d.valid) {
     engine().burst(d, {.dur = 0.13f, .gain = 0.13f, .attack = 0.04f, .curve = Curve::Lin,
@@ -380,6 +520,7 @@ void swing() {
 }
 
 void thwack(const Vec3& pos) {
+  if (playPack("entity.player.attack.strong", Bus::Sfx, &pos, 0.6f, kBlockJitter)) return;
   const Dest d = go(0.15f, Bus::Sfx, pos);  // a hit landing on a mob
   if (!d.valid) return;
   engine().burst(d, {.dur = 0.07f, .gain = 0.42f, .filters = lp(500.0f, 1.0f)});
@@ -387,6 +528,7 @@ void thwack(const Vec3& pos) {
 }
 
 void shutter() {
+  if (playPack("ui.screenshot", Bus::Ui, nullptr, 0.5f)) return;
   const Dest d = go(0.15f, Bus::Ui);  // F2 camera
   if (!d.valid) return;
   engine().burst(d, {.dur = 0.02f, .gain = 0.3f, .filters = bp(2600.0f, 2.0f)});
@@ -394,6 +536,7 @@ void shutter() {
 }
 
 void crit() {
+  if (playPack("entity.player.attack.crit", Bus::Sfx, nullptr, 0.4f, kBlockJitter)) return;
   const Dest d = go(0.3f, Bus::Sfx);  // a bright metallic snap over the thwack
   if (!d.valid) return;
   engine().tone(d, {.wave = Wave::Sine, .freq = 1900.0f, .sweepTo = 900.0f, .dur = 0.12f,
@@ -404,6 +547,7 @@ void crit() {
 }
 
 void warp() {
+  if (playPack("entity.enderman.teleport", Bus::Sfx, nullptr, 0.55f)) return;
   const Dest d = go(0.9f, Bus::Sfx);  // a rising two-voice shimmer with an airy whoosh
   if (!d.valid) return;
   engine().tone(d, {.wave = Wave::Sine, .freq = 320.0f, .sweepTo = 1500.0f, .dur = 0.5f,
@@ -418,6 +562,7 @@ void warp() {
 // ---- mob voices -----------------------------------------------------------
 
 void sheep(MobCall kind, const Vec3& pos, int seed) {
+  if (playMobPack("sheep", kind, pos, seed)) return;
   const Dest d = go(1.0f, Bus::Sfx, pos);
   if (!d.valid) return;
   // The bleat: a LOW larynx (200-260 Hz — higher reads as an insect) chopped hard by
@@ -442,6 +587,7 @@ void sheep(MobCall kind, const Vec3& pos, int seed) {
 }
 
 void pig(MobCall kind, const Vec3& pos, int seed) {
+  if (playMobPack("pig", kind, pos, seed)) return;
   const Dest d = go(0.4f, Bus::Sfx, pos);
   if (!d.valid) return;
   // The oink: a snorty grunt — the nasal formant swings up then down fast.
@@ -458,6 +604,7 @@ void pig(MobCall kind, const Vec3& pos, int seed) {
 }
 
 void cow(MobCall kind, const Vec3& pos, int seed) {
+  if (playMobPack("cow", kind, pos, seed)) return;
   const float dur = kind == MobCall::Hurt ? 0.4f : kind == MobCall::Death ? 1.1f : R(0.8f, 1.15f);
   const Dest d = go(dur + 0.2f, Bus::Sfx, pos);
   if (!d.valid) return;
@@ -478,6 +625,7 @@ void cow(MobCall kind, const Vec3& pos, int seed) {
 }
 
 void zombie(MobCall kind, const Vec3& pos, int seed) {
+  if (playMobPack("zombie", kind, pos, seed)) return;
   const float dur = kind == MobCall::Death ? 1.3f : kind == MobCall::Hurt ? 0.32f : R(0.85f, 1.2f);
   const Dest d = go(dur + 0.2f, Bus::Sfx, pos);
   if (!d.valid) return;
@@ -496,6 +644,7 @@ void zombie(MobCall kind, const Vec3& pos, int seed) {
 }
 
 void sizzle(const Vec3& pos) {
+  if (playPack("entity.generic.burn", Bus::Sfx, &pos, 0.45f, kVoiceJitter)) return;
   const Dest d = go(0.5f, Bus::Sfx, pos);  // zombie burning in the sun
   if (!d.valid) return;
   engine().burst(d, {.dur = 0.4f, .gain = 0.2f, .attack = 0.02f, .curve = Curve::Lin,
@@ -506,6 +655,9 @@ void sizzle(const Vec3& pos) {
 // ---- UI -------------------------------------------------------------------
 
 void uiClick() {
+  // No jitter on the interface: a button that answers at a slightly different
+  // pitch each press reads as a fault rather than as variety.
+  if (playPack("ui.button.click", Bus::Ui, nullptr, 0.45f)) return;
   const Dest d = go(0.08f, Bus::Ui);
   if (!d.valid) return;
   engine().burst(d, {.dur = 0.018f, .gain = 0.2f, .filters = bp(1350.0f, 2.2f)});
@@ -513,6 +665,7 @@ void uiClick() {
 }
 
 void uiSlot() {
+  if (playPack("ui.slot.click", Bus::Ui, nullptr, 0.35f)) return;
   const Dest d = go(0.06f, Bus::Ui);  // inventory slot tick (very quiet)
   if (d.valid) engine().burst(d, {.dur = 0.014f, .gain = 0.13f, .filters = bp(900.0f, 2.0f)});
 }

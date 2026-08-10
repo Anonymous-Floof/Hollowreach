@@ -55,6 +55,12 @@ bool Interface::init(ShaderCache& shaders, const render::IconAtlas* icons) {
   menu_.actions.openGallery = [this] {
     if (callbacks.openGallery) callbacks.openGallery();
   };
+  menu_.actions.openPacks = [this] {
+    if (callbacks.openPacks) callbacks.openPacks();
+  };
+  packsScreen_.onBack = [this] {
+    if (callbacks.closeScreen) callbacks.closeScreen();
+  };
   return true;
 }
 
@@ -83,6 +89,7 @@ void Interface::setScreen(Screen s) {
   guardMouse();
   if (s == Screen::Menu) menu_.onShow();
   if (s == Screen::Settings) settingsScreen_.onShow();
+  if (s == Screen::Packs) packsScreen_.onShow();
   if (s == Screen::RecipeBook) recipeBook_.open();
   if (s == Screen::Gallery) {
     if (pendingPicker_) gallery_.onShowPicker();
@@ -290,6 +297,10 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
     case Screen::Gallery:
       gallery_.update(ui_, text_, event, tweens_);
       gallery_.draw(ui_, text_);
+      break;
+    case Screen::Packs:
+      packsScreen_.update(ui_, text_, event, tweens_);
+      packsScreen_.draw(ui_, text_);
       break;
     case Screen::TimeWheel:
       // Needs the sky and nothing else — it is a clock face over a paused world.

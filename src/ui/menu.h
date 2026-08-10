@@ -74,6 +74,7 @@ struct MenuActions {
   std::function<void()> importWorlds;
   std::function<void()> openSettings;
   std::function<void()> openGallery;
+  std::function<void()> openPacks;
   std::function<void()> resume;
   std::function<void()> saveAndQuit;
   std::function<void()> quitGame;

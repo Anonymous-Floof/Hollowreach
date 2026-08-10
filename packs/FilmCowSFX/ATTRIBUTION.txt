@@ -1,0 +1,41 @@
+FilmCow SFX — a sound pack for Hollowreach
+==========================================
+
+WHAT THIS IS
+  An example resource pack, shipped with the game so there is something real to
+  turn on. It replaces 68 of the 78 sounds Hollowreach can play. It is OFF by
+  default: enable it in Resource Packs from the main menu or from
+  Settings > Audio.
+
+  Sheep, pigs and cows are deliberately absent. The source library has no farm
+  animals, and the game's own synthesised bleat, oink and moo are written for
+  those creatures specifically. What a pack leaves out keeps the built-in sound,
+  and this is that working as intended.
+
+
+SOURCE AND CREDIT
+  Built from the FilmCow Royalty Free Sound Effects Library by Jason Steele
+  (FilmCow), from the "Recorded SFX" and "Designed SFX" collections.
+
+      https://filmcow.itch.io/filmcow-sfx
+
+  The clips here are derived from that library: converted to mono Ogg Vorbis,
+  trimmed, length-capped and level-matched to the sounds they replace. They are
+  not the original files.
+
+  All credit for the recordings themselves belongs to FilmCow. Hollowreach's own
+  LICENSE covers the game, not this audio; the library is distributed under
+  FilmCow's terms, which are stated at the link above.
+
+
+HOW IT WAS BUILT
+  tools/make_example_pack.py in the Hollowreach repository, which needs a local
+  copy of the two FilmCow archives and ffmpeg. It documents every choice: which
+  recording stands in for which event, the length cap per kind of sound, and how
+  the per-event volumes were measured rather than guessed.
+
+
+MAKING YOUR OWN
+  Press "Create Example Pack" in the Resource Packs screen for an empty pack with
+  every event laid out, a README explaining the format, and one folder per sound
+  ready to drop a file into.

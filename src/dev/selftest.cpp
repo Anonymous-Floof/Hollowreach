@@ -44,6 +44,13 @@
 #include "platform/paths.h"
 #include "save/storage.h"
 #include "save/transfer.h"
+#include <fstream>
+#include <sstream>
+
+#include "audio/decode.h"
+#include "audio/soundbank.h"
+#include "core/json.h"
+#include "resource/pack.h"
 #include "ui/confirm.h"
 #include "ui/dom.h"
 #include "ui/text.h"
@@ -670,6 +677,49 @@ void testCrafting() {
 // The failure this is really guarding against is silent and one-directional: a
 // world-scoped value leaking back into the global store would follow the player
 // into every other world they own, quietly changing worlds they never opened.
+// settings.json has to survive a round trip. It only ever did by accident: the
+// writer switched on the row type and had no case for Action, so an Action row
+// emitted its key, a colon, and nothing — `"locateDungeon": ,` — which is not
+// JSON. Every setting in the file then reverted to its default on the next
+// launch, silently, and the file looked almost right if you opened it.
+void testSettingsRoundTrip() {
+  std::printf("\n-- settings file --\n");
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "hollowreach-settings-test.json";
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  ui::SettingsStore store;
+  store.load(path.string());  // no file yet: defaults, and remembers where to write
+  store.setNumber("fov", 83);
+  store.setFlag("vsync", false);
+  store.setText("resourcePacks", "Alpha|Beta");
+  check(store.save(), "the settings file writes");
+
+  std::ostringstream buffer;
+  buffer << std::ifstream(path, std::ios::binary).rdbuf();
+  const std::string written = buffer.str();
+  check(!written.empty(), "and is not empty");
+  // The specific corruption, named: a key followed by a value that is not there.
+  check(written.find(": ,") == std::string::npos && written.find(": \n") == std::string::npos,
+        "with no key left holding an empty value");
+  // Every Action row in the schema, not just the one that was noticed.
+  for (const ui::SettingDef& def : ui::settingsSchema()) {
+    if (def.type != ui::SettingType::Action) continue;
+    checkf(written.find(std::string("\"") + def.key + "\"") == std::string::npos,
+           "an Action row is not written at all (%s)", def.key);
+  }
+
+  ui::SettingsStore reloaded;
+  reloaded.load(path.string());
+  checkf(reloaded.number("fov") == 83, "a number survives the round trip (%g)",
+         reloaded.number("fov"));
+  check(reloaded.flag("vsync") == false, "and a toggle");
+  check(reloaded.text("resourcePacks") == "Alpha|Beta", "and the enabled pack list");
+  std::filesystem::remove(path, ec);
+}
+
 void testSettingScope() {
   std::printf("world settings\n");
 
@@ -2927,6 +2977,708 @@ void testConfirmPrompt() {
   p.close();
   check(!p.active(), "closing it by hand disarms it");
   checkf(fired == 0, "without running anything (%d)", fired);
+}
+
+// ---------------------------------------------------------------------------
+// Resource packs
+//
+// Built on disk rather than mocked. The thing being checked IS "a folder laid out
+// like this produces those sounds", and a fake filesystem would only prove that the
+// fake agrees with itself — the interesting failures are all at the boundary: a
+// chunk walked wrong, a path joined wrong, a name that escapes the pack root.
+// ---------------------------------------------------------------------------
+
+// A scratch pack root, wiped and rebuilt so a previous run cannot make this one
+// pass.
+std::filesystem::path packScratch() {
+  const std::filesystem::path root =
+      std::filesystem::temp_directory_path() / "hollowreach-selftest-packs";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  std::filesystem::create_directories(root, ec);
+  return root;
+}
+
+void writeTextFile(const std::filesystem::path& path, const std::string& text) {
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  std::ofstream out(path, std::ios::binary);
+  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+}
+
+// A short tone, so a decoded clip can be told apart from silence and from another
+// clip by its length alone.
+std::vector<float> testTone(int frames, float amplitude) {
+  std::vector<float> out(static_cast<std::size_t>(frames));
+  for (int i = 0; i < frames; ++i) {
+    out[static_cast<std::size_t>(i)] =
+        amplitude * std::sin(6.2831853f * 440.0f * static_cast<float>(i) / 48000.0f);
+  }
+  return out;
+}
+
+void writeWav(const std::filesystem::path& path, int frames, float amplitude = 0.5f) {
+  const std::vector<std::uint8_t> bytes = audio::encodeWav16(testTone(frames, amplitude), 48000);
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  std::ofstream out(path, std::ios::binary);
+  out.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+}
+
+void testJson() {
+  std::printf("\n-- json --\n");
+
+  std::string error;
+  const json::Value doc = json::parse(
+      R"({"pack":{"pack_format":7,"description":"A \"quoted\" name \u00e9"},
+          "list":[1,"two",{"three":true},null],"neg":-2.5e2})",
+      &error);
+  checkf(error.empty(), "a nested document parses (%s)", error.c_str());
+  check(doc["pack"]["pack_format"].num() == 7, "a nested number reads back");
+  check(doc["pack"]["description"].str() == "A \"quoted\" name \xc3\xa9",
+        "escapes and \\u become UTF-8");
+  check(doc["list"].size() == 4, "an array of mixed kinds keeps its length");
+  check(doc["list"].at(2)["three"].flag(), "an object inside an array is reachable");
+  check(doc["list"].at(3).isNull(), "and null stays null");
+  check(doc["neg"].num() == -250.0, "exponents and signs parse");
+
+  // Absent keys must not throw and must not be indistinguishable from a present
+  // false — sounds.json's "replace" defaults to false and a missing one has to
+  // read the same way without the parser having to be asked twice.
+  check(doc["nope"].isNull(), "an absent key gives null rather than throwing");
+  check(doc["nope"]["deeper"]["still"].str().empty(), "and chains off it safely");
+  check(doc["pack"].at(9).isNull(), "an out-of-range index likewise");
+
+  json::parse("{\"a\":1} trailing", &error);
+  check(!error.empty(), "trailing content after the top-level value is an error");
+  json::parse("{\"a\":}", &error);
+  check(!error.empty(), "and so is a missing value");
+
+  // The depth cap is the whole defence against a stack overflow, which is not an
+  // exception anybody can catch. Deliberately past the limit.
+  std::string deep;
+  for (int i = 0; i < json::kMaxDepth + 8; ++i) deep += '[';
+  json::parse(deep, &error);
+  check(!error.empty(), "and nesting past the depth cap is refused, not recursed");
+
+  // A UTF-8 BOM, which is what Windows editors write by default.
+  const json::Value bom = json::parse("\xEF\xBB\xBF{\"x\":5}", &error);
+  checkf(error.empty() && bom["x"].num() == 5, "a file with a UTF-8 BOM still parses");
+}
+
+void testAudioDecode() {
+  std::printf("\n-- audio decoding --\n");
+
+  const std::vector<float> tone = testTone(4800, 0.5f);
+  const std::vector<std::uint8_t> wav = audio::encodeWav16(tone, 48000);
+  audio::DecodedAudio decoded;
+  std::string error;
+  checkf(audio::decodeWav(wav.data(), wav.size(), decoded, &error),
+         "a 16-bit mono WAV decodes (%s)", error.c_str());
+  check(decoded.sampleRate == 48000, "at its own sample rate");
+  check(decoded.mono.size() == tone.size(), "with every frame present");
+
+  // Round-trip accuracy. 16-bit quantisation is one part in 32768, so anything
+  // above that is a conversion bug rather than precision.
+  float worst = 0.0f;
+  for (std::size_t i = 0; i < tone.size() && i < decoded.mono.size(); ++i) {
+    worst = std::max(worst, std::fabs(tone[i] - decoded.mono[i]));
+  }
+  checkf(worst < 0.001f, "and the samples survive the round trip (worst %.5f)",
+         static_cast<double>(worst));
+
+  // A stereo file must come back mono, because the panner is mono.
+  //
+  // Built by hand with the two channels in ANTIPHASE, so an averaging downmix
+  // gives silence and a downmix that just takes the first channel gives the full
+  // tone. Checking only the frame count — which is the obvious test — passes
+  // either way, and "takes the left channel" is the bug that actually happens.
+  {
+    std::vector<float> interleaved(tone.size() * 2);
+    for (std::size_t i = 0; i < tone.size(); ++i) {
+      interleaved[i * 2 + 0] = tone[i];
+      interleaved[i * 2 + 1] = -tone[i];
+    }
+    std::vector<std::uint8_t> stereo = audio::encodeWav16(interleaved, 48000);
+    stereo[22] = 2;                                        // fmt.numChannels
+    stereo[32] = 4;                                        // fmt.blockAlign
+    const std::uint32_t byteRate = 48000u * 4u;            // fmt.byteRate
+    for (int b = 0; b < 4; ++b) {
+      stereo[28 + static_cast<std::size_t>(b)] =
+          static_cast<std::uint8_t>((byteRate >> (b * 8)) & 0xFF);
+    }
+    audio::DecodedAudio out;
+    check(audio::decodeWav(stereo.data(), stereo.size(), out, nullptr), "a stereo WAV decodes");
+    check(out.sourceChannels == 2, "and reports the channel count it had");
+    check(out.mono.size() == tone.size(), "with one frame per stereo frame");
+    float loudest = 0.0f;
+    for (float v : out.mono) loudest = std::max(loudest, std::fabs(v));
+    checkf(loudest < 0.01f, "and the channels are averaged, not just taken (peak %.4f)",
+           static_cast<double>(loudest));
+  }
+
+  // 8-bit WAV is the one depth that is UNSIGNED, with 128 as silence. Read as
+  // signed it comes back with a half-scale DC offset — a click and then nothing.
+  {
+    std::vector<std::uint8_t> eight = {'R', 'I', 'F', 'F', 40, 0, 0, 0, 'W', 'A', 'V', 'E',
+                                       'f', 'm', 't', ' ', 16, 0, 0, 0, 1,   0,   1,   0};
+    auto push32 = [&eight](std::uint32_t v) {
+      for (int b = 0; b < 4; ++b) eight.push_back(static_cast<std::uint8_t>((v >> (b * 8)) & 0xFF));
+    };
+    push32(48000);  // sample rate
+    push32(48000);  // byte rate
+    eight.push_back(1);  // block align
+    eight.push_back(0);
+    eight.push_back(8);  // bits
+    eight.push_back(0);
+    for (char c : std::string("data")) eight.push_back(static_cast<std::uint8_t>(c));
+    push32(4);
+    // Silence, in 8-bit's own spelling.
+    for (int i = 0; i < 4; ++i) eight.push_back(128);
+    audio::DecodedAudio out;
+    check(audio::decodeWav(eight.data(), eight.size(), out, &error), "an 8-bit WAV decodes");
+    float offset = 0.0f;
+    for (float v : out.mono) offset = std::max(offset, std::fabs(v));
+    checkf(offset < 0.01f, "and 128 reads as silence, not as half scale (%.3f)",
+           static_cast<double>(offset));
+  }
+
+  // The magic-byte dispatch, and the two formats a pack author is most likely to
+  // reach for by mistake. Each has to be named, not lumped into "unrecognised".
+  audio::DecodedAudio ignored;
+  check(!audio::decodeAudio(reinterpret_cast<const std::uint8_t*>("fLaC\0\0\0\0"), 8, ignored,
+                            &error),
+        "FLAC is refused");
+  check(error.find("FLAC") != std::string::npos, "by name, so the message is actionable");
+  check(!audio::decodeAudio(reinterpret_cast<const std::uint8_t*>("ID3\4\0\0\0\0"), 8, ignored,
+                            &error),
+        "and MP3 likewise");
+  check(error.find("MP3") != std::string::npos, "also by name");
+
+  // A truncated file must fail rather than read past the buffer. The declared
+  // chunk size still says the file is whole.
+  std::vector<std::uint8_t> truncated(wav.begin(), wav.begin() + 60);
+  check(!audio::decodeWav(truncated.data(), truncated.size(), ignored, &error) ||
+            ignored.mono.size() < tone.size(),
+        "a truncated WAV does not read past the end of the buffer");
+
+  check(!audio::decodeAudio(reinterpret_cast<const std::uint8_t*>("junk"), 4, ignored, &error),
+        "and something that is neither is refused outright");
+}
+
+void testResourcePacks() {
+  std::printf("\n-- resource packs --\n");
+
+  const std::filesystem::path root = packScratch();
+  paths::init(root.string());
+  paths::ensureDirs();
+  const std::filesystem::path packs(paths::resourcePacksDir());
+
+  // --- path safety, before anything touches the disk ------------------------
+  //
+  // Every one of these is a string a downloaded sounds.json is free to contain,
+  // and there is no layer between it and the filesystem but this function.
+  check(resource::safeRelativePath("block/stone/break.ogg"), "an ordinary relative path is fine");
+  check(!resource::safeRelativePath("../../../../windows/win.ini"),
+        "but climbing out of the pack with .. is refused");
+  check(!resource::safeRelativePath("a/../../b"), "including in the middle of a path");
+  check(!resource::safeRelativePath("/etc/passwd"), "an absolute path is refused");
+  check(!resource::safeRelativePath("C:/Windows/win.ini"), "and so is a drive letter");
+  check(!resource::safeRelativePath("a\\..\\b"), "backslashes are refused rather than normalised");
+  check(!resource::safeRelativePath(std::string("a/b\0c", 5)),
+        "and an embedded NUL cannot truncate the path");
+
+  // --- a pack with a sounds.json -------------------------------------------
+  const std::filesystem::path alpha = packs / "Alpha";
+  writeTextFile(alpha / "pack.mcmeta",
+                R"({"pack":{"pack_format":1,"description":"Alpha pack"}})");
+  writeWav(alpha / "assets/hollowreach/sounds/block/stone/break.wav", 4800);
+  writeWav(alpha / "assets/hollowreach/sounds/block/stone/loud.wav", 2400);
+  // The HEAVY weight goes first, and that ordering is the whole point.
+  //
+  // With the heavy entry last, a lookup that ignores weight entirely produces the
+  // identical distribution — every roll that should have landed on the heavy
+  // entry overshoots the table and is caught by the fall-through, which returns
+  // the last entry anyway. The bug and the fix agree at every input. Putting the
+  // weight on the FIRST entry is what makes the two distinguishable at all.
+  writeTextFile(alpha / "assets/hollowreach/sounds.json",
+                R"({"block.stone.break":{"sounds":[
+                     {"name":"block/stone/break","volume":0.5,"weight":3},
+                     {"name":"block/stone/loud","volume":1.0,"weight":1}]}})");
+
+  // --- a pack with no sounds.json at all, relying on the convention path -----
+  const std::filesystem::path beta = packs / "Beta";
+  writeTextFile(beta / "pack.mcmeta", R"({"pack":{"pack_format":1,"description":"Beta pack"}})");
+  writeWav(beta / "assets/hollowreach/sounds/block/stone/break.wav", 9600);
+  writeWav(beta / "assets/hollowreach/sounds/ui/button/click.wav", 1200);
+
+  std::vector<resource::PackInfo> installed = resource::scanPacks();
+  checkf(installed.size() == 2, "both packs are found (%d)", static_cast<int>(installed.size()));
+  // Everything below indexes into it, so a short scan has to stop here rather
+  // than read off the end — and a scan that stops early is exactly the bug this
+  // group first caught, so it is not a hypothetical.
+  if (installed.size() != 2) return;
+  check(installed[0].id == "Alpha" && installed[1].id == "Beta", "sorted by folder name");
+  check(installed[0].name == "Alpha pack", "the display name comes from pack.mcmeta");
+  check(installed[0].soundFiles == 2 && installed[1].soundFiles == 2, "with their file counts");
+  check(installed[0].hasSoundsJson && !installed[1].hasSoundsJson,
+        "and whether each has a sounds.json");
+
+  // --- the convention path --------------------------------------------------
+  resource::setEnabledPackIds({"Beta"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  check(audio::sounds().has("block.stone.break"),
+        "a pack with no sounds.json still supplies the file the event name spells out");
+  check(audio::sounds().has("ui.button.click"), "and the rest of the tree with it");
+  {
+    const audio::SoundPick got = audio::sounds().pick("block.stone.break", 0.0f);
+    check(got.valid() && got.clip->mono.size() == 9600, "with the right clip behind it");
+  }
+
+  // --- the reported figures survive a reload --------------------------------
+  //
+  // Rebuilding the same selection must report the same numbers. Clips are cached
+  // in an append-only arena that is never freed, so counting them as they are
+  // DECODED gives the right answer once and zero every time after — which is
+  // every press of Reload and every toggle, and reads as "the pack stopped
+  // working". The second rebuild is the whole test; the first cannot fail.
+  {
+    const audio::SoundBank::Stats first = audio::sounds().stats();
+    audio::sounds().rebuild(resource::enabledPacks(installed));
+    const audio::SoundBank::Stats second = audio::sounds().stats();
+    checkf(first.clips > 0, "a rebuild reports the clips it loaded (%d)", first.clips);
+    checkf(second.clips == first.clips && second.bytes == first.bytes,
+           "and rebuilding the same packs reports the same again, not zero (%d, %d)",
+           second.clips, first.clips);
+    check(second.events == first.events, "with the same event count");
+  }
+
+  // --- the fallback chain ---------------------------------------------------
+  check(audio::sounds().pick("block.ore.break", 0.0f).valid(),
+        "an ore break falls back to the stone break a Minecraft pack would supply");
+  check(!audio::sounds().has("block.ore.break"),
+        "without the fallback pretending the event was in the pack");
+  check(audio::sounds().pick("ui.slot.click", 0.0f).valid(),
+        "and a slot tick falls back to the button click");
+  check(!audio::sounds().pick("block.wood.break", 0.0f).valid(),
+        "while an event with no file and no fallback stays synthesised");
+
+  // --- load order -----------------------------------------------------------
+  //
+  // The clips are different lengths, so which pack won is a fact about the pick
+  // rather than something that has to be taken on trust.
+  resource::setEnabledPackIds({"Alpha", "Beta"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    // Alpha is on top, so Beta's 9600-frame clip must not be reachable at ANY
+    // roll — the check is over the whole range rather than at one point, because
+    // a single sample passes just as well when both packs' clips are in the list
+    // and the roll happened to land on Alpha's.
+    bool anyBeta = false;
+    for (int i = 0; i <= 20; ++i) {
+      const audio::SoundPick got = audio::sounds().pick("block.stone.break", i * 0.05f);
+      if (got.valid() && got.clip->mono.size() == 9600) anyBeta = true;
+    }
+    check(!anyBeta, "the pack on top wins the event outright, at every roll");
+  }
+  resource::setEnabledPackIds({"Beta", "Alpha"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    bool alwaysBeta = true;
+    for (int i = 0; i <= 20; ++i) {
+      const audio::SoundPick got = audio::sounds().pick("block.stone.break", i * 0.05f);
+      if (!got.valid() || got.clip->mono.size() != 9600) alwaysBeta = false;
+    }
+    check(alwaysBeta, "and reversing the order hands it to the other pack, just as completely");
+  }
+
+  // --- weights --------------------------------------------------------------
+  //
+  // Alpha alone: break (4800 frames) at weight 3, loud (2400) at weight 1, so
+  // three quarters of the range belongs to the first entry.
+  resource::setEnabledPackIds({"Alpha"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    const audio::SoundPick low = audio::sounds().pick("block.stone.break", 0.1f);
+    checkf(low.valid() && low.clip->mono.size() == 4800, "the weight-3 entry covers a low roll");
+    checkf(low.volume == 0.5f, "carrying its own volume (%.2f)", static_cast<double>(low.volume));
+    check(audio::sounds().pick("block.stone.break", 0.9f).valid() &&
+              audio::sounds().pick("block.stone.break", 0.9f).clip->mono.size() == 2400,
+          "and the weight-1 entry the top of the range");
+
+    // The share, not two spot checks. A single sample inside each band passes
+    // even when weight is ignored completely; the proportion is the only thing
+    // that actually distinguishes "3 to 1" from "one of each".
+    int heavy = 0;
+    constexpr int kRolls = 400;
+    for (int i = 0; i < kRolls; ++i) {
+      const audio::SoundPick got =
+          audio::sounds().pick("block.stone.break", (i + 0.5f) / kRolls);
+      if (got.valid() && got.clip->mono.size() == 4800) ++heavy;
+    }
+    const double share = static_cast<double>(heavy) / kRolls;
+    checkf(share > 0.70 && share < 0.80, "and weight 3 against 1 gives it 3/4 of the rolls (%.2f)",
+           share);
+
+    // A roll of exactly 1.0 must still select something. Clamped rather than
+    // wrapped: unclamped it falls off the end of the table and returns nothing,
+    // which is a silent sound once every few thousand plays.
+    check(audio::sounds().pick("block.stone.break", 1.0f).valid(),
+          "and a roll of exactly 1.0 still lands on an entry");
+  }
+
+  // --- replace --------------------------------------------------------------
+  const std::filesystem::path gamma = packs / "Gamma";
+  writeTextFile(gamma / "pack.mcmeta", R"({"pack":{"pack_format":1,"description":"Gamma"}})");
+  writeWav(gamma / "assets/hollowreach/sounds/block/stone/only.wav", 600);
+  writeTextFile(gamma / "assets/hollowreach/sounds.json",
+                R"({"block.stone.break":{"replace":true,
+                     "sounds":[{"name":"block/stone/only"}]}})");
+  installed = resource::scanPacks();
+
+  resource::setEnabledPackIds({"Gamma", "Alpha"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    // Gamma is on top and replaces, so Alpha's two entries must be gone — not
+    // merely outnumbered. Every roll has to give Gamma's single clip.
+    bool alwaysGamma = true;
+    for (int i = 0; i <= 20; ++i) {
+      const audio::SoundPick got = audio::sounds().pick("block.stone.break", i * 0.05f);
+      if (!got.valid() || got.clip->mono.size() != 600) alwaysGamma = false;
+    }
+    check(alwaysGamma, "\"replace\": true discards the entries from packs below it");
+  }
+
+  // --- the additive opt-out -------------------------------------------------
+  //
+  // "replace": false is the escape hatch back to Minecraft's default, and the
+  // only way a pack can add to another rather than take over. If it silently
+  // replaced anyway, everything above would still pass — this is the check that
+  // tells the two defaults apart.
+  const std::filesystem::path adder = packs / "Adder";
+  writeTextFile(adder / "pack.mcmeta", R"({"pack":{"pack_format":1,"description":"Adder"}})");
+  writeWav(adder / "assets/hollowreach/sounds/block/stone/extra.wav", 1500);
+  writeTextFile(adder / "assets/hollowreach/sounds.json",
+                R"({"block.stone.break":{"replace":false,
+                     "sounds":[{"name":"block/stone/extra"}]}})");
+  installed = resource::scanPacks();
+
+  resource::setEnabledPackIds({"Adder", "Gamma"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    bool sawAdder = false;
+    bool sawGamma = false;
+    for (int i = 0; i <= 20; ++i) {
+      const audio::SoundPick got = audio::sounds().pick("block.stone.break", i * 0.05f);
+      if (!got.valid()) continue;
+      if (got.clip->mono.size() == 1500) sawAdder = true;
+      if (got.clip->mono.size() == 600) sawGamma = true;
+    }
+    check(sawAdder && sawGamma,
+          "\"replace\": false adds to the pack below instead of taking over");
+  }
+
+  // --- broken packs ---------------------------------------------------------
+  const std::filesystem::path empty = packs / "NotAPack";
+  std::error_code ec;
+  std::filesystem::create_directories(empty, ec);
+  // The traversal target is a REAL, decodable file placed outside the pack root —
+  // not /etc/passwd, which does not exist on Windows and so would make this pass
+  // for the wrong reason. `assets/hollowreach/sounds/` is three levels below the
+  // pack folder, so five `..` reach the scratch root that holds resourcepacks/.
+  const std::filesystem::path escaper = packs / "Escaper";
+  writeWav(root / "outside.wav", 700);
+  writeTextFile(escaper / "pack.mcmeta", R"({"pack":{"pack_format":1}})");
+  writeWav(escaper / "assets/hollowreach/sounds/block/wood/hit.wav", 800);
+  writeTextFile(escaper / "assets/hollowreach/sounds.json",
+                R"({"block.wood.break":{"sounds":[{"name":"../../../../../outside"}]}})");
+  check(std::filesystem::exists(root / "outside.wav"),
+        "the file just outside the pack really is there to be stolen");
+  installed = resource::scanPacks();
+
+  const resource::PackInfo* broken = nullptr;
+  const resource::PackInfo* escaping = nullptr;
+  for (const resource::PackInfo& pack : installed) {
+    if (pack.id == "NotAPack") broken = &pack;
+    if (pack.id == "Escaper") escaping = &pack;
+  }
+  check(broken != nullptr && !broken->usable(), "a folder with no assets/ is reported as broken");
+  check(broken != nullptr && !broken->problem.empty(), "with a reason a player can act on");
+  check(escaping != nullptr && escaping->usable(), "a pack with one bad entry is still usable");
+
+  resource::setEnabledPackIds({"Escaper"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  check(!audio::sounds().pick("block.wood.break", 0.0f).valid(),
+        "and the entry that tried to climb out of the pack loaded nothing");
+  check(!audio::sounds().warnings().empty(), "having said so rather than failing silently");
+
+  // --- selection round trip -------------------------------------------------
+  resource::setEnabledPackIds({"Beta", "Alpha"});
+  const std::vector<std::string> readBack = resource::enabledPackIds();
+  check(readBack.size() == 2 && readBack[0] == "Beta" && readBack[1] == "Alpha",
+        "the enabled list keeps its order through settings");
+  resource::setEnabledPackIds({"Beta", "Ghost", "Alpha"});
+  const std::vector<resource::PackInfo> live = resource::enabledPacks(resource::scanPacks());
+  check(live.size() == 2 && live[0].id == "Beta" && live[1].id == "Alpha",
+        "and an id whose folder has gone is skipped rather than breaking the rest");
+
+  // --- the sfx layer actually routes through the bank -----------------------
+  //
+  // Everything above proves the bank resolves names. None of it proves that the
+  // game ASKS — the whole feature could be correct and unplugged, and every check
+  // so far would still pass.
+  //
+  // The discriminator is the voice count. Breaking stone synthesises nine voices
+  // (a crack, a boom, a thump, a swept tone and five pieces of rubble); a clip is
+  // exactly one. So "did the pack win" is a number, not a judgement about how the
+  // output sounds.
+  {
+    const world::BlockDef& stone = world::blocks().def(world::blocks().idOf("greystone"));
+    const Vec3 at{0.0f, 0.0f, 0.0f};
+    std::vector<float> buffer(4096 * 2, 0.0f);
+
+    auto voicesFor = [&](const std::vector<std::string>& enable) {
+      resource::setEnabledPackIds(enable);
+      audio::sounds().rebuild(resource::enabledPacks(installed));
+      audio::engine().startOffline(48000);
+      audio::sfx::blockBreak(stone, at);
+      audio::engine().renderOffline(buffer.data(), 2048);
+      return audio::engine().activeVoices();
+    };
+
+    const int synthesised = voicesFor({});
+    const int fromPack = voicesFor({"Beta"});
+    checkf(synthesised > 3, "breaking stone with no pack builds the sound from many voices (%d)",
+           synthesised);
+    checkf(fromPack == 1, "and with a pack loaded it is one clip instead (%d)", fromPack);
+  }
+
+  // --- a pack laid out the way Minecraft lays one out ----------------------
+  //
+  // No sounds.json at all, and none of our own conventional paths: only files at
+  // the paths vanilla's own table maps to. This is how most real Minecraft sound
+  // packs are built, because replacing a file is simpler than writing an entry —
+  // and until the built-in table existed, a pack like this did nothing.
+  const std::filesystem::path vanilla = packs / "Vanillish";
+  writeTextFile(vanilla / "pack.mcmeta", R"({"pack":{"pack_format":15,"description":"MC-shaped"}})");
+  const std::string vroot = "assets/minecraft/sounds/";
+  writeWav(vanilla / (vroot + "dig/stone1.wav"), 1000);
+  writeWav(vanilla / (vroot + "dig/stone2.wav"), 1000);
+  writeWav(vanilla / (vroot + "step/stone1.wav"), 1100);
+  // A different length from stone1, deliberately: vanilla's footsteps run 1..6,
+  // and a check that only asked whether the event resolved would pass on stone1
+  // alone while two thirds of the pack's variety went silently unread.
+  writeWav(vanilla / (vroot + "step/stone6.wav"), 1150);
+  writeWav(vanilla / (vroot + "mob/cow/say1.wav"), 1200);
+  writeWav(vanilla / (vroot + "dig/cloth1.wav"), 1300);
+  // pop, pop2, pop3 — vanilla's pickup, which has no `pop1`.
+  writeWav(vanilla / (vroot + "random/pop.wav"), 1400);
+  writeWav(vanilla / (vroot + "random/pop3.wav"), 1400);
+  installed = resource::scanPacks();
+  resource::setEnabledPackIds({"Vanillish"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+
+  {
+    const audio::SoundPick brk = audio::sounds().pick("block.stone.break", 0.0f);
+    check(brk.valid() && brk.clip->mono.size() == 1000,
+          "a Minecraft-shaped pack supplies breaks from dig/");
+    const audio::SoundPick hit = audio::sounds().pick("block.stone.hit", 0.0f);
+    check(hit.valid() && hit.clip->mono.size() == 1100,
+          "and mining ticks from step/, which is where Minecraft keeps them");
+    const audio::SoundPick step = audio::sounds().pick("block.stone.step", 0.0f);
+    check(step.valid() && step.clip->mono.size() == 1100, "as well as the footsteps");
+    // step1 and step6 with nothing between. Asked by LENGTH across a spread of
+    // rolls, not by whether the event resolved: stone1 alone would answer that
+    // question yes while the probe stopped short of vanilla's sixth variant.
+    bool sawSixth = false;
+    for (int i = 0; i <= 10; ++i) {
+      const audio::SoundPick s = audio::sounds().pick("block.stone.step", i * 0.1f);
+      if (s.valid() && s.clip->mono.size() == 1150) sawSixth = true;
+    }
+    check(sawSixth, "reaching the sixth numbered variant, not stopping at the fourth");
+    const audio::SoundPick cow = audio::sounds().pick("entity.cow.ambient", 0.0f);
+    check(cow.valid() && cow.clip->mono.size() == 1200,
+          "farm animals arrive from mob/, which the synthesiser only approximates");
+    const audio::SoundPick wool = audio::sounds().pick("block.wool.break", 0.0f);
+    check(wool.valid() && wool.clip->mono.size() == 1300,
+          "and wool from dig/cloth, Minecraft's name for it");
+    const audio::SoundPick pop = audio::sounds().pick("entity.item.pickup", 0.0f);
+    check(pop.valid() && pop.clip->mono.size() == 1400,
+          "the unnumbered `pop` spelling is found as well as `pop3`");
+    check(!audio::sounds().pick("block.glass.break", 0.0f).valid(),
+          "while an event the pack has no file for is still synthesised");
+  }
+
+  // --- our own convention outranks the vanilla path -------------------------
+  writeWav(vanilla / (vroot + "block/stone/break.wav"), 2100);
+  installed = resource::scanPacks();
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  {
+    const audio::SoundPick brk = audio::sounds().pick("block.stone.break", 0.0f);
+    check(brk.valid() && brk.clip->mono.size() == 2100,
+          "a file at this game's own path wins over the Minecraft one beside it");
+  }
+
+  // --- events this game cannot play are ignored outright --------------------
+  //
+  // A Minecraft pack describes Minecraft's whole sound set. Loading the parts
+  // this game has no use for decoded four times more audio than it could ever
+  // play, and reported "184 of 78 replaced".
+  const std::filesystem::path noisy = packs / "Noisy";
+  writeTextFile(noisy / "pack.mcmeta", R"({"pack":{"pack_format":15}})");
+  writeWav(noisy / "assets/minecraft/sounds/block/anvil/land.wav", 700);
+  writeWav(noisy / "assets/minecraft/sounds/block/stone/break.wav", 800);
+  writeTextFile(noisy / "assets/minecraft/sounds.json",
+                R"({"block.anvil.land":{"sounds":["block/anvil/land"]},
+                    "block.wool.fall":{"sounds":["nowhere/missing"]},
+                    "block.stone.break":{"sounds":["block/stone/break"]}})");
+  installed = resource::scanPacks();
+  resource::setEnabledPackIds({"Noisy"});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  check(!audio::sounds().has("block.anvil.land"),
+        "an event this game never fires is not indexed");
+  check(audio::sounds().has("block.stone.break"), "while the ones it does fire are");
+  checkf(audio::sounds().stats().clips == 1, "and its clip was never decoded (%d)",
+         audio::sounds().stats().clips);
+  // The missing file belongs to an event we do not have, so it is not our
+  // problem and must not be reported as one.
+  check(audio::sounds().warnings().empty(),
+        "nor is a missing file complained about for an event we do not have");
+  checkf(audio::sounds().stats().events <=
+             static_cast<int>(audio::soundEventCatalogue().size()),
+         "the replaced count cannot exceed the catalogue (%d of %d)",
+         audio::sounds().stats().events,
+         static_cast<int>(audio::soundEventCatalogue().size()));
+
+  // --- a pack whose files sit past Windows' path limit ----------------------
+  //
+  // Not a hypothetical: the release zip unpacked into a deep folder put the
+  // bundled pack's files past 260 characters, and scanning it threw out of a
+  // range-for that looked incapable of throwing. Nothing caught it, so the game
+  // fast-failed on startup with no message — scanPacks runs during init.
+  //
+  // The files past the limit are unreadable and that is the platform's rule; the
+  // requirement here is only that the scan finishes and says something.
+  {
+    std::filesystem::path deep = packs / "Deep";
+    std::error_code ec;
+    // ~40 chars per level, comfortably past 260 by the fourth.
+    std::filesystem::path buried = deep / "assets/hollowreach/sounds/block/stone";
+    for (int i = 0; i < 8; ++i) {
+      buried /= "a_very_long_directory_name_for_padding";
+    }
+    std::filesystem::create_directories(buried, ec);
+    writeTextFile(deep / "pack.mcmeta", R"({"pack":{"pack_format":1,"description":"Deep"}})");
+    writeWav(deep / "assets/hollowreach/sounds/block/stone/break.wav", 500);
+    // Best-effort: if the platform refused to create the deep tree at all there
+    // is nothing to walk, and the check below is still worth making.
+    writeWav(buried / "break.wav", 500);
+
+    const std::vector<resource::PackInfo> scanned = resource::scanPacks();
+    bool sawDeep = false;
+    for (const resource::PackInfo& pack : scanned) {
+      if (pack.id == "Deep") sawDeep = true;
+    }
+    check(sawDeep, "a pack with files past the path limit is scanned without throwing");
+    resource::setEnabledPackIds({"Deep"});
+    audio::sounds().rebuild(resource::enabledPacks(scanned));
+    check(audio::sounds().has("block.stone.break"),
+          "and the files that ARE reachable inside it still load");
+    std::filesystem::remove_all(deep, ec);
+  }
+
+  // --- turning them off -----------------------------------------------------
+  resource::setEnabledPackIds({});
+  audio::sounds().rebuild(resource::enabledPacks(installed));
+  check(audio::sounds().empty(), "with nothing enabled the bank is empty");
+  check(!audio::sounds().pick("block.stone.break", 0.0f).valid(),
+        "so every sound goes back to being synthesised");
+
+  audio::engine().shutdown();
+  std::filesystem::remove_all(root, ec);
+  // paths:: is process-wide, so leaving it pointed at the directory just deleted
+  // would hand the next test that touches the disk a data dir that is not there.
+  // Nothing between here and testWorldUpgrade (which re-inits for itself) reads a
+  // path today — which is exactly why it would be missed.
+  paths::init(std::filesystem::temp_directory_path().string());
+}
+
+// A pack clip has to reach the mixer, not merely be decoded. Rendered offline, so
+// this runs with no audio device at all.
+void testSampleVoice() {
+  std::printf("\n-- sample playback --\n");
+
+  audio::Engine engine;
+  engine.startOffline(48000);
+
+  const std::vector<float> clip = testTone(4800, 0.6f);
+  std::vector<float> out(48000 * 2, 0.0f);
+
+  audio::Dest dest;
+  dest.bus = audio::Bus::Sfx;
+  dest.valid = true;
+  engine.sample(dest, {.samples = clip.data(),
+                       .frameCount = static_cast<int>(clip.size()),
+                       .sampleRate = 48000,
+                       .gain = 1.0f,
+                       .pitch = 1.0f});
+  engine.renderOffline(out.data(), 24000);
+
+  float peak = 0.0f;
+  for (float v : out) peak = std::max(peak, std::fabs(v));
+  checkf(peak > 0.05f, "a pack clip reaches the mixer and is audible (peak %.3f)",
+         static_cast<double>(peak));
+
+  // Pitch is a playback rate, so it must change the LENGTH as well as the tone —
+  // a resampler that only changed the step and not the end time would leave the
+  // voice running past the clip and padding it with silence.
+  auto renderLength = [&](float pitch) {
+    audio::Engine e;
+    e.startOffline(48000);
+    std::vector<float> buffer(48000 * 2, 0.0f);
+    e.sample(dest, {.samples = clip.data(),
+                    .frameCount = static_cast<int>(clip.size()),
+                    .sampleRate = 48000,
+                    .gain = 1.0f,
+                    .pitch = pitch});
+    e.renderOffline(buffer.data(), 24000);
+    int last = 0;
+    for (int i = 0; i < 24000; ++i) {
+      if (std::fabs(buffer[static_cast<std::size_t>(i) * 2]) > 0.001f) last = i;
+    }
+    return last;
+  };
+  const int normal = renderLength(1.0f);
+  const int fast = renderLength(2.0f);
+  checkf(fast > 0 && fast < normal * 3 / 4, "double pitch plays it in half the time (%d vs %d)",
+         fast, normal);
+
+  // The device's own rate conversion is the same multiply. A 24 kHz clip on a
+  // 48 kHz device has to take twice as long, not come out an octave high and half
+  // the length — which is what happens when the source rate is ignored.
+  {
+    audio::Engine e;
+    e.startOffline(48000);
+    std::vector<float> buffer(48000 * 2, 0.0f);
+    e.sample(dest, {.samples = clip.data(),
+                    .frameCount = static_cast<int>(clip.size()),
+                    .sampleRate = 24000,
+                    .gain = 1.0f,
+                    .pitch = 1.0f});
+    e.renderOffline(buffer.data(), 24000);
+    int last = 0;
+    for (int i = 0; i < 24000; ++i) {
+      if (std::fabs(buffer[static_cast<std::size_t>(i) * 2]) > 0.001f) last = i;
+    }
+    checkf(last > normal * 3 / 2, "a half-rate clip plays for twice as long (%d vs %d)", last,
+           normal);
+  }
+
+  // A voice with no clip must be dropped at the door rather than dereferenced.
+  engine.sample(dest, {.samples = nullptr, .frameCount = 0, .sampleRate = 48000});
+  engine.renderOffline(out.data(), 128);
+  check(true, "and a sample command with no clip behind it is ignored");
 }
 
 // Loot tables. The arithmetic behind a chest, checked without a chest.
@@ -6871,6 +7623,7 @@ int runSelfTest() {
   testBlockEntities();
   testCrafting();
   testSettingScope();
+  testSettingsRoundTrip();
   testDropping();
   testAutoStep();
   testCrouch();
@@ -6891,6 +7644,10 @@ int runSelfTest() {
   testBlockSupport();
   testCaveWater();
   testConfirmPrompt();
+  testJson();
+  testAudioDecode();
+  testSampleVoice();
+  testResourcePacks();
   testFlightToggle();
   testDebugSettings();
   testCreative();

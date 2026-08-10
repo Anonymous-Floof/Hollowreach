@@ -98,8 +98,11 @@ target_compile_definitions(hollowreach PRIVATE
   MA_NO_RESOURCE_MANAGER MA_NO_NODE_GRAPH MA_NO_ENGINE
 )
 
-# miniaudio is 96k lines of someone else's C and warns copiously under /W4.
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/audio/miniaudio_impl.c
+# miniaudio is 96k lines of someone else's C and warns copiously under /W4, and
+# stb_vorbis is another 5.5k with the same habit.
+set_source_files_properties(
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/audio/miniaudio_impl.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/audio/stb_vorbis_impl.c
   PROPERTIES COMPILE_OPTIONS "$<IF:$<BOOL:${MSVC}>,/W0,-w>")
 
 if(MSVC)

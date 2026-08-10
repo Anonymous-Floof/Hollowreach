@@ -67,10 +67,15 @@ installs and restarts the game. Nothing happens on its own — the game does not
 check on startup, does not check in the background, and does not install
 anything you have not seen the version number of first.
 
-It only ever adds and overwrites the files that were in the release zip.
-`data/`, resource packs, and anything else you have put beside the executable
-are left exactly as they were — not by an exclusion list that somebody has to
-remember to update, but because nothing in the process deletes anything.
+It only ever adds and overwrites the files that were in the release zip. Your
+worlds, screenshots, settings, your own resource packs, and anything else you
+have put beside the executable are left exactly as they were — not by an
+exclusion list that somebody has to remember to update, but because nothing in
+the process deletes anything.
+
+The one thing in `data/` that the zip does carry, and therefore does refresh, is
+the bundled example pack at `data/resourcepacks/FilmCowSFX`. If you have edited
+it, copy it to a folder of your own name first.
 
 Windows only for now, since the release zip is per-platform and so is replacing
 a running executable; the button is not shown elsewhere. There is also
@@ -104,7 +109,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 757 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 858 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -664,10 +669,64 @@ headless tool working, and means the threaded and single-threaded builds run the
   plan was originally argued from, are all written down with their measurements in
   [docs/ROADMAP.md](docs/ROADMAP.md).
 
-### Built with a resource pack loader in mind
+### Resource packs
 
-None of it is implemented, but several things are shaped for it rather than
-against it, because retrofitting them would mean rewriting the atlas, the
+**Sound packs work.** Drop a folder in `data/resourcepacks/`, laid out the way a
+Minecraft pack is, and turn it on in **Resource Packs** on the main menu:
+
+```
+MyPack/
+  pack.mcmeta
+  assets/minecraft/          (or assets/hollowreach/)
+    sounds.json              optional
+    sounds/block/stone/break.ogg
+```
+
+The event names are **Minecraft's own** — `block.stone.break`,
+`entity.cow.hurt`, `ui.button.click` — so a Minecraft sound pack largely works
+unchanged, with no translation table to drift out of date. `.ogg` and `.wav`
+both decode; `sounds.json` carries `volume`, `pitch`, `weight` and `replace` as
+it does there. Sounds this game has and Minecraft does not fall through a short
+chain instead (ores use the stone set, leaves use grass, trapdoors use doors),
+and anything a pack does not supply keeps its synthesised recipe — so a pack
+replacing four sounds replaces four sounds.
+
+**A `sounds.json` is optional**, and a real Minecraft pack usually leans on that.
+Two spellings are found without one, in this order:
+
+1. this game's own — `block.stone.break` → `sounds/block/stone/break.ogg`, plus
+   `break1`..`break6` for variants;
+2. **Minecraft's own default paths**, the table that normally lives inside the
+   game jar — `dig/stone1`, `step/grass1`, `mob/cow/say1`, `random/pop`.
+
+The second matters more than it sounds. A pack's `sounds.json` lists only the
+events whose *definition* it changes; to change how something **sounds**, the
+simpler and far more common thing is to drop a replacement file at the path
+vanilla already uses and ship no entry at all. Without that table a real pack
+tested here landed 21 of its 662 files; with it, 69 of the 78 events this game
+plays, farm animals included.
+
+`--example-pack` writes the whole folder tree with an `EVENTS.txt` listing every
+event, and `--list-packs all` prints what each one currently resolves to and
+which pack won.
+
+Several packs can be on at once, in an order the screen lets you change; the top
+of the list wins. Two deliberate differences from Minecraft: packs are folders
+rather than `.zip` files, and `replace` defaults to true so that the pack you put
+on top actually wins instead of being shuffled in with the one below.
+
+**A pack is bundled**, switched off, so there is something real to turn on:
+`FilmCowSFX`, built from the [FilmCow Royalty Free SFX
+library](https://filmcow.itch.io/filmcow-sfx) and covering 68 of the 78 events.
+It is also the worked example — `tools/make_example_pack.py` shows which
+recording stands in for which event, why footsteps and mining ticks are capped at
+a third of a second, and how each volume was measured against the synthesised
+sound it replaces rather than guessed. Stacking it *under* a Minecraft pack fills
+whatever that pack has no sound for, which is what the load order is for.
+
+**Textures are detected and counted but not applied yet** — that is the next
+pass. The abstractions it needs are already load-bearing rather than
+speculative, because retrofitting them would mean rewriting the atlas, the
 mesher and the item pipeline: textures are addressed by a namespaced identifier
 through a variable layer (`#side`) with model `parent` chaining; the atlas
 builder handles variable tile resolution, gutters and per-tile mipmaps and keeps
@@ -682,8 +741,9 @@ colour smuggled through the UV slot.
 More mob types & deeper combat variety (sheep, pigs, cows and zombies are in,
 and the zombie already has real line-of-sight and pathfinding), farming/crops
 (hunger, eating, milk and cooking are in — planting and growing isn't), greedy
-meshing, fully smooth (non-voxel) global lighting, resource packs (the seven
-abstractions above are in place and inert), and future uses for the newest
+meshing, fully smooth (non-voxel) global lighting, texture resource packs (sound
+packs have landed; the abstractions above carry the rest), zip packs, and future
+uses for the newest
 ores — **Gloamite** is earmarked for more teleport/void tech beyond the
 Wayshard, and **Verdanite** for growth and alchemy once farming lands.
 

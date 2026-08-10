@@ -15,6 +15,83 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Sound packs.** Your own sounds can replace the game's, and the layout is
+  Minecraft's: a folder in `data/resourcepacks/` holding `pack.mcmeta` and
+  `assets/<namespace>/sounds/`. The event names are Minecraft's too —
+  `block.stone.break`, `entity.cow.hurt`, `ui.button.click` — so a Minecraft
+  sound pack largely works as-is rather than needing to be repackaged. `.ogg`
+  and `.wav` both play.
+
+  Anything a pack leaves out keeps the sound the game synthesises for it, so a
+  pack that replaces four sounds replaces four sounds and nothing else changes.
+  Sounds this game has and Minecraft does not fall through to the nearest thing a
+  Minecraft pack would have: ores use the stone set, leaves use grass, trapdoors
+  use doors, the inventory tick uses the button click.
+
+- **A Resource Packs screen**, on the main menu and under Settings › Audio.
+  Turn packs on and off, and drag the order about when you have several — the top
+  of the list wins. It shows what each pack supplies, what it is currently
+  replacing, and what is wrong with one that is not working, because a pack that
+  silently does nothing is the worst thing that can happen to somebody making one.
+
+- **A sound pack comes with the game.** `FilmCowSFX`, built from the FilmCow
+  Royalty Free SFX library, replaces 68 of the 78 sounds — real recordings for
+  footsteps, breaking, doors, chests, water and the player. It ships **switched
+  off**: a fresh install should still sound like the game. Turn it on in Resource
+  Packs. Sheep, pigs and cows are deliberately left out, because the library has
+  no farm animals and the synthesised bleat, oink and moo are written for them —
+  which is also a demonstration of what a partial pack does.
+
+- **A pack you can fill in.** **Create Example Pack** writes the whole folder
+  tree, one empty folder per sound, with an `EVENTS.txt` listing every event and
+  the file that replaces it, and a README. Making a pack is then dropping files in
+  — no `sounds.json` needed, since a file at the path the event name spells out
+  (`block.stone.break` → `sounds/block/stone/break.ogg`) is picked up on its own.
+  Name four of them `break1`..`break4` and they become random variants.
+
+  `sounds.json` still works, in Minecraft's format, when you want per-sound
+  `volume`, `pitch` and `weight`.
+
+### Fixed
+- **The game would not start if it was installed in a deeply nested folder.**
+  Scanning a resource pack walks its folders, and the standard library call that
+  does it throws once a path passes Windows' 260-character limit — from inside a
+  loop that looks incapable of throwing, with nothing to catch it. The result was
+  a launch that died instantly and silently. Packs are scanned during startup, so
+  this arrived with them. Deep paths now degrade instead: whatever is reachable
+  loads, and the Resource Packs screen says the paths are too long rather than
+  claiming the files are missing.
+- **Most real Minecraft sound packs only replaced a handful of sounds.** A pack's
+  own `sounds.json` lists only the events whose *definition* it changes; to change
+  how something sounds, the usual and far simpler thing is to drop a replacement
+  `.ogg` at the path Minecraft already uses and ship no entry at all — because
+  Minecraft's own `sounds.json`, inside the game jar, still supplies the mapping.
+  Hollowreach had no equivalent, so those files were invisible: one tested pack
+  defines 140 events but ships 662 files, and only 21 of them landed. The game now
+  carries that default table — `dig/stone1` for a stone break, `step/grass1` for a
+  footstep, `mob/cow/say1` for a cow, `random/pop` for a pickup — and the same pack
+  now fills 69 of 78 events, farm animals included.
+- **settings.json could be written corrupt, losing every setting in it.** A row
+  that only performs an action — "Locate Nearest Dungeon" — was being saved as if
+  it held a value, and since it holds none the file came out with a key, a colon
+  and nothing after it. That is not valid JSON, so the next launch failed to read
+  the file and quietly fell back to defaults: field of view, volumes, sensitivity,
+  all of it. Present since 2.9.0 and easy to miss, because the file still looks
+  almost right if you open it.
+
+### Notes for pack authors
+- Packs are **folders, not `.zip` files** for now — unzip a downloaded one into
+  `data/resourcepacks/`.
+- Clips are mixed down to **mono** (the 3D panner needs one channel) and must be
+  under 30 seconds. No `.mp3` or `.flac`; the game says so by name if you try.
+- `"replace"` defaults to **true** here and to false in Minecraft, so that the
+  pack you put on top actually wins instead of having its sounds shuffled in with
+  the pack below. With one pack installed there is no difference; set
+  `"replace": false` for Minecraft's behaviour.
+- **Textures in a pack are detected and counted but not applied yet.** The screen
+  says so on the row rather than pretending the pack is fully loaded.
+
 ## [2.10.1] - 2026-08-08
 
 > **Multiplayer needs both machines on this version.** A world saved while flight

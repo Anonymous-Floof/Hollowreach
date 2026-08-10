@@ -150,6 +150,15 @@ const std::vector<SettingDef>& schema() {
       {"sfxVolume", "Effects Volume", SettingType::Slider, "Audio", 0, 100, 1, 80},
       {"ambientVolume", "Ambience Volume", SettingType::Slider, "Audio", 0, 100, 1, 40},
       {"uiVolume", "Interface Volume", SettingType::Slider, "Audio", 0, 100, 1, 50},
+      // Filed under Audio because sound is the only thing a pack replaces today,
+      // and because a player looking for it will be looking at the volume
+      // sliders. An Action row: it opens a screen rather than holding a value.
+      {"openResourcePacks", "Resource Packs", SettingType::Action, "Audio", 0, 0, 0, 0},
+      // Which packs are on, in priority order, joined by '|'. Hidden, like the
+      // menu background: it is chosen on the screen that shows the packs, and a
+      // row that made you cycle through folder names would be worse than useless.
+      {"resourcePacks", "Resource Packs", SettingType::Text, "Audio", 0, 0, 0, 0, false, "", {},
+       true},
   };
   return table;
 }
@@ -501,6 +510,13 @@ bool SettingsStore::save() const {
   out << "{\n";
   bool first = true;
   for (const SettingDef& s : schema()) {
+    // An Action stores nothing, so there is nothing to write — and writing it
+    // anyway produced `"locateDungeon": ,` with no value at all, which is not
+    // JSON. The file then failed to parse on the next launch and every setting
+    // in it silently reverted to its default. The switch below has a case per
+    // type and simply had none for Action, so it emitted the key, the colon, and
+    // then nothing.
+    if (s.type == SettingType::Action) continue;
     const Value* v = value(s.key);
     if (!v) continue;
     if (!first) out << ",\n";
@@ -522,6 +538,10 @@ bool SettingsStore::save() const {
       case SettingType::Text:
         out << '"' << escapeJson(v->text) << '"';
         break;
+      // Skipped above, before anything was written. Listed so that adding a
+      // fourth storable type is a compiler error here rather than another key
+      // with an empty value.
+      case SettingType::Action: break;
     }
   }
   out << "\n}\n";

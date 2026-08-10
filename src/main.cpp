@@ -14,6 +14,7 @@
 #include "core/log.h"
 #include "dev/audiodump.h"
 #include "dev/golden.h"
+#include "dev/packtool.h"
 #include "dev/savetool.h"
 #include "dev/selftest.h"
 #include "net/doctor.h"
@@ -36,6 +37,9 @@ void printUsage() {
       "  --dump-audio <event> <path>  render one sound event to a wav and exit\n"
       "                        (\"all\" writes every event into a directory;\n"
       "                         \"list\" prints the event names)\n"
+      "  --list-packs [all]    show installed resource packs and what each sound\n"
+      "                        event resolves to, then exit\n"
+      "  --example-pack [dir]  write a fill-in-the-blanks sound pack and exit\n"
       "  --selftest            run the headless behaviour checks and exit\n"
       "  --list-worlds         list the saved worlds and exit\n"
       "  --save-info <id|path> describe one save file and exit\n"
@@ -72,7 +76,8 @@ void printUsage() {
       "  --hang <png>        build a wall at spawn with this picture in a painting\n"
       "  --screen <name>     open a screen straight away: menu, worlds, newworld,\n"
       "                      about, join, pause, settings, inventory, workbench,\n"
-      "                      forge, chest, recipes, map, gallery, bed, bed-early\n"
+      "                      forge, chest, recipes, map, gallery, packs, bed,\n"
+      "                      bed-early\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
       "  --verbose           log at debug level\n"
       "  --help              this message\n");
@@ -101,6 +106,9 @@ int main(int argc, char** argv) {
   std::string recipesPath;
   std::string lootPath;
   bool findDungeon = false;
+  int listPacksMode = 0;  // 0 off, 1 replacements only, 2 every event
+  bool examplePack = false;
+  std::string examplePackDir;
   int atlasTileRes = 128;
   bool atlasMipmaps = false;
   bool runSelfTest = false;
@@ -152,6 +160,17 @@ int main(int argc, char** argv) {
       if (!takeValue(argc, argv, i, arg, lootPath)) return 2;
     } else if (std::strcmp(arg, "--find-dungeon") == 0) {
       findDungeon = true;
+    } else if (std::strcmp(arg, "--list-packs") == 0) {
+      // A bare --list-packs shows only what the packs replace; "all" adds the
+      // events still being synthesised, which is the list you fill a pack from.
+      listPacksMode = 1;
+      if (i + 1 < argc && std::strcmp(argv[i + 1], "all") == 0) {
+        ++i;
+        listPacksMode = 2;
+      }
+    } else if (std::strcmp(arg, "--example-pack") == 0) {
+      examplePack = true;
+      if (i + 1 < argc && argv[i + 1][0] != '-') examplePackDir = argv[++i];
     } else if (std::strcmp(arg, "--dump-audio") == 0) {
       if (!takeValue(argc, argv, i, arg, audioEvent)) return 2;
       if (audioEvent != "list" && !takeValue(argc, argv, i, arg, audioPath)) return 2;
@@ -363,7 +382,21 @@ int main(int argc, char** argv) {
     // above: it is arithmetic on the seed and generation, and needs no window.
     return hr::dev::dungeonInfo(options.seed);
   }
+  // Both need paths::init for data/resourcepacks, and nothing else — no window,
+  // no world, no audio device. Reading a pack is a directory walk and a decode.
+  if (listPacksMode > 0) {
+    hr::paths::init(options.dataDir);
+    return hr::dev::listPacks(listPacksMode == 2);
+  }
+  if (examplePack) {
+    hr::paths::init(options.dataDir);
+    hr::paths::ensureDirs();
+    return hr::dev::makeExamplePack(examplePackDir);
+  }
   if (!audioEvent.empty()) {
+    // Needs the data directory: the dump renders through whatever resource packs
+    // are enabled, and those live under it.
+    hr::paths::init(options.dataDir);
     if (audioEvent == "list") {
       hr::dev::listAudioEvents();
       return 0;

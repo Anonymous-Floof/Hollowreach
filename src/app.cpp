@@ -11,6 +11,7 @@
 #include "audio/director.h"
 #include "audio/engine.h"
 #include "audio/sfx.h"
+#include "audio/soundbank.h"
 #include "core/assets.h"
 #include "core/jobs.h"
 #include "core/jsmath.h"
@@ -20,6 +21,7 @@
 #include "game/loot.h"
 #include "platform/paths.h"
 #include "resource/image.h"
+#include "resource/pack.h"
 #include "resource/packstack.h"
 #include "save/storage.h"
 #include "save/transfer.h"
@@ -140,6 +142,9 @@ int App::run(const AppOptions& options) {
   // A machine with no output device is not an error — every audio entry point
   // no-ops when the engine is not running, which is the same contract.
   audio::engine().start();
+  // Before the interface, so the Resource Packs screen has a summary to show the
+  // first time it is opened rather than after the first reload.
+  applyResourcePacks();
 
   if (!interface_.init(shaders_, &icons_)) {
     log::error("Interface initialisation failed; see the log above.");
@@ -358,6 +363,30 @@ render::QualitySettings App::qualityPreset(const std::string& name) {
     break;
   }
   return q;
+}
+
+void App::applyResourcePacks() {
+  const std::vector<resource::PackInfo> installed = resource::scanPacks();
+  const std::vector<resource::PackInfo> active = resource::enabledPacks(installed);
+  audio::sounds().rebuild(active);
+
+  const audio::SoundBank::Stats& stats = audio::sounds().stats();
+  char line[192];
+  if (active.empty()) {
+    std::snprintf(line, sizeof(line), "No packs enabled \xE2\x80\x94 every sound is synthesised.");
+  } else {
+    // The count of what is REPLACED, not of what a pack contains: the number a
+    // player wants after switching one on is how much of the game now sounds
+    // different, and a pack full of files the game never asks for would otherwise
+    // report a large number and change nothing.
+    std::snprintf(line, sizeof(line),
+                  "%d of %d sounds replaced by %d pack%s (%d clip%s, %.1f MB)", stats.events,
+                  static_cast<int>(audio::soundEventCatalogue().size()),
+                  static_cast<int>(active.size()), active.size() == 1 ? "" : "s", stats.clips,
+                  stats.clips == 1 ? "" : "s",
+                  static_cast<double>(stats.bytes) / (1024.0 * 1024.0));
+  }
+  interface_.packs().setSummary(line);
 }
 
 // Every setting, pushed into whichever subsystem owns it. This is the whole of "all
@@ -655,6 +684,7 @@ void App::syncScreen() {
     case AppState::RecipeBook: interface_.setScreen(ui::Screen::RecipeBook); break;
     case AppState::Map: interface_.setScreen(ui::Screen::Map); break;
     case AppState::Gallery: interface_.setScreen(ui::Screen::Gallery); break;
+    case AppState::Packs: interface_.setScreen(ui::Screen::Packs); break;
     case AppState::PaintingPick: interface_.openPaintingPicker(); break;
     case AppState::TimeWheel: interface_.setScreen(ui::Screen::TimeWheel); break;
   }
@@ -704,6 +734,12 @@ void App::wireInterface() {
   interface_.callbacks.settingChanged = [this](const std::string& key) {
     // Actions do nothing to the settings and everything here. Handled before
     // applySettings, which would only re-read a row that stores nothing.
+    if (key == "openResourcePacks") {
+      packsReturn_ = state_;
+      state_ = AppState::Packs;
+      window_.setPointerCaptured(false);
+      return;
+    }
     if (key == "locateDungeon") {
       if (!world_ || !player_) return;
       world::DungeonSite site;
@@ -786,6 +822,25 @@ void App::wireInterface() {
     galleryReturn_ = state_;
     state_ = AppState::Gallery;
     window_.setPointerCaptured(false);
+  };
+  interface_.callbacks.openPacks = [this] {
+    packsReturn_ = state_;
+    state_ = AppState::Packs;
+    window_.setPointerCaptured(false);
+  };
+  interface_.packs().onApply = [this] {
+    applyResourcePacks();
+    ui::settings().save();
+  };
+  interface_.packs().onCreateExample = [this](std::string& messageOut) {
+    const std::string dir = paths::join(paths::resourcePacksDir(), "ExamplePack");
+    std::string error;
+    if (!resource::writeExamplePack(dir, audio::soundEventCatalogue(), &error)) {
+      messageOut = "Could not create it: " + error;
+      return false;
+    }
+    messageOut = "Wrote ExamplePack \xE2\x80\x94 read its README.txt, drop sounds in, press Reload.";
+    return true;
   };
   interface_.gallery().onPick = [this](const std::string& path) {
     const int x = paintingX_, y = paintingY_, z = paintingZ_;
@@ -1110,6 +1165,13 @@ void App::closeCurrentScreen() {
     case AppState::Gallery:
       state_ = galleryReturn_ == AppState::Paused && world_ ? AppState::Paused
                                                            : AppState::Menu;
+      break;
+    case AppState::Packs:
+      // Opened from Settings, Back returns to Settings — otherwise a trip to the
+      // packs screen from inside a world dumps you at the main menu.
+      state_ = packsReturn_ == AppState::Settings ? AppState::Settings
+               : packsReturn_ == AppState::Paused && world_ ? AppState::Paused
+                                                            : AppState::Menu;
       break;
     case AppState::Paused: resumePlaying(); break;
     default: break;
@@ -2307,6 +2369,7 @@ bool App::applyStartScreen(const std::string& name) {
       {"recipes", AppState::RecipeBook, ui::MenuPage::Main, world::Station::None, false},
       {"map", AppState::Map, ui::MenuPage::Main, world::Station::None, false},
       {"gallery", AppState::Gallery, ui::MenuPage::Main, world::Station::None, false},
+      {"packs", AppState::Packs, ui::MenuPage::Main, world::Station::None, false},
   };
   // The bed is not in the table because it is the one screen that needs seeding
   // rather than merely opening: the wheel has to be told the hour, and whether the

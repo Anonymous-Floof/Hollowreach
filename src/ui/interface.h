@@ -25,6 +25,7 @@
 #include "ui/inventoryui.h"
 #include "ui/map.h"
 #include "ui/menu.h"
+#include "ui/packsui.h"
 #include "ui/recipebook.h"
 #include "ui/notify.h"
 #include "ui/settingsui.h"
@@ -61,6 +62,10 @@ enum class Screen {
   RecipeBook,
   Map,
   Gallery,
+  // Which resource packs are on, and in what order. Its own screen rather than a
+  // page of the menu card because it has to be reachable from the pause menu too,
+  // and menu pages only exist on the main menu.
+  Packs,
   // The bed's 24-hour dial. A screen rather than a HUD widget because it takes the
   // cursor and pauses the world the same way a chest does.
   TimeWheel,
@@ -76,6 +81,7 @@ struct UiCallbacks {
   // "go back" and App decides where that is.
   std::function<void()> closeScreen;
   std::function<void()> openSettings;
+  std::function<void()> openPacks;
   // Opens the recipe book from a crafting screen, and closes it back to wherever it
   // was opened from. One callback because it is one toggle.
   std::function<void()> toggleRecipeBook;
@@ -152,7 +158,9 @@ class Interface {
   void setHasBackdrop(bool on) {
     menu_.setHasBackdrop(on);
     settingsScreen_.setHasBackdrop(on);
+    packsScreen_.setHasBackdrop(on);
   }
+  PacksScreen& packs() { return packsScreen_; }
   InventoryUI& inventory() { return inventoryUI_; }
 
   // Draws one texture over the whole window, cropped to cover rather than stretched.
@@ -197,6 +205,7 @@ class Interface {
   Notify notify_;
   Menu menu_;
   SettingsScreen settingsScreen_;
+  PacksScreen packsScreen_;
   InventoryUI inventoryUI_;
   Atlas atlas_;
   RecipeBook recipeBook_;

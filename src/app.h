@@ -49,6 +49,9 @@ enum class AppState {
   RecipeBook,
   Map,
   Gallery,
+  // Which resource packs are on. Reachable from the main menu and from Settings,
+  // so like Settings it remembers where it came from.
+  Packs,
   // The Gallery again, opened from a painting to choose what hangs in it. A state
   // of its own so Escape returns you to the world rather than to the main menu.
   PaintingPick,
@@ -246,6 +249,11 @@ class App {
   // the settings screen's live change callback, which is what makes all of them apply
   // without a restart.
   void applySettings();
+  // Rescans data/resourcepacks, rebuilds the sound bank from whichever are
+  // enabled, and puts the result on the Resource Packs screen. Called at startup
+  // and whenever the selection changes; safe to call with none installed, which
+  // leaves every sound synthesised as it always was.
+  void applyResourcePacks();
   // Assembles what the interface draws from this frame.
   ui::UiFrame uiFrame();
   // Fills entityContext_ from the current subsystems. Called every frame because
@@ -371,6 +379,7 @@ class App {
   int frameLimit_ = 0;
   double frameStart_ = 0.0;
   AppState galleryReturn_ = AppState::Menu;
+  AppState packsReturn_ = AppState::Menu;
   // Which painting the picker was opened for. Remembered rather than passed
   // through the interface, because the Gallery does not know paintings exist.
   int paintingX_ = 0, paintingY_ = 0, paintingZ_ = 0;
