@@ -46,6 +46,26 @@ nothing that phones home.
 </tr>
 </table>
 
+## Contents
+
+- [Running it](#running-it)
+  - [Updating](#updating)
+  - [Building it](#building-it)
+- [Controls](#controls)
+- [The gameplay loop](#the-gameplay-loop)
+- [Multiplayer](#multiplayer)
+  - [Chat and commands](#chat-and-commands)
+    - [Who may run what](#who-may-run-what)
+    - [The access list](#the-access-list)
+    - [Where a command runs](#where-a-command-runs)
+- [Architecture (built to be extended)](#architecture-built-to-be-extended)
+  - [Common extension points](#common-extension-points)
+  - [Resource packs](#resource-packs)
+    - [The interface](#the-interface)
+    - [Textures](#textures)
+- [Deliberately deferred (foundation already in place)](#deliberately-deferred-foundation-already-in-place)
+  - [What the port does not carry over](#what-the-port-does-not-carry-over)
+
 ## Running it
 
 Download a release, unzip it anywhere, and run **`Hollowreach.exe`**. There is
