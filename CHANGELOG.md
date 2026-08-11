@@ -41,6 +41,8 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.13.0] - 2026-08-12
+
 ### Added
 - **Resource packs can re-theme the interface.** A pack drops one file —
   `assets/hollowreach/ui/theme.json` — and the whole interface follows it.
@@ -1131,6 +1133,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.13.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.13.0
 [2.12.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.1
 [2.12.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.0
 [2.11.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.11.0
