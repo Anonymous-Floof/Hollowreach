@@ -98,6 +98,11 @@ const char* typeName(MsgType type) {
     case MsgType::PlayerLeave: return "pleave";
     case MsgType::Notify: return "notify";
     case MsgType::SleepState: return "sleepstate";
+    case MsgType::WorldSettings: return "worldsettings";
+    case MsgType::Chat: return "chat";
+    case MsgType::ChatLine: return "chatline";
+    case MsgType::Permission: return "perm";
+    case MsgType::SetState: return "setstate";
     default: return "?";
   }
 }
@@ -600,6 +605,74 @@ void encode(ByteWriter& w, const NotifyMsg& m) { w.str(m.message); }
 bool decode(ByteReader& r, NotifyMsg& m) {
   m.message = r.str();
   return r.ok() && okStr(m.message, 120);
+}
+
+void encode(ByteWriter& w, const ChatMsg& m) { w.str(m.text); }
+bool decode(ByteReader& r, ChatMsg& m) {
+  m.text = r.str();
+  return r.ok() && okStr(m.text, kMaxChat);
+}
+
+void encode(ByteWriter& w, const ChatLineMsg& m) {
+  w.u8(m.kind);
+  w.str(m.from);
+  w.str(m.text);
+}
+bool decode(ByteReader& r, ChatLineMsg& m) {
+  m.kind = r.u8();
+  m.from = r.str();
+  m.text = r.str();
+  // The text is longer than kMaxChat on purpose: a host relaying somebody's line
+  // wraps it in a name and a separator, and a command's answer ("Commands · page
+  // 1/4 · you are operator") is the host's own prose rather than anything a guest
+  // typed. Twice the input bound covers both without inviting a screenful.
+  return r.ok() && okStr(m.from, kMaxName) && okStr(m.text, kMaxChat * 2);
+}
+
+void encode(ByteWriter& w, const PermissionMsg& m) {
+  w.str(m.playerId);
+  w.u8(m.level);
+}
+bool decode(ByteReader& r, PermissionMsg& m) {
+  m.playerId = r.str();
+  m.level = r.u8();
+  // Range-checked here rather than clamped at the receiver, because the levels are
+  // an enum with four values and a fifth is not a level the game has any reading
+  // for — see the file header's second rule.
+  return r.ok() && validPlayerId(m.playerId) && m.level <= 3;
+}
+
+void encode(ByteWriter& w, const SetStateMsg& m) {
+  w.f32(m.health);
+  w.boolean(m.clearInventory);
+}
+bool decode(ByteReader& r, SetStateMsg& m) {
+  m.health = r.f32();
+  m.clearInventory = r.boolean();
+  // The negative sentinel is the whole lower half of the range, so the check is
+  // only against the top: a NaN fails `<= 20` and is refused, which is the point of
+  // writing every bound this way round.
+  return r.ok() && m.health <= 20.0f;
+}
+
+std::string cleanChat(const std::string& raw) {
+  std::string out;
+  for (const unsigned char c : raw) {
+    // Same rule as cleanName, and for a sharper reason: a newline here would let
+    // one guest draw as many rows in everybody's chat box as it felt like, and a
+    // carriage return would let it paint over the row above its own.
+    if (c >= 32 && c != 127) out.push_back(static_cast<char>(c));
+    if (out.size() >= kMaxChat) break;
+  }
+  // Trailing space goes; LEADING space stays. The indented rows of a /help or a
+  // /list are the host's own prose, and trimming them left a guest reading a flat
+  // wall of text where the host saw a tidy list — the same command answering two
+  // people differently depending on which side of the wire they were on. A line
+  // that is nothing BUT space is still nothing.
+  const auto last = out.find_last_not_of(' ');
+  if (last == std::string::npos) return {};
+  out.resize(last + 1);
+  return out;
 }
 
 // ---- identity ---------------------------------------------------------------

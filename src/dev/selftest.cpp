@@ -49,7 +49,11 @@
 
 #include "audio/decode.h"
 #include "audio/soundbank.h"
+#include "cmd/access.h"
+#include "cmd/command.h"
+#include "cmd/complete.h"
 #include "core/json.h"
+#include "ui/chat.h"
 #include "resource/pack.h"
 #include "ui/confirm.h"
 #include "ui/dom.h"
@@ -7454,6 +7458,1024 @@ WorldFingerprintTimed buildWorldWith(int threads) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Chat and commands
+// ---------------------------------------------------------------------------
+
+// A Hooks that records rather than acts, so a command's whole observable effect
+// can be inspected without a world, a window or a network. Every optional hook is
+// wired: a command that refuses because a hook is missing would pass the "it
+// refused" assertion for entirely the wrong reason.
+struct FakeSession {
+  std::vector<std::string> replies;
+  std::vector<std::string> announced;
+  std::vector<cmd::Participant> people;
+  // What the side-effecting hooks were asked to do.
+  std::vector<std::string> actions;
+  bool refuse = false;  // makes every acting hook fail, for the "says why" checks
+
+  cmd::Hooks hooks() {
+    cmd::Hooks h;
+    h.reply = [this](std::string_view s) { replies.emplace_back(s); };
+    h.announce = [this](std::string_view s) { announced.emplace_back(s); };
+    h.participants = [this] { return people; };
+    const auto act = [this](std::string what, std::string& error) {
+      if (refuse) {
+        error = "refused on purpose";
+        return false;
+      }
+      actions.push_back(std::move(what));
+      return true;
+    };
+    h.teleport = [this, act](const cmd::Participant& p, const Vec3& to, std::string& e) {
+      char buf[128];
+      std::snprintf(buf, sizeof buf, "tp %s %d %d %d", p.name.c_str(), static_cast<int>(to.x),
+                    static_cast<int>(to.y), static_cast<int>(to.z));
+      return act(buf, e);
+    };
+    h.give = [act](const cmd::Participant& p, const std::string& key, int n, std::string& e) {
+      return act("give " + p.name + " " + key + " " + std::to_string(n), e);
+    };
+    h.clearInventory = [act](const cmd::Participant& p, std::string& e) {
+      return act("clear " + p.name, e);
+    };
+    h.setVitals = [act](const cmd::Participant& p, float hp, std::string& e) {
+      return act("vitals " + p.name + " " + std::to_string(static_cast<int>(hp)), e);
+    };
+    h.kick = [act](const cmd::Participant& p, std::string_view why, std::string& e) {
+      return act("kick " + p.name + " " + std::string(why), e);
+    };
+    h.whisper = [act](const cmd::Participant& p, const std::string& text, std::string& e) {
+      return act("whisper " + p.name + " " + text, e);
+    };
+    h.setLevel = [act](const std::string&, const std::string& name, cmd::Level level,
+                       std::string& e) {
+      return act("level " + name + " " + cmd::levelName(level), e);
+    };
+    h.setBanned = [act](const std::string& name, bool on, std::string_view, std::string& e) {
+      return act(std::string(on ? "ban " : "pardon ") + name, e);
+    };
+    h.setAllowed = [act](const std::string& name, bool on, std::string& e) {
+      return act(std::string(on ? "allow " : "disallow ") + name, e);
+    };
+    h.setWhitelistEnabled = [act](bool on, std::string& e) {
+      return act(std::string("whitelist ") + (on ? "on" : "off"), e);
+    };
+    h.banList = [] { return std::vector<std::string>{}; };
+    h.allowList = [] { return std::vector<std::string>{}; };
+    h.permList = [] { return std::vector<std::string>{}; };
+    h.saveWorld = [act](std::string& e) { return act("save", e); };
+    h.stopSession = [act](std::string& e) { return act("stop", e); };
+    h.applySetting = [act](const std::string& k, const std::string& v, std::string& e) {
+      return act("set " + k + " " + v, e);
+    };
+    h.summon = [act](const std::string& t, int n, std::string& e) {
+      return act("summon " + t + " " + std::to_string(n), e);
+    };
+    h.locateDungeon = [this](Vec3& out, std::string& e) {
+      if (refuse) {
+        e = "refused on purpose";
+        return false;
+      }
+      out = Vec3{100, 20, -40};
+      return true;
+    };
+    h.worldSpawn = [this](Vec3& out, std::string& e) {
+      if (refuse) {
+        e = "refused on purpose";
+        return false;
+      }
+      out = Vec3{8, 70, 8};
+      return true;
+    };
+    return h;
+  }
+};
+
+// Somebody in the room, for the fake session's roster.
+cmd::Participant makePerson(const char* name, cmd::Level level, bool self, bool host = false) {
+  cmd::Participant p;
+  p.playerId = std::string("id-") + name;
+  p.name = name;
+  p.level = level;
+  p.self = self;
+  p.host = host;
+  p.pos = Vec3{10, 64, 20};
+  p.hasPos = true;
+  return p;
+}
+
+// True when any reply or returned message contains `needle`. Commands say why they
+// refused, and "did it say the right why" is most of what these tests check.
+bool saidSomething(const FakeSession& session, const cmd::Result& result, const char* needle) {
+  if (result.message.find(needle) != std::string::npos) return true;
+  for (const std::string& line : session.replies) {
+    if (line.find(needle) != std::string::npos) return true;
+  }
+  for (const std::string& line : session.announced) {
+    if (line.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
+void testFuzzyMatch() {
+  std::printf("fuzzy matching\n");
+
+  check(cmd::fuzzyScore("greystone", "xqz") < 0, "a query that is not a subsequence never matches");
+  check(cmd::fuzzyScore("tp", "tpx") < 0, "and neither does one longer than the candidate");
+  check(cmd::fuzzyScore("give", "") == 0, "an empty query matches everything at zero");
+
+  // The ordering IS the feature. Each of these is a pair somebody would actually
+  // type, and the one they meant has to come first.
+  checkf(cmd::fuzzyScore("tp", "tp") > cmd::fuzzyScore("teleport", "tp"),
+         "an exact match beats a scattered one (%d > %d)", cmd::fuzzyScore("tp", "tp"),
+         cmd::fuzzyScore("teleport", "tp"));
+  checkf(cmd::fuzzyScore("stone", "sto") > cmd::fuzzyScore("sandstone", "sto"),
+         "a prefix beats a match in the middle (%d > %d)", cmd::fuzzyScore("stone", "sto"),
+         cmd::fuzzyScore("sandstone", "sto"));
+  checkf(cmd::fuzzyScore("pick_stone", "ps") > cmd::fuzzyScore("pickstone", "ps"),
+         "a word boundary beats the middle of a word (%d > %d)",
+         cmd::fuzzyScore("pick_stone", "ps"), cmd::fuzzyScore("pickstone", "ps"));
+  checkf(cmd::fuzzyScore("give", "give") > cmd::fuzzyScore("giveaway", "give"),
+         "and the whole word beats being a prefix of a longer one (%d > %d)",
+         cmd::fuzzyScore("give", "give"), cmd::fuzzyScore("giveaway", "give"));
+
+  check(cmd::fuzzyScore("GreyStone", "greystone") >= 0, "matching ignores case");
+  // Stepping past a poor match to reach a word boundary must never turn a real
+  // match into a miss. Here the `a` at index 1 is the only one that leaves room for
+  // the `ba` after it, and the boundary `a` at index 4 does not — so the preference
+  // has to look ahead before it takes it.
+  checkf(cmd::fuzzyScore("xab_a", "aba") >= 0,
+         "preferring a word boundary never loses a match that was really there (%d)",
+         cmd::fuzzyScore("xab_a", "aba"));
+  // camelCase is how every settings key is spelled, so a capital has to count as
+  // the start of a word or `rd` would not find `renderDistance`.
+  checkf(cmd::fuzzyScore("renderDistance", "rd") > cmd::fuzzyScore("renderdistance", "rd"),
+         "a capital starts a word too (%d > %d)", cmd::fuzzyScore("renderDistance", "rd"),
+         cmd::fuzzyScore("renderdistance", "rd"));
+
+  // Ties break by name, and they must break the SAME way every time: a popup that
+  // reshuffles equal entries between keystrokes cannot be driven with the arrows.
+  const std::vector<std::string> pool = {"beta", "alpha", "gamma", "delta"};
+  const std::vector<cmd::Suggestion> first = cmd::rank(pool, "");
+  const std::vector<cmd::Suggestion> again = cmd::rank(pool, "");
+  check(first.size() == 4, "an empty query offers everything");
+  check(first.size() == again.size() && !first.empty() && first[0].label == "alpha" &&
+            first[3].label == "gamma",
+        "and orders equal scores by name, the same way twice");
+  check(first.size() == again.size() && first[1].label == again[1].label,
+        "ranking is deterministic");
+
+  const std::vector<cmd::Suggestion> many =
+      cmd::rank(std::vector<std::string>(40, "aaaa"), "a");
+  check(many.size() == cmd::kMaxSuggestions, "no more than ten are ever offered");
+}
+
+void testCommandParsing() {
+  std::printf("command parsing\n");
+
+  {
+    const std::vector<cmd::Token> t = cmd::tokenize("/give greystone 3");
+    check(t.size() == 3, "a line splits into its words");
+    check(t.size() == 3 && t[0].text == "give" && t[2].text == "3", "with the slash dropped");
+    // The byte ranges are what let completion replace exactly the word under the
+    // caret. "/give greystone 3": g of give is at 1, greystone spans 6..15.
+    check(t.size() == 3 && t[0].begin == 1 && t[0].end == 5, "and each word knows where it is");
+    check(t.size() == 3 && t[1].begin == 6 && t[1].end == 15, "including the middle one");
+  }
+  {
+    const std::vector<cmd::Token> t = cmd::tokenize("give greystone");
+    check(t.size() == 2 && t[0].text == "give",
+          "a line with no slash parses the same — a server console types no slash");
+  }
+  {
+    const std::vector<cmd::Token> t = cmd::tokenize("/msg \"Ada Lovelace\" hello there");
+    check(t.size() == 4 && t[1].text == "Ada Lovelace", "quotes group a name with a space in it");
+    check(t.size() == 4 && t[1].quoted && t[1].begin == 5 && t[1].end == 19,
+          "and the range covers the quotes, so replacing it replaces them too");
+  }
+  {
+    const std::vector<cmd::Token> t = cmd::tokenize("/msg \"Ada Lo");
+    check(t.size() == 2 && t[1].text == "Ada Lo",
+          "an unterminated quote runs to the end — somebody is still typing it");
+  }
+  {
+    const std::vector<cmd::Token> t = cmd::tokenize("/give   greystone   ");
+    check(t.size() == 2, "runs of spaces and a trailing one add no empty words");
+  }
+
+  float coord = 0;
+  check(cmd::parseCoord("~", 12.5f, coord) && std::fabs(coord - 12.5f) < 0.001f,
+        "~ means where you already are");
+  check(cmd::parseCoord("~-3", 12.5f, coord) && std::fabs(coord - 9.5f) < 0.001f,
+        "and ~n is an offset from it");
+  check(cmd::parseCoord("64", 12.5f, coord) && std::fabs(coord - 64.0f) < 0.001f,
+        "a bare number is absolute");
+  check(!cmd::parseCoord("sixty", 0, coord), "and a word is not a coordinate");
+  // A trailing letter is the case a naive strtod accepts silently, which would
+  // teleport somebody to 12 when they typed 12x and meant something else entirely.
+  check(!cmd::parseCoord("12x", 0, coord), "nor is a number with something stuck to it");
+
+  int n = 0;
+  check(cmd::parseInt("7", 1, 10, n) && n == 7, "an integer in range parses");
+  check(!cmd::parseInt("70", 1, 10, n), "one out of range does not");
+  check(!cmd::parseInt("", 1, 10, n), "and neither does nothing");
+
+  bool flag = false;
+  check(cmd::parseBool("on", flag) && flag, "on is true");
+  check(cmd::parseBool("FALSE", flag) && !flag, "FALSE is false, whatever its case");
+  check(!cmd::parseBool("maybe", flag), "and maybe is not an answer");
+
+  cmd::Level level = cmd::Level::Anyone;
+  check(cmd::levelFromName("Operator", level) && level == cmd::Level::Operator,
+        "a level parses by name");
+  check(cmd::levelFromName("3", level) && level == cmd::Level::Owner,
+        "and by number, for somebody at a server console");
+  check(!cmd::levelFromName("admin", level), "an invented level is refused");
+}
+
+void testCommandRegistry() {
+  std::printf("the command table\n");
+
+  const std::vector<cmd::Command>& all = cmd::Registry::get().all();
+  checkf(all.size() >= 25, "the game ships a table of commands (%d)",
+         static_cast<int>(all.size()));
+
+  bool namesOk = true, spellingOk = true, usageOk = true, runsOk = true;
+  for (std::size_t i = 0; i < all.size(); ++i) {
+    if (!all[i].summary || !*all[i].summary || !all[i].usage || !*all[i].usage) usageOk = false;
+    if (all[i].usage[0] != '/') usageOk = false;
+    if (!all[i].run) runsOk = false;
+    // A name or alias that resolves to a DIFFERENT command is a command somebody
+    // can never reach, and the table is the only place that can be checked.
+    if (cmd::Registry::get().find(all[i].name) != &all[i]) namesOk = false;
+    for (const char* alias : all[i].aliases) {
+      if (cmd::Registry::get().find(alias) != &all[i]) spellingOk = false;
+    }
+  }
+  check(namesOk, "every command is reachable by its own name");
+  check(spellingOk, "and every alias reaches the command it belongs to");
+  check(usageOk, "every command has a summary and a usage line starting with a slash");
+  check(runsOk, "and something to run");
+
+  // A required argument after an optional one can never be supplied: dispatch
+  // counts required arguments and compares against how many were given, so the
+  // count would be right while the positions were wrong.
+  bool orderOk = true, textLastOk = true;
+  for (const cmd::Command& c : all) {
+    bool seenOptional = false;
+    for (std::size_t i = 0; i < c.args.size(); ++i) {
+      if (!c.args[i].required) seenOptional = true;
+      else if (seenOptional) orderOk = false;
+      // Text swallows the rest of the line, so anything after it is unreachable.
+      if (c.args[i].type == cmd::ArgType::Text && i + 1 != c.args.size()) textLastOk = false;
+    }
+  }
+  check(orderOk, "no command asks for a required argument after an optional one");
+  check(textLastOk, "and a rest-of-the-line argument is always the last one");
+
+  const cmd::Command* stop = cmd::Registry::get().find("stop");
+  const cmd::Command* help = cmd::Registry::get().find("HELP");
+  check(stop && stop->level == cmd::Level::Owner, "closing the world is the owner's alone");
+  check(help && help->level == cmd::Level::Anyone, "and asking what you can type is anyone's");
+  check(cmd::Registry::get().find("unban") == cmd::Registry::get().find("pardon"),
+        "an alias and its command are the same command");
+  check(cmd::Registry::get().find("nonesuch") == nullptr, "an unknown name finds nothing");
+}
+
+void testCompletion() {
+  std::printf("command completion\n");
+
+  cmd::Sources owner;
+  owner.level = cmd::Level::Owner;
+  owner.inWorld = true;
+  owner.players = {"Ada", "Bob"};
+
+  {
+    const cmd::Completion c = cmd::complete("/gi", 3, owner);
+    check(!c.items.empty() && c.items[0].label == "give", "typing /gi offers give first");
+    check(c.begin == 1 && c.end == 3, "and replaces the word, not the slash");
+    check(!c.items.empty() && !c.items[0].hint.empty(),
+          "with the summary beside it, so the list explains itself");
+  }
+  {
+    // The caret sitting after a space is a new, empty word: the range is empty and
+    // the insertion happens where the caret is.
+    const cmd::Completion c = cmd::complete("/give ", 6, owner);
+    check(c.begin == 6 && c.end == 6, "a caret past the last word starts a new one");
+    check(!c.items.empty(), "and is offered the whole item registry");
+  }
+  {
+    // The point of the whole exercise: Hollowreach's stone is called greystone,
+    // and nobody types a key they have not read.
+    const cmd::Completion c = cmd::complete("/give sto", 9, owner);
+    bool found = false;
+    for (const cmd::Suggestion& s : c.items) found = found || s.label == "greystone";
+    check(found, "and 'sto' finds greystone, which is not what anyone would guess");
+    check(c.begin == 6 && c.end == 9, "replacing exactly the argument being typed");
+  }
+  {
+    const cmd::Completion c = cmd::complete("/msg ", 5, owner);
+    check(c.items.size() == 2, "a player argument offers whoever is here");
+    check(c.items.size() == 2 && c.items[0].label == "Ada", "by name");
+  }
+  {
+    cmd::Sources spaced = owner;
+    spaced.players = {"Ada Lovelace"};
+    const cmd::Completion c = cmd::complete("/msg ", 5, spaced);
+    check(c.items.size() == 1 && c.items[0].text == "\"Ada Lovelace\"",
+          "a name with a space in it is offered already quoted");
+    check(c.items.size() == 1 && c.items[0].label == "Ada Lovelace",
+          "and shown without the quotes, which is what you are reading for");
+  }
+  {
+    // Not the bare "/set " — the schema is longer than a popup, so an empty query
+    // shows the first ten by name and renderDistance is not among them. Which is
+    // the point: you type until it appears.
+    const cmd::Completion c = cmd::complete("/set rend", 9, owner);
+    bool found = false;
+    for (const cmd::Suggestion& s : c.items) found = found || s.label == "renderDistance";
+    check(found, "/set offers the settings schema");
+    // "rend" is an exact prefix of renderScale too, and between two equally good
+    // prefixes the shorter candidate wins — so this asks with enough to tell them
+    // apart rather than asserting a tie breaks the way it happens to today.
+    const cmd::Completion exact = cmd::complete("/set renderd", 12, owner);
+    check(!exact.items.empty() && exact.items[0].label == "renderDistance",
+          "and puts the one you spelled out first");
+    // The camelCase case, which plain greedy matching gets wrong: the `d` of
+    // "render" comes before the `D` of "Distance" and matching ignores case.
+    //
+    // Asserted on the ORDER, not on mere presence. Greedy finds renderDistance too
+    // — it just scores it below renderScale, which is the whole failure — so a
+    // check that it appears at all passes with the fix removed and measures
+    // nothing.
+    const cmd::Completion initials = cmd::complete("/set rd", 7, owner);
+    check(!initials.items.empty() && initials.items[0].label == "renderDistance",
+          "and the initials of a camelCase key put it first");
+  }
+  {
+    // The values a setting takes depend on WHICH setting, which is the word before.
+    const cmd::Completion c = cmd::complete("/set monsters ", 14, owner);
+    check(c.items.size() == 2, "and the value after a toggle is offered as true or false");
+    const cmd::Completion slider = cmd::complete("/set fov ", 9, owner);
+    check(slider.items.empty(), "a slider has no list to offer");
+  }
+  {
+    const cmd::Completion c = cmd::complete("/tp ~ ", 6, owner);
+    check(!c.items.empty() && c.items[0].label == "~",
+          "a coordinate offers the one thing worth suggesting");
+  }
+
+  // The popup is a courtesy, and offering something that will be refused is worse
+  // than offering nothing. It is NOT a gate — the host checks again.
+  {
+    cmd::Sources anyone = owner;
+    anyone.level = cmd::Level::Anyone;
+    const cmd::Completion c = cmd::complete("/st", 3, anyone);
+    bool offered = false;
+    for (const cmd::Suggestion& s : c.items) offered = offered || s.label == "stop";
+    check(!offered, "an ordinary player is not offered /stop");
+    const cmd::Completion asOwner = cmd::complete("/st", 3, owner);
+    offered = false;
+    for (const cmd::Suggestion& s : asOwner.items) offered = offered || s.label == "stop";
+    check(offered, "and an owner is");
+  }
+  {
+    cmd::Sources menu = owner;
+    menu.inWorld = false;
+    const cmd::Completion c = cmd::complete("/gi", 3, menu);
+    bool offered = false;
+    for (const cmd::Suggestion& s : c.items) offered = offered || s.label == "give";
+    check(!offered, "nothing needing a world is offered from the menu");
+    const cmd::Completion help = cmd::complete("/he", 3, menu);
+    offered = false;
+    for (const cmd::Suggestion& s : help.items) offered = offered || s.label == "help";
+    check(offered, "but /help still is");
+  }
+  {
+    check(cmd::complete("hello there", 11, owner).items.empty(),
+          "a sentence is not a command and offers nothing");
+    check(cmd::complete("/nonesuch ", 10, owner).items.empty(),
+          "and an unknown command offers nothing for its arguments");
+    check(cmd::complete("/list ", 6, owner).items.empty(),
+          "nor does a command that takes none");
+  }
+}
+
+void testAccessList() {
+  std::printf("the access list\n");
+
+  {
+    cmd::Access access;
+    check(access.levelOf("id-a", "Ada") == cmd::Level::Anyone, "nobody starts trusted");
+    check(access.setLevel("id-a", "Ada", cmd::Level::Operator), "somebody can be made operator");
+    check(access.levelOf("id-a", "Ada") == cmd::Level::Operator, "and reads back that way");
+    check(access.levelOf("id-a", "Somebody Else") == cmd::Level::Operator,
+          "by id even under a different name — a rename must not demote anyone");
+    check(access.levelOf("", "Ada") == cmd::Level::Operator, "and by name when there is no id");
+    check(access.levelOf("id-b", "Bob") == cmd::Level::Anyone, "somebody else is unaffected");
+
+    // A row that says nothing is dropped, so a pardon does not leave the file
+    // growing a line per person who was briefly banned.
+    check(access.setLevel("id-a", "Ada", cmd::Level::Anyone) && access.entries().empty(),
+          "and demoting the last thing about somebody removes their row");
+  }
+  {
+    cmd::Access access;
+    std::string reason;
+    access.setBanned("", "Mallory", true, "griefing");
+    check(!access.mayJoin("id-m", "Mallory", reason), "a ban typed against a bare name holds");
+    check(reason.find("griefing") != std::string::npos, "and the refusal says why");
+    check(!access.banned("id-m", "Anything"),
+          "and until that name has been seen, the id behind it is not known");
+    // Which is why the host ties the two together at the handshake. Without this a
+    // banned player walks straight back in under a new name.
+    check(access.remember("id-m", "Mallory"), "connecting under it ties the id to the row");
+    check(access.banned("id-m", "Anything"), "and the ban now follows them across a rename");
+    check(!access.remember("id-m", "Mallory"), "and saying so again changes nothing");
+    access.setBanned("id-m", "Mallory", false, "");
+    check(access.mayJoin("id-m", "Mallory", reason), "a pardon lets them back in");
+  }
+  {
+    cmd::Access access;
+    std::string reason;
+    access.setWhitelistEnabled(true);
+    check(!access.mayJoin("id-c", "Cy", reason), "a whitelist refuses whoever is not on it");
+    check(reason.find("whitelist") != std::string::npos, "and says so");
+    access.setAllowed("", "Cy", true);
+    check(access.mayJoin("id-c", "Cy", reason), "and admits whoever is");
+    // Otherwise the first thing anyone did with a whitelist would be to lock
+    // themselves out of the world they were about to administer.
+    access.setLevel("id-o", "Op", cmd::Level::Operator);
+    check(access.mayJoin("id-o", "Op", reason), "an operator is on the list by being one");
+    access.setWhitelistEnabled(false);
+    check(access.mayJoin("id-c", "Cy", reason) && access.mayJoin("id-z", "Zed", reason),
+          "and with it off, anyone may join");
+  }
+  {
+    cmd::Access before;
+    before.setLevel("id-a", "Ada", cmd::Level::Owner);
+    before.setBanned("", "Mallory", true, "griefing");
+    before.setAllowed("id-c", "Cy", true);
+    before.setWhitelistEnabled(true);
+
+    cmd::Access after;
+    std::string error;
+    check(after.fromJson(before.toJson(), &error), "the list round-trips through its file");
+    check(after.entries().size() == before.entries().size(), "with every row");
+    check(after.levelOf("id-a", "Ada") == cmd::Level::Owner, "levels survive");
+    check(after.banned("", "Mallory"), "bans survive");
+    check(after.whitelistEnabled(), "and so does the whitelist switch");
+    check(after.toJson() == before.toJson(), "and writing it again produces the same bytes");
+  }
+  {
+    // A stray comma in a hand-edited list must not lock a server operator out of
+    // their own machine, so a malformed file reads as an empty one.
+    cmd::Access access;
+    access.setLevel("id-a", "Ada", cmd::Level::Owner);
+    std::string error;
+    check(!access.fromJson("{ nonsense", &error), "a malformed file is refused");
+    check(!error.empty(), "with something to say about it");
+    check(access.levelOf("id-a", "Ada") == cmd::Level::Owner,
+          "and leaves what was already loaded alone");
+    check(access.fromJson("{\"players\":[{\"name\":\"Bo\",\"level\":\"nonsense\"}]}", &error),
+          "an unknown level name does not fail the file");
+    check(access.levelOf("", "Bo") == cmd::Level::Anyone, "it just grants nothing");
+  }
+  {
+    cmd::Access access;
+    bool refusedEventually = false;
+    for (std::size_t i = 0; i < cmd::kMaxAccessEntries + 8; ++i) {
+      if (!access.setLevel("", "p" + std::to_string(i), cmd::Level::Trusted)) {
+        refusedEventually = true;
+        break;
+      }
+    }
+    check(refusedEventually && access.entries().size() == cmd::kMaxAccessEntries,
+          "the list is bounded, so a broken file cannot allocate without limit");
+  }
+}
+
+void testCommandDispatch() {
+  std::printf("running commands\n");
+
+  world::World world(4242u, 2);
+
+  const auto contextFor = [&](FakeSession& session, cmd::Level level, cmd::Hooks& hooks,
+                              bool withWorld = true) {
+    cmd::Context ctx;
+    ctx.playerId = "id-Ada";
+    ctx.name = "Ada";
+    ctx.level = level;
+    ctx.world = withWorld ? &world : nullptr;
+    ctx.hooks = &hooks;
+    (void)session;
+    return ctx;
+  };
+
+  // --- refusals, and whether they say the right thing ---
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+
+    cmd::Result r = cmd::run("/nonesuch", ctx);
+    check(!r.ok && r.message.find("nonesuch") != std::string::npos,
+          "an unknown command names what it did not recognise");
+    r = cmd::run("", ctx);
+    check(!r.ok, "an empty line is refused");
+    r = cmd::run("/give", ctx);
+    check(!r.ok && r.message.find("usage") != std::string::npos,
+          "a missing argument answers with the usage line");
+  }
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Anyone, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Anyone, hooks);
+
+    const cmd::Result r = cmd::run("/stop", ctx);
+    check(!r.ok, "an ordinary player cannot close the world");
+    check(r.message.find("owner") != std::string::npos &&
+              r.message.find("anyone") != std::string::npos,
+          "and is told both what it needs and what they are");
+    check(session.actions.empty(), "and nothing happened");
+  }
+  {
+    // The level check has to come before the world check, or a guest could learn
+    // whether a world is open by reading which refusal came back.
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Anyone, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Anyone, hooks, /*withWorld=*/false);
+    const cmd::Result r = cmd::run("/summon sheep", ctx);
+    check(!r.ok && r.message.find("operator") != std::string::npos,
+          "a command you may not run refuses on the level, not on the missing world");
+  }
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks, /*withWorld=*/false);
+    const cmd::Result r = cmd::run("/summon sheep", ctx);
+    check(!r.ok && r.message.find("world") != std::string::npos,
+          "and one you may run refuses because there is no world to run it in");
+  }
+
+  // --- the rest-of-the-line argument ---
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+    cmd::run("/me waves   slowly", ctx);
+    check(session.announced.size() == 1 &&
+              session.announced[0] == "* Ada waves   slowly",
+          "the last argument takes the rest of the line, spacing and all");
+  }
+
+  // --- who may aim what at whom ---
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Anyone, true),
+                      makePerson("Bob", cmd::Level::Anyone, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Anyone, hooks);
+
+    cmd::Result r = cmd::run("/kill", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "vitals Ada 0",
+          "anyone may kill themselves");
+    r = cmd::run("/kill Bob", ctx);
+    check(!r.ok && r.message.find("operator") != std::string::npos,
+          "but not somebody else");
+    check(session.actions.size() == 1, "and nothing was done to them");
+  }
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Operator, true),
+                      makePerson("Bob", cmd::Level::Anyone, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Operator, hooks);
+    const cmd::Result r = cmd::run("/kill Bob", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "vitals Bob 0",
+          "an operator may");
+  }
+  {
+    // Nobody hands out what they do not hold. This is the rule that lets /op sit
+    // at operator rather than being reserved to the owner — delegating the ability
+    // to delegate must not also hand over the world.
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true),
+                      makePerson("Bob", cmd::Level::Anyone, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+    cmd::Result r = cmd::run("/op Bob operator", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "level Bob operator",
+          "an owner may make somebody an operator");
+
+    session.actions.clear();
+    ctx.level = cmd::Level::Operator;
+    r = cmd::run("/op Bob trusted", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "level Bob trusted",
+          "an operator may vouch for somebody below their own rank");
+
+    session.actions.clear();
+    r = cmd::run("/op Bob operator", ctx);
+    check(r.ok && session.actions.size() == 1, "and up to their own rank");
+
+    session.actions.clear();
+    r = cmd::run("/op Bob owner", ctx);
+    check(!r.ok && session.actions.empty(), "but never above it");
+    check(r.message.find("owner") != std::string::npos &&
+              r.message.find("operator") != std::string::npos,
+          "and is told what it was asked to grant and what it holds");
+
+    // Only reachable because /op is an operator command. When it sat at owner the
+    // dispatch check refused first and this guard could never run at all — the
+    // check that used to be here passed for entirely the wrong reason.
+    session.actions.clear();
+    ctx.level = cmd::Level::Anyone;
+    r = cmd::run("/op Bob trusted", ctx);
+    check(!r.ok && r.message.find("needs operator") != std::string::npos,
+          "and handing out levels at all needs operator");
+  }
+  {
+    // Strictly below, not below-or-equal: two operators able to remove each other
+    // is how a disagreement becomes a kicking match.
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Operator, true),
+                      makePerson("Cy", cmd::Level::Owner, false),
+                      makePerson("Bob", cmd::Level::Operator, false),
+                      makePerson("Dot", cmd::Level::Trusted, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Operator, hooks);
+
+    cmd::Result r = cmd::run("/kick Cy", ctx);
+    check(!r.ok && session.actions.empty(), "an operator cannot kick an owner");
+    r = cmd::run("/kick Bob", ctx);
+    check(!r.ok && session.actions.empty(), "nor another operator");
+    r = cmd::run("/kick Dot", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "kick Dot ",
+          "but may kick somebody below them");
+
+    session.actions.clear();
+    r = cmd::run("/deop Bob", ctx);
+    check(!r.ok && session.actions.empty(), "and cannot demote an equal either");
+    r = cmd::run("/deop Dot", ctx);
+    check(r.ok && session.actions.size() == 1, "only somebody below them");
+
+    // Acting on yourself is always allowed: standing down takes nothing from
+    // anybody else, and an operator who wants out should not need to find an owner.
+    session.actions.clear();
+    r = cmd::run("/deop Ada", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "level Ada anyone",
+          "but anyone may stand down themselves");
+  }
+
+  // --- naming people ---
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true),
+                      makePerson("Bob", cmd::Level::Anyone, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+
+    cmd::Result r = cmd::run("/tp bob", ctx);
+    check(r.ok && !session.actions.empty() && session.actions.back() == "tp Ada 10 64 20",
+          "a name matches whatever its case, and /tp with one name moves you");
+
+    session.actions.clear();
+    r = cmd::run("/tp 100 70 -40", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "tp Ada 100 70 -40",
+          "three numbers move you to a place");
+
+    session.actions.clear();
+    r = cmd::run("/tp ~ ~10 ~", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "tp Ada 10 74 20",
+          "and ~ is measured from where you are standing");
+
+    session.actions.clear();
+    r = cmd::run("/tp Bob Ada", ctx);
+    check(r.ok && session.actions.size() == 1 && session.actions[0] == "tp Bob 10 64 20",
+          "two names move the first to the second");
+
+    r = cmd::run("/tp Nobody", ctx);
+    check(!r.ok && r.message.find("Nobody") != std::string::npos,
+          "and a name nobody has says whose it was");
+  }
+  {
+    // Guessing which of two people you meant is how the wrong one gets kicked.
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true),
+                      makePerson("bob", cmd::Level::Anyone, false),
+                      makePerson("BOB", cmd::Level::Anyone, false)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+    cmd::Result r = cmd::run("/kick Bob", ctx);
+    check(!r.ok && r.message.find("more than one") != std::string::npos,
+          "two names differing only in case is an ambiguity, not a guess");
+    r = cmd::run("/kick bob", ctx);
+    check(r.ok, "and an exact match resolves it");
+  }
+
+  // --- /help is filtered by what you may do ---
+  {
+    FakeSession owner, anyone;
+    owner.people = {makePerson("Ada", cmd::Level::Owner, true)};
+    anyone.people = {makePerson("Bob", cmd::Level::Anyone, true)};
+    cmd::Hooks ownerHooks = owner.hooks();
+    cmd::Hooks anyoneHooks = anyone.hooks();
+    cmd::Context ownerCtx = contextFor(owner, cmd::Level::Owner, ownerHooks);
+    cmd::Context anyoneCtx = contextFor(anyone, cmd::Level::Anyone, anyoneHooks);
+
+    for (int page = 1; page <= 6; ++page) {
+      cmd::run("/help " + std::to_string(page), ownerCtx);
+      cmd::run("/help " + std::to_string(page), anyoneCtx);
+    }
+    check(owner.replies.size() > anyone.replies.size(),
+          "an owner is shown more commands than an ordinary player");
+    bool anyoneSawStop = false;
+    for (const std::string& line : anyone.replies) {
+      anyoneSawStop = anyoneSawStop || line.find("/stop") != std::string::npos;
+    }
+    check(!anyoneSawStop, "and /stop is not among the ones they are shown");
+
+    cmd::Result r = cmd::run("/help give", ownerCtx);
+    check(r.ok && saidSomething(owner, r, "/give <item>"),
+          "asking about one command shows its usage");
+  }
+
+  // --- a hook the session does not have refuses rather than crashing ---
+  {
+    FakeSession session;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true)};
+    cmd::Hooks hooks = session.hooks();
+    hooks.summon = nullptr;
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+    const cmd::Result r = cmd::run("/summon sheep", ctx);
+    check(!r.ok && r.message.find("cannot") != std::string::npos,
+          "a session that cannot do a thing says so instead of crashing on it");
+  }
+  {
+    FakeSession session;
+    session.refuse = true;
+    session.people = {makePerson("Ada", cmd::Level::Owner, true)};
+    cmd::Hooks hooks = session.hooks();
+    cmd::Context ctx = contextFor(session, cmd::Level::Owner, hooks);
+    const cmd::Result r = cmd::run("/save", ctx);
+    check(!r.ok && r.message.find("refused on purpose") != std::string::npos,
+          "and a refusal from the session is passed through with its reason");
+  }
+
+  // --- a command with no hooks at all ---
+  {
+    cmd::Context ctx;
+    ctx.level = cmd::Level::Owner;
+    const cmd::Result r = cmd::run("/help", ctx);
+    check(!r.ok, "a context with nothing wired to it runs nothing");
+  }
+}
+
+void testChatOverlay() {
+  std::printf("the chat box\n");
+
+  ui::Chat chat;
+  chat.sources.level = cmd::Level::Owner;
+  chat.sources.inWorld = true;
+  chat.sources.players = {"Ada", "Bob"};
+
+  // --- the log ---
+  chat.push(ui::Chat::Kind::Say, "hello");
+  chat.push(ui::Chat::Kind::System, "Bob joined the world");
+  check(chat.lineCount() == 2, "lines are kept in order");
+  chat.push(ui::Chat::Kind::Say, "");
+  check(chat.lineCount() == 2, "an empty line is not a line");
+  for (int i = 0; i < 400; ++i) chat.push(ui::Chat::Kind::Say, "spam " + std::to_string(i));
+  checkf(chat.lineCount() == ui::Chat::kMaxLines,
+         "and the log is bounded, so a long session cannot grow it forever (%d)",
+         static_cast<int>(chat.lineCount()));
+  chat.clear();
+  check(chat.lineCount() == 0, "clearing empties it");
+
+  // --- the suggestion highlight ---
+  //
+  // The whole reason this starts at nothing: if it started at row 0 then Enter
+  // would always accept a completion and never send the line, and typing a command
+  // you already know in full would put somebody else's word in your line.
+  // A letter several commands share, so there is a list to walk rather than one row
+  // that every move lands back on.
+  chat.setTyped("/s");
+  check(!chat.suggestions().empty(), "typing a command offers completions");
+  check(chat.selected() == -1, "with nothing highlighted, so Enter still sends");
+
+  const int count = static_cast<int>(chat.suggestions().size());
+  checkf(count >= 3, "and several commands start with s, so there is a list (%d)", count);
+  check(chat.moveSelection(1) && chat.selected() == 0, "Down takes the first");
+  check(chat.moveSelection(1) && chat.selected() == 1, "and then the next");
+  check(chat.moveSelection(-1) && chat.selected() == 0, "Up comes back");
+  check(chat.moveSelection(-1) && chat.selected() == count - 1, "and past the top wraps round");
+  check(chat.moveSelection(1) && chat.selected() == 0, "as does past the bottom");
+
+  // Typing invalidates it, which is what keeps "Enter sends what you typed" true
+  // after the list underneath has been rebuilt.
+  chat.setTyped("/giv");
+  check(chat.selected() == -1, "typing clears the highlight");
+
+  // --- accepting one ---
+  chat.setTyped("/gi");
+  check(chat.acceptSuggestion(), "the best match can be taken without highlighting it");
+  check(chat.typed() == "/give ", "which completes the word and leaves a space for the next");
+
+  chat.setTyped("/give sto");
+  chat.moveSelection(1);
+  const std::string wanted = chat.suggestions()[0].label;
+  check(chat.acceptSuggestion(), "and the highlighted one can be taken");
+  check(chat.typed() == "/give " + wanted + " ", "replacing exactly the word being typed");
+  check(chat.selected() == -1, "and clearing the highlight, so the next Enter sends");
+
+  // A completion in the middle of a line must not eat the rest of it.
+  chat.setTyped("/give sto 5");
+  chat.setTyped("/give sto 5");
+  check(chat.suggestions().empty() || chat.typed() == "/give sto 5",
+        "a caret at the end of a finished line offers for the last word only");
+
+  {
+    ui::Chat other;
+    other.sources.level = cmd::Level::Owner;
+    other.setTyped("hello there");
+    check(other.suggestions().empty(), "a sentence offers nothing");
+    check(!other.acceptSuggestion(), "and there is nothing to accept");
+    check(!other.moveSelection(1),
+          "so the arrow keys are free to walk the lines you have already sent");
+  }
+
+  // --- the arrow keys' two jobs ---
+  {
+    ui::Chat sent;
+    sent.sources.level = cmd::Level::Owner;
+    sent.sources.inWorld = true;
+
+    check(!sent.arrowsWalkHistory() || sent.suggestions().empty(),
+          "with nothing typed there is nothing to suggest, so the arrows walk history");
+    sent.setTyped("/give boat");
+    check(!sent.arrowsWalkHistory(), "a command being typed gives the arrows a list instead");
+
+    sent.sendTyped();
+    sent.setTyped("hello");
+    sent.sendTyped();
+    sent.setTyped("");
+
+    sent.recallSent(1);
+    check(sent.typed() == "hello", "Up recalls the newest line");
+    check(sent.recallDepth() == 1, "one step back");
+    // The refinement that matters: a recalled COMMAND brings a suggestion list
+    // back with it, and without the recall taking priority the next press would
+    // silently stop going back in time and start moving through that list.
+    sent.recallSent(1);
+    check(sent.typed() == "/give boat", "and again, past a line that has suggestions of its own");
+    check(sent.arrowsWalkHistory(),
+          "mid-recall the arrows keep walking history even with a list on offer");
+
+    sent.recallSent(1);
+    check(sent.typed() == "/give boat", "walking past the oldest stays on the oldest");
+    sent.recallSent(-1);
+    check(sent.typed() == "hello", "Down comes back toward the newest");
+    sent.recallSent(-1);
+    check(sent.typed().empty() && sent.recallDepth() == 0,
+          "and past the newest returns what was half-written");
+
+    // Typing ends the recall, which is what makes the two modes tell each other
+    // apart at all.
+    sent.setTyped("/gi");
+    check(sent.recallDepth() == 0 && !sent.arrowsWalkHistory(),
+          "typing ends the recall and hands the arrows back to the list");
+
+    sent.setTyped("hello");
+    sent.sendTyped();
+    sent.setTyped("hello");
+    sent.sendTyped();
+    sent.setTyped("");
+    sent.recallSent(1);
+    sent.recallSent(1);
+    check(sent.typed() == "/give boat",
+          "and the same line said twice is remembered once, not twice");
+  }
+}
+
+void testChatProtocol() {
+  std::printf("chat on the wire\n");
+
+  const auto roundTrip = [](auto& message, net::MsgType type, auto& out) {
+    ByteWriter w;
+    net::begin(w, type);
+    net::encode(w, message);
+    ByteReader r(w.data().data(), w.data().size());
+    r.skip(1);
+    return net::decode(r, out);
+  };
+
+  {
+    net::ChatMsg in;
+    in.text = "/give greystone 3";
+    net::ChatMsg out;
+    check(roundTrip(in, net::MsgType::Chat, out) && out.text == in.text,
+          "a typed line survives the wire");
+
+    // The writer only truncates at what its u16 length can carry, so a line past
+    // kMaxChat travels intact and it is the DECODER that has to refuse it — which
+    // is the case that matters, because a hostile peer writes its own bytes.
+    net::ChatMsg oversize;
+    oversize.text = std::string(net::kMaxChat + 40, 'x');
+    net::ChatMsg dropped;
+    check(!roundTrip(oversize, net::MsgType::Chat, dropped),
+          "and one that is too long is refused outright");
+  }
+  {
+    net::ChatLineMsg in;
+    in.kind = 2;
+    in.from = "Ada";
+    in.text = "hello";
+    net::ChatLineMsg out;
+    check(roundTrip(in, net::MsgType::ChatLine, out) && out.kind == 2 && out.from == "Ada" &&
+              out.text == "hello",
+          "a line to show survives with its kind and its author");
+  }
+  {
+    net::PermissionMsg in;
+    in.playerId = "abcd1234";
+    in.level = 2;
+    net::PermissionMsg out;
+    check(roundTrip(in, net::MsgType::Permission, out) && out.playerId == in.playerId &&
+              out.level == 2,
+          "a permission survives");
+
+    // A fifth level is not a level this game has any reading for, so it is refused
+    // rather than clamped — the file header's second rule.
+    net::PermissionMsg bad = in;
+    bad.level = 9;
+    net::PermissionMsg dropped;
+    check(!roundTrip(bad, net::MsgType::Permission, dropped), "an invented level is refused");
+    bad = in;
+    bad.playerId = "no";
+    check(!roundTrip(bad, net::MsgType::Permission, dropped),
+          "and so is a player id that is not one");
+  }
+  {
+    net::SetStateMsg in;
+    in.health = 20.0f;
+    in.clearInventory = true;
+    net::SetStateMsg out;
+    check(roundTrip(in, net::MsgType::SetState, out) && out.health == 20.0f &&
+              out.clearInventory,
+          "an imposed state survives");
+
+    net::SetStateMsg nan;
+    nan.health = std::nanf("");
+    net::SetStateMsg dropped;
+    check(!roundTrip(nan, net::MsgType::SetState, dropped),
+          "and a NaN health is refused, not accepted by a missing negation");
+    net::SetStateMsg tooMuch;
+    tooMuch.health = 1e6f;
+    check(!roundTrip(tooMuch, net::MsgType::SetState, dropped),
+          "nor can anyone be given a thousand hearts");
+  }
+  {
+    // Every decoder has to survive its message being cut short, which is what
+    // ByteReader's latch is for.
+    net::ChatLineMsg full;
+    full.kind = 1;
+    full.from = "Ada";
+    full.text = "hello there";
+    ByteWriter w;
+    net::begin(w, net::MsgType::ChatLine);
+    net::encode(w, full);
+    bool allRefused = true;
+    for (std::size_t cut = 1; cut < w.data().size(); ++cut) {
+      ByteReader r(w.data().data(), cut);
+      r.skip(1);
+      net::ChatLineMsg out;
+      if (net::decode(r, out) && out.text != full.text) allRefused = false;
+    }
+    check(allRefused, "a truncated chat line never decodes into a usable one");
+  }
+
+  // A newline would let one peer draw as many rows in everybody's box as it liked,
+  // and a carriage return would let it paint over the row above its own.
+  check(net::cleanChat("hello\nthere\r\n") == "hellothere", "control characters are stripped");
+  check(net::cleanChat("spaced   ") == "spaced", "and trailing space is trimmed");
+  // Leading space is kept: the indented rows of a /help or a /list are the host's
+  // own prose, and trimming them showed a guest a flat wall of text where the host
+  // saw a tidy list.
+  check(net::cleanChat("  Ada \xC2\xB7 operator") == "  Ada \xC2\xB7 operator",
+        "while an indent survives, so a list reads the same on both sides");
+  check(net::cleanChat("    ").empty(), "a line of nothing but spaces is nothing");
+  check(net::cleanChat(std::string(net::kMaxChat + 100, 'x')).size() == net::kMaxChat,
+        "and the length is capped");
+  check(net::cleanChat("caf\xC3\xA9 \xE2\x86\x92 ok") == "caf\xC3\xA9 \xE2\x86\x92 ok",
+        "while UTF-8 survives intact");
+}
+
 void testThreading() {
   std::printf("threading\n");
 
@@ -7662,6 +8684,14 @@ int runSelfTest() {
   testNetSession();
   testNetBigWorld();
   testNetGuestToGuest();
+  testFuzzyMatch();
+  testCommandParsing();
+  testCommandRegistry();
+  testCompletion();
+  testAccessList();
+  testCommandDispatch();
+  testChatOverlay();
+  testChatProtocol();
   testThreading();
   testAudio();
   std::printf("\n%d checks, %d failure(s)\n", gChecks, gFailures);

@@ -48,6 +48,9 @@ class Client {
   void update(double dt, double now);
 
   // --- things the local player does that the host must be told about ----------
+  // A typed line, exactly as typed. Whether it is a sentence or a command is the
+  // host's decision, not ours — see MsgType::Chat.
+  void sendChat(const std::string& line);
   void sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta);
   void sendHit(int entityId, const std::string& held, bool crit);
   void sendPlayerHit(const std::string& playerId, const std::string& held, bool crit);

@@ -15,6 +15,74 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Added
+- **Chat.** **T** to talk, **`/`** to run a command. It draws over the world and
+  does not pause it — the reason you are typing is usually something you are
+  looking at. Lines fade after ten seconds when the box is shut; **PageUp** reads
+  back through them when it is open. Joins and leaves land in the log as well as
+  in a toast, so "when did Ada leave" is a question you can answer.
+
+- **Typed commands**, in single player as well as multiplayer. Twenty-seven of
+  them: `/give` `/tp` `/time` `/gamemode` `/summon` `/heal` `/clear` `/kill`
+  `/locate` `/spawn` `/seed` `/list` `/msg` `/me` `/say` `/save` `/help`, and the
+  administrative half below.
+
+  **`/set` reaches the whole settings screen from the chat box** — `/set fov 90`,
+  `/set monsters false`, `/set renderDistance 10`. It refuses exactly what the
+  settings screen refuses, including the rule that a world created Survival can
+  never become Creative.
+
+- **Autocomplete that does not need you to remember anything.** Start typing and
+  a list appears, matched fuzzily rather than by prefix: `sto` finds `greystone`,
+  `rd` finds `renderDistance`, `pkst` finds `pick_stone`. **↑/↓** move through it,
+  **Tab** takes one, **Enter** sends. Nothing is highlighted until you press ↓, so
+  Enter on a command you already know sends it instead of replacing your last word
+  with the machine's guess. With no list up, ↑/↓ walk back through what you sent.
+
+  Arguments complete from what they actually accept: a player argument offers
+  whoever is in the world, `/give` the item registry, `/set` the settings schema,
+  and the value after `/set` whatever that particular setting takes.
+
+- **Permissions, and a host who can hand them out.** Four levels — *anyone*,
+  *trusted*, *operator*, *owner*. The host is always owner; `/op ada trusted`
+  promotes a friend, `/deop` takes it back. Nobody can grant a level above their
+  own, and nobody can kick, ban or demote somebody who outranks them.
+
+- **`/kick`, `/ban`, `/pardon`, `/banlist` and `/whitelist`**, kept in
+  `data/access.json` beside your settings rather than inside a world — being an
+  operator is a fact about a person, not about a place, and it should not
+  evaporate because you made a new world. Hand-editable. A ban is typed against a
+  name and starts covering that person's id the first time they connect under it,
+  so it survives them renaming themselves. `/whitelist on` refuses everybody not
+  named, with operators on the list by virtue of being operators so that turning
+  it on cannot lock out the people trusted to turn it off.
+
+  This is also the groundwork for the dedicated server: it is the same file, the
+  same levels and the same commands a server with no window will need.
+
+- **`--command <line>`**, repeatable, runs a command once the world is up. Every
+  chat line also goes to `data/hollowreach.log`. Between them a command can be
+  checked without a keyboard, and somebody running a world for other people can
+  see what was said in it.
+
+### Changed
+- The multiplayer protocol is now version 11, so **both machines need this
+  build.** An older guest would receive no chat and never be told its permission
+  level — its own completion popup would offer it every command in the game while
+  the host refused each one with a message it could not receive either. Silence
+  that looks like a bug in the host.
+
+### Fixed
+- **A guest leaving now says so.** Quitting the game never sent a goodbye, so
+  everyone else watched a body stand there until the connection timed out —
+  seconds of a player who had already closed the window. The host had handled a
+  goodbye since multiplayer landed; nothing was ever sending one.
+- **Leaves are recorded.** Somebody leaving reached a two-second toast and nothing
+  else, so the one event a host most wants a record of left no trace. Joins and
+  leaves are both in the chat log now — and the host can see them, which it could
+  not before: a broadcast reaches every guest and never the person running the
+  world.
+
 ## [2.11.0] - 2026-08-10
 
 ### Added

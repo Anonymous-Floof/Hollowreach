@@ -92,6 +92,13 @@ inline constexpr Rgba aboutBold = rgb(0xeafff0);
 inline constexpr Rgba featText = rgb(0xa9b5c1);
 inline constexpr Rgba controlValue = rgb(0xaab6c2);
 inline constexpr Rgba nameplateText = rgb(0xeef4f8);
+// Chat. Three tints and no more: a line's meaning belongs to whoever wrote it, and
+// a box that colours text nine ways is one nobody can read at a glance. Plain
+// speech uses `text` and a refusal uses `danger`, so these are the three cases that
+// are neither.
+inline constexpr Rgba chatSystem = rgb(0x8fc6e8);   // the world talking
+inline constexpr Rgba chatWhisper = rgb(0xc2a3e0);  // to or from one person
+inline constexpr Rgba chatReply = rgb(0x9de0b4);    // the answer to a command
 inline constexpr Rgba galBadge = rgb(0xcfe8cf);
 inline constexpr Rgba galBadgePano = rgb(0xcfe0ff);
 inline constexpr Rgba subtitleGlass = rgb(0xb9c7d3);

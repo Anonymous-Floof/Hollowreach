@@ -442,6 +442,58 @@ being harmless the moment one of them was `invulnerable` — a zombie was the la
 thing in the world that could kill a player nothing else could touch. If a hook
 needs the options, give it `ctx.playerOptions`; do not construct one.
 
+## Commands, and what the dedicated server will need from them
+
+`src/cmd/` is deliberately a module with no UI and no network in it. That is not
+tidiness: the dedicated server has no window and no settings screen, so **every
+operational act has to be expressible as a line of text or it cannot be done at
+all**, and a command layer that reached into the interface could not be reused by
+a process that has none.
+
+Three shapes to keep when extending it:
+
+**Everything a command may touch is named.** `cmd::Context` holds the five live
+objects and a `cmd::Hooks` for the side effects — the same argument as
+`net/session.h`. "What a command can reach" should be a list you can read rather
+than a property of what happened to be in scope.
+
+**Anything affecting somebody else goes through a hook.** The host does not
+simulate a guest's body, and in single player there is nobody else to affect; a
+hook is the only shape honest in both cases. `App::makeCommandHooks` is where the
+"is this me, or is this somebody over the wire" branch lives, once, rather than
+in twenty command bodies.
+
+**`Command::level` is a floor, not the whole answer.** `/set` is `Anyone` because
+your own field of view is your own business, and demands `Operator` once the
+setting turns out to be world-scoped. The floor is what the completion popup
+filters on, so a command with an argument-dependent bar is offered and then
+argues.
+
+### What is already server-shaped
+
+- `data/access.json` (`cmd/access.h`) is per **installation**, not per world,
+  because being an operator is a fact about a person. A server that swaps worlds
+  keeps its operators. One table with three flags rather than Minecraft's three
+  files, so "who is Ada" has one answer.
+- `SessionHooks::mayJoin` is the handshake gate. `Host` owns no list of people and
+  asks; a dedicated server answers the same question from the same file.
+- `Context::console` marks a line with no body behind it. It is what should make
+  `~` refuse rather than silently mean the world origin — today only `--command`
+  sets it, and the check that actually fires is `Participant::hasPos`.
+- `/stop` sets `pendingStop_` rather than closing the world in place. It is
+  reached from inside the host's own message loop, which is walking a peer list
+  that closing the world would empty.
+
+### What it still needs
+
+- A console reader on stdin, feeding `cmd::run` with `console = true` and
+  `Level::Owner`. Nothing else in the layer needs to change for it.
+- A headless main loop: no window, no renderer, no interface. `App` currently
+  owns all three, so this is where the split has to happen.
+- The permission table is broadcast as `MsgType::Permission` and held by App in
+  `netLevels_`. A server would hold the authoritative copy in `Access` and never
+  need the map.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

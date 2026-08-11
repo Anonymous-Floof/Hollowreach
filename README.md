@@ -109,7 +109,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 858 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1027 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -134,6 +134,10 @@ all and is the fastest way to know a change did not break something.
 | Move many at once | Hold Shift and drag across slots |
 | Drop from a slot | Q over it (one) · Shift+Q (whole stack) · hold, or drag across slots |
 | Recipe book | H (or the **Recipes** button on any crafting screen) |
+| Chat | T |
+| Command | `/` (opens chat with the slash already typed) |
+| Complete the word you are typing | Tab, or ↑/↓ to pick from the list |
+| Recall something you sent | ↑/↓ when nothing is being suggested |
 | Atlas map (needs an **Atlas**) | M |
 | Screenshot | F2 |
 | Hide the interface | F1 |
@@ -533,6 +537,109 @@ rather than each client fast-forwarding its own copy and drifting apart doing it
 While connected as a guest, the world-list
 "Export World" button becomes **Leave World** instead, since it's the host's
 save, not yours.
+
+### Chat and commands
+
+**T** opens the chat box; **`/`** opens it with a slash already typed. It draws
+over a live world and does not pause it — the reason you are typing is usually
+something you are looking at, and a command whose effect you cannot watch happen
+is one you have to run twice to believe.
+
+Commands work in single player too, where you are the owner of your own world.
+
+**Nobody has to remember a key.** Start typing and a list appears above the box,
+matched fuzzily rather than by prefix: `sto` finds `greystone`, `rd` finds
+`renderDistance`, `pkst` finds `pick_stone`. **↑/↓** move through it, **Tab**
+takes the highlighted one, **Enter** sends. Nothing is highlighted until you
+press ↓, so Enter on a command you already know sends it rather than replacing
+your last word with somebody else's. With no list up, ↑/↓ walk back through what
+you have already sent.
+
+Arguments complete from whatever they actually accept — a player argument offers
+whoever is in the world, an item argument the item registry, `/set` the settings
+schema, and the value after `/set` whatever *that* setting takes.
+
+#### Who may run what
+
+Four levels. The host of a world always holds **owner**; everyone else starts at
+**anyone** and is promoted with `/op`.
+
+| | |
+|---|---|
+| **anyone** | affects only you, or only reads: `/help` `/list` `/me` `/msg` `/seed` `/kill` (yourself), `/set` (your own preferences) |
+| **trusted** | bends the world's rules for yourself: `/tp` `/spawn` `/locate` |
+| **operator** | the world's rules and other people's bodies: `/give` `/clear` `/heal` `/kill` (others) `/summon` `/time` `/gamemode` `/say` `/kick` `/save` `/perms` `/op` `/deop`, and `/set` on anything world-scoped |
+| **owner** | who may be here at all: `/ban` `/pardon` `/banlist` `/whitelist` `/stop` |
+
+Two rules hold it together:
+
+- **You may grant at most your own level.** An operator can vouch for a newcomer
+  up to operator and no further, so a host can delegate looking after a world
+  without handing it over. Only an owner can mint another owner.
+- **You may only act on somebody strictly below you.** Two operators able to kick
+  or demote each other is how a disagreement becomes a kicking match; the point of
+  having an owner is that there is somebody to settle it. Acting on *yourself* is
+  always allowed — standing down takes nothing from anybody else.
+
+`/set` is the interesting one: it is filed under **anyone** because your own
+field of view is your own business, and it refuses at **operator** the moment the
+setting turns out to be one of the world's rules. Anything the settings screen
+would not let you change, it will not either — including the rule that a world
+created Survival can never become Creative, which lives in exactly one place and
+is not restated here.
+
+#### The access list
+
+Who is trusted, banned or whitelisted lives in **`data/access.json`**, beside
+`settings.json` rather than inside a world. Being an operator is a fact about a
+*person*, not about a place: a host who ops a friend, makes a new world an hour
+later and finds them demoted has been told something false about what opping
+meant. It is also exactly the file a dedicated server will read.
+
+One row per person, hand-editable:
+
+```json
+{
+  "whitelist": false,
+  "players": [
+    {"id": "k3f9...", "name": "Ada", "level": "operator"},
+    {"name": "Mallory", "banned": true, "reason": "griefing"}
+  ]
+}
+```
+
+A ban is typed against a *name*, because a name is what you know. The id is
+recorded the first time that name connects, and from then on the ban follows them
+across a rename. `"whitelist": true` refuses everybody not named — operators
+included by virtue of being operators, so turning it on cannot lock out the
+people trusted to turn it off.
+
+**How strong is any of this:** not very, and it is worth saying plainly. A player
+id is generated by the client and a display name is whatever a peer claims at the
+handshake; neither is proof of identity. A ban stops somebody who does not want
+to come back, not somebody determined to. The whitelist is the control that
+actually holds, because it refuses everybody who is not named rather than trying
+to enumerate everybody who is unwelcome.
+
+#### Where a command runs
+
+On whichever machine owns the world, always. A guest sends the line it typed and
+nothing else — it does not decide whether the line is a command, which command it
+is, or whether it is allowed. The host parses it, checks it at *that guest's*
+level, and sends back the answer. The completion popup on a guest's screen is
+filtered to their level as a courtesy so it does not offer what would be refused,
+but it is a hint and not a gate: a modified client that offers itself `/stop`
+still gets a refusal.
+
+For scripting and for checking any of this without a keyboard:
+
+```bash
+Hollowreach.exe --seed 1 --command "/give boat 2" --command "/time noon"
+```
+
+Repeatable, the slash is optional, and every line of chat also goes to
+`data/hollowreach.log` — which is how a headless run reads the answer, and how
+somebody running a world for other people finds out what was said in it.
 
 Guests are untrusted, and the host says so with more than good manners: every
 message is range-checked before it reaches the game, edits and combat are reach-

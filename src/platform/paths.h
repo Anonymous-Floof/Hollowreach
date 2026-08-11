@@ -30,6 +30,10 @@ const std::string& screenshotsDir();
 const std::string& resourcePacksDir();
 const std::string& settingsFile();
 const std::string& logFile();
+// Who is trusted, who is barred, and who is on the whitelist. Beside settings.json
+// rather than inside a world, because being an operator is a fact about a person
+// rather than about a place — see cmd/access.h.
+const std::string& accessFile();
 
 // Creates the data directories if they do not exist. Reports failures rather
 // than throwing, since a read-only data dir should not stop the game booting.

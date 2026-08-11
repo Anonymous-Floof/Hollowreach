@@ -10,9 +10,12 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "cmd/access.h"
+#include "cmd/command.h"
 #include "core/camera.h"
 #include "core/input.h"
 #include "core/shader.h"
@@ -158,6 +161,11 @@ struct AppOptions {
   std::uint16_t joinPort = net::kDefaultGamePort;
   // --name <text>: the display name on the nameplate and in the roster.
   std::string playerName;
+
+  // --command <line>: run one command once the world is up, repeatable. This is
+  // what makes the command layer testable in the real binary at all — every other
+  // route to one goes through a chat box that a headless capture cannot type into.
+  std::vector<std::string> startupCommands;
 
   // --screen <name>: open a screen straight away, so `--screenshot` can capture any
   // one of them without a human driving the menus. This is what makes the interface
@@ -354,11 +362,81 @@ class App {
   // LAN restores what returning friends had. Kept on App rather than in the Host
   // because it outlives any one hosting session.
   std::vector<save::GuestSave> lastLoadedGuests_;
+  // Who is trusted, banned, or on the list. The installation's, not the world's —
+  // see cmd/access.h for why that is the right scope.
+  cmd::Access access_;
+  // What the host says everyone's level is, while we are a guest. Held here rather
+  // than in the Client because it is the interface that reads it, and because a
+  // level is a fact about the session rather than about the connection.
+  std::unordered_map<std::string, cmd::Level> netLevels_;
+  // The reply channel for the command currently running, or empty for the local
+  // player. Set for the length of one dispatch, so a command's ctx.reply() reaches
+  // the guest that asked without every hook having to carry an address.
+  std::string replyTo_;
+  std::string replyName_;
+  // /stop, deferred to the end of the frame. Closing the world from inside a
+  // running command would free the world and player the Context still points at —
+  // and the command layer is reached from inside the host's own message loop, so
+  // it would be freeing them from under that too.
+  bool pendingStop_ = false;
   net::SessionHooks makeSessionHooks();
   net::GameRefs gameRefs();
+
+  // --- chat and commands ------------------------------------------------------
+  //
+  // Every command in the game runs HERE, on whichever machine is authoritative. In
+  // single player that is this one; hosting, it is this one for the host's own
+  // lines and for every guest's; joining, it is the host's and this build only
+  // sends the text. There is deliberately no second path — a guest that executed
+  // its own commands would be deciding the world's rules for everybody.
+  cmd::Hooks makeCommandHooks();
+  // Runs one line on behalf of `playerId`, and routes every reply back to whoever
+  // asked — the local chat box for our own, a ChatLine message for a guest's.
+  // `console` marks a line that came from somewhere with no body behind it —
+  // --command today, the dedicated server's own input later. It is what makes `~`
+  // refuse rather than silently mean the world origin.
+  void runCommand(const std::string& playerId, const std::string& line, bool console = false);
+  // A line the local player typed. Sends it to the host when we are a guest, and
+  // runs it here otherwise.
+  void submitChat(const std::string& line);
+  // Puts a line in the local chat box. One place, so a toast and a chat line never
+  // disagree about wording.
+  void showChat(ui::Chat::Kind kind, const std::string& from, const std::string& text);
+  // Sends one line to one player, wherever they are.
+  void chatTo(const std::string& playerId, ui::Chat::Kind kind, const std::string& from,
+              const std::string& text);
+  void chatAll(ui::Chat::Kind kind, const std::string& from, const std::string& text);
+  // Everybody in the session as the command layer sees them, with `self` set on
+  // whoever is asking.
+  std::vector<cmd::Participant> participants(const std::string& callerId) const;
+  // What the local player may do. Owner in single player and while hosting; while
+  // joined, whatever the host last told us.
+  cmd::Level localLevel() const;
+  cmd::Level levelFor(const std::string& playerId, const std::string& name) const;
+  // T and slash. Refuses when a screen is up, since chat is not a screen and
+  // stacking it over one has nowhere sensible to draw.
+  void openChat(bool withSlash);
+  // Fills the chat box's completion sources from the live roster, every frame it
+  // is open. Cheap: a handful of names.
+  void refreshChatSources();
+  // Runs --command, once, as soon as the session can actually answer.
+  //
+  // NOT at startup. A guest has to be joined before its line means anything —
+  // sending it earlier would have it run locally at this build's own level, which
+  // is the one thing a guest never gets to do — and even a host has a world that
+  // is still streaming. They go through submitChat, so a guest's line takes
+  // exactly the road a typed one takes.
+  void runStartupCommands();
+  bool startupCommandsDone_ = false;
   bool startHosting(std::uint16_t port);
   bool startJoining(const std::string& address, std::uint16_t port);
-  void leaveNetwork(const std::string& reason);
+  // `sayGoodbye` false only when the connection is already gone — the host dropped
+  // us, or it never came up. Every other route out is a decision we took, and the
+  // host is owed a Bye: without one it keeps a ghost of us in the roster until
+  // ENet's own handshake times out, which is seconds of everyone watching a body
+  // that has already quit the game. Host::onMessage's Bye handler exists for
+  // exactly this and was never being reached.
+  void leaveNetwork(const std::string& reason, bool sayGoodbye = true);
   // A guest's world arrives over the wire rather than off disk.
   void adoptRemoteWorld(const save::WorldSave& data);
 

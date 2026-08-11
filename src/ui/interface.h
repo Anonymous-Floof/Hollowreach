@@ -19,6 +19,7 @@
 #include "game/inventory.h"
 #include "render/iconatlas.h"
 #include "ui/backdrop.h"
+#include "ui/chat.h"
 #include "ui/gallery.h"
 #include "ui/hud.h"
 #include "core/camera.h"
@@ -151,6 +152,9 @@ class Interface {
   Hud& hud() { return hud_; }
   Notify& notify() { return notify_; }
   Menu& menu() { return menu_; }
+  // Not a Screen: it draws over a live world and App keeps that world running
+  // while it is up. See ui/chat.h.
+  Chat& chat() { return chat_; }
 
   // One call for every screen that decides between washing over what is behind it
   // and painting its own opaque background. App sets it whenever the chosen menu
@@ -185,7 +189,11 @@ class Interface {
 
   // Handles the pointer and keyboard for whichever screen is up, then draws
   // everything. Split from update() only because drawing needs the finished frame.
-  void draw(const Window& window, const Input& input, const UiFrame& frame);
+  //
+  // The Input is not const because the chat box takes and gives up the keyboard
+  // from in here: closing it has to end text capture, and doing that anywhere else
+  // would mean the frame that closed chat still swallowed its keys.
+  void draw(const Window& window, Input& input, const UiFrame& frame);
 
   float uiScale() const { return scale_; }
   void setUiScale(float s) { scale_ = s > 0.1f ? s : 1.0f; }
@@ -203,6 +211,7 @@ class Interface {
   Text text_;
   Hud hud_;
   Notify notify_;
+  Chat chat_;
   Menu menu_;
   SettingsScreen settingsScreen_;
   PacksScreen packsScreen_;

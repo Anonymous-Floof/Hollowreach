@@ -77,7 +77,11 @@ void printUsage() {
       "  --screen <name>     open a screen straight away: menu, worlds, newworld,\n"
       "                      about, join, pause, settings, inventory, workbench,\n"
       "                      forge, chest, recipes, map, gallery, packs, bed,\n"
-      "                      bed-early\n"
+      "                      bed-early, chat, chat-suggest\n"
+      "  --command <line>    type a line into chat once the session is up, as if by\n"
+      "                      hand; repeatable. A leading slash makes it a command,\n"
+      "                      anything else is said out loud. Answers go to the log\n"
+      "                      as well as the box: --command \"/give pick_stone\"\n"
       "  --dump-icons <png>  write the generated inventory icon sheet and exit\n"
       "  --verbose           log at debug level\n"
       "  --help              this message\n");
@@ -323,6 +327,12 @@ int main(int argc, char** argv) {
       wantsWorld = true;
     } else if (std::strcmp(arg, "--dump-icons") == 0) {
       if (!takeValue(argc, argv, i, arg, options.iconDumpPath)) return 2;
+    } else if (std::strcmp(arg, "--command") == 0) {
+      if (!takeValue(argc, argv, i, arg, value)) return 2;
+      options.startupCommands.push_back(value);
+      // Not `wantsWorld = true`: /help and /op need no world, and forcing one would
+      // make a scripted `--command "/op ada"` generate terrain to do nothing with.
+      // A command that does need one says so itself and refuses with a reason.
     } else if (std::strcmp(arg, "--screen") == 0) {
       if (!takeValue(argc, argv, i, arg, options.startScreen)) return 2;
     } else if (std::strcmp(arg, "--mouse") == 0) {

@@ -132,6 +132,10 @@ int App::run(const AppOptions& options) {
   }
 
   ui::settings().load(paths::settingsFile());
+  // Who is trusted, banned, or whitelisted. Beside settings.json rather than in a
+  // world, because being an operator is a fact about a person — see cmd/access.h.
+  // A missing file is a fresh install with nobody trusted and nobody barred.
+  access_.load(paths::accessFile());
   // Seed BEFORE anything applies settings, so the first apply sees "unchanged"
   // and leaves the stored render scale alone.
   lastQuality_ = ui::settings().text("graphicsQuality");
@@ -731,6 +735,7 @@ void App::wireInterface() {
     tossStack(s.key, s.count, s.dura);
   };
   interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
+  interface_.chat().onSubmit = [this](const std::string& line) { submitChat(line); };
   interface_.callbacks.settingChanged = [this](const std::string& key) {
     // Actions do nothing to the settings and everything here. Handled before
     // applySettings, which would only re-read a row that stores nothing.
@@ -1442,7 +1447,9 @@ net::SessionHooks App::makeSessionHooks() {
   hooks.buildSave = [this] { return buildSave(); };
   hooks.adoptWorld = [this](const save::WorldSave& data) { adoptRemoteWorld(data); };
   hooks.onDisconnected = [this](const std::string& reason) {
-    leaveNetwork(reason.empty() ? "Disconnected" : reason);
+    // The one case with nobody left to tell: this IS the host telling us it has
+    // gone, or the connection failing on its own.
+    leaveNetwork(reason.empty() ? "Disconnected" : reason, /*sayGoodbye=*/false);
   };
   hooks.onRosterChange = [] {};
   hooks.playSfx = [](const std::string& kind, const Vec3& pos) {
@@ -1461,6 +1468,49 @@ net::SessionHooks App::makeSessionHooks() {
     player_->setMount(0);
     interface_.notify().push("That boat is taken");
   };
+  // --- chat and commands ------------------------------------------------------
+  // Host: a guest's line, run here at THAT guest's level. The Host handed it up
+  // without looking at it; every decision about it is taken in runCommand.
+  hooks.onChatLine = [this](const std::string& playerId, const std::string& line) {
+    runCommand(playerId, line);
+  };
+  // Guest: a line the host wants shown.
+  hooks.onChatShow = [this](std::uint8_t kind, const std::string& from,
+                            const std::string& text) {
+    // Clamped rather than refused: a newer host adding a colour must not cost an
+    // older guest the line itself.
+    const auto safe = kind <= static_cast<std::uint8_t>(ui::Chat::Kind::Error)
+                          ? static_cast<ui::Chat::Kind>(kind)
+                          : ui::Chat::Kind::Say;
+    showChat(safe, from, text);
+  };
+  hooks.levelOf = [this](const std::string& playerId, const std::string& name) {
+    return static_cast<std::uint8_t>(levelFor(playerId, name));
+  };
+  hooks.mayJoin = [this](const std::string& playerId, const std::string& name,
+                         std::string& reason) {
+    const bool allowed = access_.mayJoin(playerId, name, reason);
+    // Whoever this turned out to be, tie their id to the row that names them. A ban
+    // or a grant is always typed against a NAME, because that is what the person
+    // typing it knows; this is the only moment the game ever learns which id that
+    // name belongs to, and without it a banned player walks back in under a new one.
+    // Done for a refused peer too — especially for a refused peer.
+    if (access_.remember(playerId, name)) access_.save();
+    return allowed;
+  };
+  hooks.onPermission = [this](const std::string& playerId, std::uint8_t level) {
+    netLevels_[playerId] = level <= 3 ? static_cast<cmd::Level>(level) : cmd::Level::Anyone;
+  };
+  hooks.onSetState = [this](float health, bool clearInventory) {
+    if (clearInventory) inventory_.clear();
+    if (health >= 0.0f && player_) {
+      if (health <= 0.0f) {
+        player_->setHealth(0.0f);
+      } else {
+        player_->reviveFull();
+      }
+    }
+  };
   hooks.onContainerDenied = [this](int x, int y, int z, const std::string&) {
     if (!stationOpen_ || x != stationX_ || y != stationY_ || z != stationZ_) return;
     // Straight to false rather than through closeStation, whose whole job is to
@@ -1470,6 +1520,540 @@ net::SessionHooks App::makeSessionHooks() {
     if (state_ == AppState::Inventory || state_ == AppState::RecipeBook) resumePlaying();
   };
   return hooks;
+}
+
+// ---------------------------------------------------------------------------
+// Chat and commands
+//
+// Every command in the game runs on whichever machine owns the world. In single
+// player and while hosting that is this one; while joined it is the host's, and
+// this build only sends the text. There is deliberately no second path — see
+// cmd/command.h's trust model.
+// ---------------------------------------------------------------------------
+
+cmd::Level App::localLevel() const {
+  // Owning the world is what Owner means. Nobody granted it and nobody can take it
+  // away, which is also why the access list is not consulted here: a host who had
+  // demoted themselves in access.json would be locked out of their own machine.
+  if (!netGuest()) return cmd::Level::Owner;
+  const auto it = netLevels_.find(playerId_);
+  return it == netLevels_.end() ? cmd::Level::Anyone : it->second;
+}
+
+cmd::Level App::levelFor(const std::string& playerId, const std::string& name) const {
+  if (playerId == playerId_) return localLevel();
+  // As a guest, whatever the host last said. We are not the authority and must not
+  // answer from our own access list, which is about people on THIS machine.
+  if (netGuest()) {
+    const auto it = netLevels_.find(playerId);
+    return it == netLevels_.end() ? cmd::Level::Anyone : it->second;
+  }
+  return access_.levelOf(playerId, name);
+}
+
+std::vector<cmd::Participant> App::participants(const std::string& callerId) const {
+  std::vector<cmd::Participant> out;
+  const auto add = [&](const std::string& id, const std::string& name, bool host) {
+    cmd::Participant p;
+    p.playerId = id;
+    p.name = name;
+    p.level = levelFor(id, name);
+    p.self = id == callerId;
+    p.host = host;
+    if (id == playerId_) {
+      if (player_) {
+        p.pos = player_->pos();
+        p.hasPos = true;
+      }
+    } else if (netHosting()) {
+      p.hasPos = netHost_.ghosts().playerPos(id, p.pos);
+    } else if (netGuest()) {
+      p.hasPos = netClient_.ghosts().playerPos(id, p.pos);
+    }
+    out.push_back(std::move(p));
+  };
+
+  if (multiplayer()) {
+    const std::vector<net::RosterEntry> roster =
+        netHosting() ? netHost_.roster() : netClient_.roster();
+    for (const net::RosterEntry& r : roster) add(r.playerId, r.name, r.host);
+    return out;
+  }
+  // Single player: one person, and they are the host of a world with no guests.
+  if (player_) add(playerId_, playerName_, true);
+  return out;
+}
+
+void App::showChat(ui::Chat::Kind kind, const std::string& from, const std::string& text) {
+  // The name is composed in here rather than at the sender, so a line that arrived
+  // over the wire and one produced locally read identically. Only plain speech
+  // wears a name — everything else has whatever name it needs already baked into
+  // its text, because the host wrote it.
+  const std::string line =
+      kind == ui::Chat::Kind::Say && !from.empty() ? "<" + from + "> " + text : text;
+  interface_.chat().push(kind, line);
+  // Also to the log. Two reasons, both of them real: a headless run driven by
+  // --command has no screen to read the answer off, and somebody running a world
+  // for other people will want to know what was said in it after the fact.
+  log::info("chat: %s", line.c_str());
+}
+
+void App::chatTo(const std::string& playerId, ui::Chat::Kind kind, const std::string& from,
+                 const std::string& text) {
+  if (playerId.empty() || playerId == playerId_) {
+    showChat(kind, from, text);
+    return;
+  }
+  if (netHosting()) {
+    netHost_.sendChatLine(playerId, static_cast<std::uint8_t>(kind), from, text);
+  }
+}
+
+void App::chatAll(ui::Chat::Kind kind, const std::string& from, const std::string& text) {
+  showChat(kind, from, text);
+  if (netHosting()) netHost_.broadcastChatLine(static_cast<std::uint8_t>(kind), from, text);
+}
+
+cmd::Hooks App::makeCommandHooks() {
+  cmd::Hooks h;
+
+  // Everything below reads `replyTo_` at call time rather than capturing it, so one
+  // Hooks can serve every caller: the alternative is rebuilding twenty
+  // std::functions per typed line.
+  h.reply = [this](std::string_view text) {
+    chatTo(replyTo_, ui::Chat::Kind::Reply, {}, std::string(text));
+  };
+  h.announce = [this](std::string_view text) {
+    chatAll(ui::Chat::Kind::System, {}, std::string(text));
+  };
+  h.participants = [this] { return participants(replyTo_); };
+
+  h.whisper = [this](const cmd::Participant& who, const std::string& text, std::string& error) {
+    if (!multiplayer()) {
+      error = "there is nobody else here";
+      return false;
+    }
+    chatTo(who.playerId, ui::Chat::Kind::Whisper, {}, replyName_ + " \xE2\x86\x92 you: " + text);
+    return true;
+  };
+
+  h.teleport = [this](const cmd::Participant& who, const Vec3& to, std::string& error) {
+    if (who.playerId == playerId_) {
+      if (!player_) {
+        error = "you have no body here to move";
+        return false;
+      }
+      player_->teleport(to);
+      // The host has to be warned, or its movement check answers our jump with a
+      // teleport back — the same reason a wayshard sends one.
+      if (netGuest()) netClient_.sendWarp();
+      return true;
+    }
+    if (!netHosting() || !netHost_.teleportPlayer(who.playerId, to)) {
+      error = who.name + " is not connected";
+      return false;
+    }
+    return true;
+  };
+
+  h.give = [this](const cmd::Participant& who, const std::string& key, int count,
+                  std::string& error) {
+    if (who.playerId == playerId_) {
+      if (!world_) {
+        error = "there is no world to put it in";
+        return false;
+      }
+      const int left = inventory_.give(key, count, -1);
+      // Whatever did not fit goes on the floor rather than nowhere, which is what
+      // every other path that hands out items does.
+      if (left > 0) tossStack(key, left, -1);
+      return true;
+    }
+    if (!netHosting() || !netHost_.givePlayer(who.playerId, key, count, -1)) {
+      error = who.name + " is not connected";
+      return false;
+    }
+    return true;
+  };
+
+  h.setVitals = [this](const cmd::Participant& who, float health, std::string& error) {
+    if (who.playerId == playerId_) {
+      if (!player_) {
+        error = "you have no body here";
+        return false;
+      }
+      if (health <= 0.0f) {
+        player_->setHealth(0.0f);
+      } else {
+        player_->reviveFull();
+      }
+      return true;
+    }
+    if (!netHosting() || !netHost_.setPlayerState(who.playerId, health, false)) {
+      error = who.name + " is not connected";
+      return false;
+    }
+    return true;
+  };
+
+  h.clearInventory = [this](const cmd::Participant& who, std::string& error) {
+    if (who.playerId == playerId_) {
+      inventory_.clear();
+      return true;
+    }
+    if (!netHosting() || !netHost_.setPlayerState(who.playerId, -1.0f, true)) {
+      error = who.name + " is not connected";
+      return false;
+    }
+    return true;
+  };
+
+  h.kick = [this](const cmd::Participant& who, std::string_view reason, std::string& error) {
+    if (!netHosting()) {
+      error = "nobody else is connected";
+      return false;
+    }
+    if (!netHost_.kick(who.playerId, std::string(reason))) {
+      error = who.name + " is not connected";
+      return false;
+    }
+    return true;
+  };
+
+  // --- the access list -------------------------------------------------------
+  // Every one of these writes the file immediately. A crash between opping
+  // somebody and quitting cleanly should not un-op them, and the file is a few
+  // hundred bytes.
+
+  h.setLevel = [this](const std::string& playerId, const std::string& name, cmd::Level level,
+                      std::string& error) {
+    if (!access_.setLevel(playerId, name, level)) {
+      error = "the access list is full";
+      return false;
+    }
+    access_.save();
+    if (netHosting() && !playerId.empty()) {
+      netHost_.broadcastPermission(playerId, static_cast<std::uint8_t>(level));
+    }
+    return true;
+  };
+
+  h.setBanned = [this](const std::string& name, bool on, std::string_view reason,
+                       std::string& error) {
+    // By name, because whoever typed it knew a name. The id is filled in from the
+    // roster when that person is actually here, which is what makes the ban follow
+    // them across a rename — see cmd::Access::touch.
+    std::string id;
+    for (const cmd::Participant& p : participants(replyTo_)) {
+      if (p.name == name) id = p.playerId;
+    }
+    if (!access_.setBanned(id, name, on, std::string(reason))) {
+      error = "the access list is full";
+      return false;
+    }
+    access_.save();
+    return true;
+  };
+
+  h.setAllowed = [this](const std::string& name, bool on, std::string& error) {
+    std::string id;
+    for (const cmd::Participant& p : participants(replyTo_)) {
+      if (p.name == name) id = p.playerId;
+    }
+    if (!access_.setAllowed(id, name, on)) {
+      error = "the access list is full";
+      return false;
+    }
+    access_.save();
+    return true;
+  };
+
+  h.setWhitelistEnabled = [this](bool on, std::string&) {
+    access_.setWhitelistEnabled(on);
+    access_.save();
+    return true;
+  };
+
+  h.permList = [this] {
+    std::vector<std::string> out;
+    for (const cmd::AccessEntry& e : access_.entries()) {
+      if (e.level == cmd::Level::Anyone) continue;
+      out.push_back((e.name.empty() ? e.playerId : e.name) + " \xC2\xB7 " +
+                    cmd::levelName(e.level));
+    }
+    return out;
+  };
+  h.banList = [this] {
+    std::vector<std::string> out;
+    for (const cmd::AccessEntry& e : access_.entries()) {
+      if (!e.banned) continue;
+      out.push_back((e.name.empty() ? e.playerId : e.name) +
+                    (e.reason.empty() ? "" : " \xC2\xB7 " + e.reason));
+    }
+    return out;
+  };
+  h.allowList = [this] {
+    std::vector<std::string> out;
+    for (const cmd::AccessEntry& e : access_.entries()) {
+      if (!e.allowed) continue;
+      out.push_back(e.name.empty() ? e.playerId : e.name);
+    }
+    if (!access_.whitelistEnabled() && !out.empty()) out.push_back("(the whitelist is off)");
+    return out;
+  };
+
+  // --- the world ------------------------------------------------------------
+
+  h.saveWorld = [this](std::string& error) {
+    if (!world_) {
+      error = "there is no world open";
+      return false;
+    }
+    if (netGuest()) {
+      error = "this world belongs to the host";
+      return false;
+    }
+    if (!saveCurrentWorld()) {
+      error = "the world could not be written";
+      return false;
+    }
+    return true;
+  };
+
+  h.stopSession = [this](std::string& error) {
+    if (!world_) {
+      error = "there is no world open";
+      return false;
+    }
+    // Deferred to the end of the frame. Tearing the world down here would free the
+    // world and player this command's own Context still points at — and this runs
+    // from inside the host's message loop, which is walking a peer list that
+    // leaving the world would empty.
+    pendingStop_ = true;
+    return true;
+  };
+
+  h.applySetting = [this](const std::string& key, const std::string& value,
+                          std::string& error) {
+    const ui::SettingDef* def = ui::settings().find(key);
+    if (!def) {
+      error = "there is no setting called '" + key + "'";
+      return false;
+    }
+    // The same gate the settings screen uses, so the rule that a survival world can
+    // never become creative lives in exactly one place: the schema row.
+    if (!ui::settings().editable(key)) {
+      error = std::string(def->label) + " cannot be changed here";
+      return false;
+    }
+    switch (def->type) {
+      case ui::SettingType::Toggle: {
+        bool on = false;
+        if (!cmd::parseBool(value, on)) {
+          error = "say true or false";
+          return false;
+        }
+        ui::settings().setFlag(key, on);
+        break;
+      }
+      case ui::SettingType::Slider: {
+        float number = 0;
+        if (!cmd::parseCoord(value, 0.0f, number) || number < def->min || number > def->max) {
+          char range[64];
+          std::snprintf(range, sizeof(range), "give a number from %g to %g", def->min, def->max);
+          error = range;
+          return false;
+        }
+        ui::settings().setNumber(key, number);
+        break;
+      }
+      case ui::SettingType::Select: {
+        bool known = false;
+        for (const char* option : def->options) known = known || value == option;
+        if (!known) {
+          error = "that is not one of the choices";
+          return false;
+        }
+        ui::settings().setText(key, value);
+        break;
+      }
+      case ui::SettingType::Text:
+        ui::settings().setText(key, value);
+        break;
+      case ui::SettingType::Action:
+        error = "that is a button, not a setting";
+        return false;
+    }
+    applySettings();
+    // A world rule changing mid-session has to reach the guests, or half the room
+    // is playing by the old one and nobody is told.
+    if (netHosting() && def->scope == ui::SettingScope::World) {
+      netHost_.broadcastWorldSettings();
+    }
+    return true;
+  };
+
+  h.summon = [this](const std::string& type, int count, std::string& error) {
+    const game::EntityType kind = game::entityTypeFromKey(type);
+    // Drops, falling blocks and remote players are how the game represents
+    // something that has already happened; summoning one directly produces an
+    // entity with no item, no block, or nobody behind it.
+    const bool summonable = kind == game::EntityType::Sheep || kind == game::EntityType::Pig ||
+                            kind == game::EntityType::Cow ||
+                            kind == game::EntityType::Zombie ||
+                            kind == game::EntityType::Boat;
+    if (!summonable) {
+      error = "there is nothing called '" + type + "' to summon";
+      return false;
+    }
+    if (netGuest()) {
+      error = "only the host can put things in this world";
+      return false;
+    }
+    // Around whoever asked, not around whoever is hosting.
+    Vec3 at;
+    bool have = false;
+    for (const cmd::Participant& p : participants(replyTo_)) {
+      if (p.self && p.hasPos) {
+        at = p.pos;
+        have = true;
+      }
+    }
+    if (!have) {
+      error = "you are not anywhere to summon it beside";
+      return false;
+    }
+    for (int i = 0; i < count; ++i) {
+      // A small ring rather than all on one spot, so a stack of eight sheep is
+      // eight sheep rather than one shape flickering.
+      const float angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(count);
+      entities_.spawn(kind, Vec3{at.x + std::cos(angle) * 1.6f, at.y + 0.5f,
+                                 at.z + std::sin(angle) * 1.6f});
+    }
+    return true;
+  };
+
+  h.locateDungeon = [this](Vec3& out, std::string& error) {
+    if (!world_) {
+      error = "there is no world to search";
+      return false;
+    }
+    Vec3 from{0, 0, 0};
+    for (const cmd::Participant& p : participants(replyTo_)) {
+      if (p.self && p.hasPos) from = p.pos;
+    }
+    world::DungeonSite site;
+    if (!world::findDungeon(world_->noise(), world_->seed(), world_->genVersion(),
+                            static_cast<int>(from.x), static_cast<int>(from.z), 6, site)) {
+      error = "no dungeon within a few thousand blocks";
+      return false;
+    }
+    out = Vec3{static_cast<float>(site.x), static_cast<float>(site.y),
+               static_cast<float>(site.z)};
+    return true;
+  };
+
+  h.worldSpawn = [this](Vec3& out, std::string& error) {
+    if (!world_) {
+      error = "there is no world open";
+      return false;
+    }
+    out = worldSpawn_;
+    return true;
+  };
+
+  return h;
+}
+
+void App::runCommand(const std::string& playerId, const std::string& line, bool console) {
+  // Who is asking, resolved here rather than taken from anywhere — which is the
+  // whole point of running every command on the authoritative side.
+  std::string name = playerName_;
+  if (playerId != playerId_ && netHosting()) {
+    for (const net::RosterEntry& r : netHost_.roster()) {
+      if (r.playerId == playerId) name = r.name;
+    }
+  }
+
+  if (line.empty() || line[0] != '/') {
+    chatAll(ui::Chat::Kind::Say, name, line);
+    return;
+  }
+
+  replyTo_ = playerId;
+  replyName_ = name;
+
+  cmd::Hooks hooks = makeCommandHooks();
+  cmd::Context ctx;
+  ctx.playerId = playerId;
+  ctx.name = name;
+  ctx.level = levelFor(playerId, name);
+  ctx.console = console;
+  ctx.world = world_.get();
+  // The body and bag belong to the caller, and this machine only holds its own. A
+  // guest's are reached through the hooks, which is why nothing in the command
+  // table reads these directly.
+  ctx.player = playerId == playerId_ ? player_.get() : nullptr;
+  ctx.inventory = playerId == playerId_ ? &inventory_ : nullptr;
+  ctx.entities = &entities_;
+  ctx.sky = &sky_;
+  ctx.hooks = &hooks;
+
+  const cmd::Result result = cmd::run(line, ctx);
+  if (!result.message.empty()) {
+    chatTo(playerId, result.ok ? ui::Chat::Kind::Reply : ui::Chat::Kind::Error, {},
+           result.message);
+  }
+  replyTo_.clear();
+  replyName_.clear();
+}
+
+void App::runStartupCommands() {
+  if (startupCommandsDone_ || options_.startupCommands.empty()) return;
+  // A guest has to be joined before a line means anything: sent earlier it would
+  // run locally at this build's own level, which is precisely what a guest never
+  // gets to do. Failed counts as settled — the commands then run here and mostly
+  // refuse, which is a truthful answer rather than a silent nothing.
+  if (netClient_.running() && netClient_.state() != net::Client::State::Playing &&
+      netClient_.state() != net::Client::State::Failed) {
+    return;
+  }
+  startupCommandsDone_ = true;
+  for (const std::string& line : options_.startupCommands) {
+    log::info("--command %s", line.c_str());
+    // Verbatim, and through submitChat: this is the chat box with the typing done
+    // for you, so a leading slash makes it a command and anything else is
+    // something said out loud — exactly as it would be if a person typed it. And a
+    // guest's line takes the same road a typed one takes, to the host, to be
+    // judged there rather than here.
+    submitChat(line);
+  }
+}
+
+void App::submitChat(const std::string& line) {
+  // A guest decides nothing. Even a line that is obviously not a command goes to
+  // the host, because the host is what everybody else hears.
+  if (netGuest()) {
+    netClient_.sendChat(line);
+    return;
+  }
+  runCommand(playerId_, line);
+}
+
+void App::openChat(bool withSlash) {
+  // Chat is not a screen, and it has nowhere sensible to draw over one.
+  if (state_ != AppState::Playing) return;
+  refreshChatSources();
+  interface_.chat().open(&window_.input(), withSlash ? "/" : "");
+  window_.setPointerCaptured(false);
+}
+
+void App::refreshChatSources() {
+  cmd::Sources sources;
+  sources.level = localLevel();
+  sources.inWorld = world_ != nullptr;
+  for (const cmd::Participant& p : participants(playerId_)) sources.players.push_back(p.name);
+  interface_.chat().sources = std::move(sources);
 }
 
 bool App::startHosting(std::uint16_t port) {
@@ -1555,10 +2139,10 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
                            (data.meta.name.empty() ? std::string("the world") : data.meta.name));
 }
 
-void App::leaveNetwork(const std::string& reason) {
+void App::leaveNetwork(const std::string& reason, bool sayGoodbye) {
   advertiser_.stop();
   netHost_.stop();
-  netClient_.stop(false);
+  netClient_.stop(sayGoodbye);
   // Nothing on the far side to tell any more, and a stale id here would be
   // answered by whichever boat happened to hold it in the next world joined.
   mountedNetId_ = 0;
@@ -1656,6 +2240,11 @@ bool App::loadWorldFromDisk(const std::string& id) {
 
 void App::leaveWorld() {
   leaveNetwork("");
+  // The box goes with the world it was open over — and closing it here is what
+  // gives the keyboard back, since the field holds text capture until it does.
+  interface_.chat().close(&window_.input());
+  interface_.chat().clear();
+  netLevels_.clear();
   ui::settings().endWorld();
   ui::settings().clearVirtualFlags();
   createdCreative_ = false;
@@ -1776,9 +2365,18 @@ void App::frame() {
   // pointer-recapture click, so the whole input path is skipped for it.
   if (options_.startScreen.empty()) handleGlobalKeys();
 
-  if (state_ == AppState::Playing) {
+  // Chat is not a screen and it is not a pause. The reason you are typing is
+  // usually something you are looking at, and a command whose effect you cannot
+  // watch happen is one you have to run twice to believe — so the world carries on
+  // exactly as it does for a screen open in a shared world, on an input nothing
+  // ever feeds. Keeping the sources fresh here rather than in openChat is what
+  // makes the completion popup notice somebody joining while the box is already up.
+  const bool chatting = interface_.chat().isOpen();
+  if (chatting) refreshChatSources();
+
+  if (state_ == AppState::Playing && !chatting) {
     updatePlaying(dt);
-  } else if (world_ && player_ && multiplayer()) {
+  } else if (world_ && player_ && (multiplayer() || chatting)) {
     // A screen is open, and this world has other people in it. Theirs keeps
     // running, so ours has to as well — a paused body is a body that does not
     // fall, does not drown and cannot be hit, and the guests would be watching
@@ -1814,6 +2412,8 @@ void App::frame() {
     if (netClient_.running()) netClient_.update(dt, netNow);
     lanListener_.update(dt);
   }
+
+  runStartupCommands();
 
   audio::engine().setDucked(state_ != AppState::Playing);
   if (world_ && player_) {
@@ -1855,6 +2455,16 @@ void App::frame() {
       options_.screenshotPath.clear();
       if (options_.exitAfterFrames == 0) running_ = false;
     }
+  }
+
+  // /stop, run here rather than where it was typed. It reaches this point through
+  // two routes that both forbid doing it in place: the local chat box, which is
+  // inside interface_.draw and would free the world mid-frame, and a guest's line,
+  // which arrives inside the host's own message loop while that loop is walking a
+  // peer list closing the world would empty.
+  if (pendingStop_) {
+    pendingStop_ = false;
+    if (world_) leaveWorld();
   }
 
   window_.input().endFrame();
@@ -2241,6 +2851,15 @@ void App::handleGlobalKeys() {
     return;
   }
 
+  // T talks, slash commands. The slash key opens the box with the slash already
+  // in it — the character itself is lost, because Input::feedChar drops anything
+  // typed while text capture is off and capture only begins on the line below.
+  // Prefilling is what makes that invisible rather than a swallowed keystroke.
+  if (state_ == AppState::Playing) {
+    if (in.pressed(Key::T)) openChat(false);
+    if (in.pressed(Key::Slash)) openChat(true);
+  }
+
   if (in.pressed(Key::Escape)) {
     switch (state_) {
       case AppState::Playing:
@@ -2371,6 +2990,24 @@ bool App::applyStartScreen(const std::string& name) {
       {"gallery", AppState::Gallery, ui::MenuPage::Main, world::Station::None, false},
       {"packs", AppState::Packs, ui::MenuPage::Main, world::Station::None, false},
   };
+  // Chat is not in the table because it is not a Screen at all — it draws over a
+  // live world and App keeps that world running underneath it. It is here for
+  // exactly the reason --screen exists in the first place: a headless capture
+  // cannot press T. "chat" is the box open and empty, "chat-suggest" is it
+  // halfway through a command with the completion list up, which is the half worth
+  // looking at.
+  if (name == "chat" || name == "chat-suggest") {
+    if (!world_) {
+      log::error("--screen %s needs a world; add --seed, --world or --new-world",
+                 name.c_str());
+      return false;
+    }
+    state_ = AppState::Playing;
+    syncScreen();
+    openChat(name == "chat-suggest");
+    if (name == "chat-suggest") interface_.chat().setTyped("/give sto");
+    return true;
+  }
   // The bed is not in the table because it is the one screen that needs seeding
   // rather than merely opening: the wheel has to be told the hour, and whether the
   // sleep button is live is a property of the world rather than of the screen.

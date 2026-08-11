@@ -92,7 +92,15 @@ namespace hr::net {
 // and flies around a survival world on its own authority. Version 7's case
 // exactly: the layout is unchanged and that is the reason to refuse rather than
 // tolerate it.
-inline constexpr std::uint16_t kNetVersion = 10;
+// 11: chat, and who is allowed to do what. Three new message types, so an older
+// peer drops them on the floor — and dropping THESE is worse than dropping most,
+// because two of the three are how the two ends stay honest with each other. A
+// 2.11.0 guest would type into a chat box nobody receives and see nothing anybody
+// says, which is merely broken; but it would also never be told its permission
+// level, so its own completion popup would offer it every command in the game and
+// the host would refuse each one with a message the guest cannot receive either.
+// Silence that looks like a bug in the host.
+inline constexpr std::uint16_t kNetVersion = 11;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -102,6 +110,10 @@ inline constexpr std::size_t kMaxWorldName = 28;
 inline constexpr std::size_t kMaxReason = 80;
 inline constexpr std::size_t kMaxPlayerId = 48;
 inline constexpr std::size_t kMaxItemKey = 40;
+// One chat line. Long enough to say anything worth saying and short enough that
+// one guest cannot spend everybody's screen; the host also rate-limits, because a
+// bound on one message is not a bound on how many arrive.
+inline constexpr std::size_t kMaxChat = 256;
 
 // Sanity bounds, from js/net/protocol.js:45.
 inline constexpr float kMaxCoord = 2.0e6f;
@@ -154,6 +166,14 @@ enum class MsgType : std::uint8_t {
   // tag is a byte on the wire and every value after an insertion would shift.
   SleepState,   // h->c
   WorldSettings,  // h->c: the world's own difficulty and cheat rules
+  // Chat, and commands, which travel the same way: a guest sends a LINE and the
+  // host decides what it was. There is deliberately no separate "command" message
+  // — a guest that could name a command directly would be choosing which code path
+  // runs on the host, and the whole trust model here is that it chooses nothing.
+  Chat,        // c->h: the raw line, slash and all
+  ChatLine,    // h->c: a line to show, already formatted and already addressed
+  Permission,  // h->c: what level somebody holds
+  SetState,    // h->c: an operator reached into this player's body or bag
   Count,
 };
 
@@ -397,6 +417,51 @@ struct NotifyMsg {
   std::string message;
 };
 
+// What a guest typed. Nothing about it is interpreted on the sending end — not
+// even whether it starts with a slash — because the host has to make that decision
+// anyway and two ends deciding it separately is two ends that can disagree.
+struct ChatMsg {
+  std::string text;
+};
+
+// A line to show, and how to show it. `kind` matches ui::Chat::Kind; it travels as
+// a byte and an unknown value is clamped to plain speech rather than rejected, so
+// a newer host adding a colour does not disconnect an older guest over it.
+struct ChatLineMsg {
+  std::uint8_t kind = 0;
+  // The display name of whoever said it, or empty for the world itself. Separate
+  // from the text so the receiver can style it and so a guest cannot forge a line
+  // that looks like it came from somebody else — the host fills this in.
+  std::string from;
+  std::string text;
+};
+
+// What level somebody holds. Sent for everybody as a guest joins and broadcast
+// whenever one changes.
+//
+// A guest is told its OWN level because its completion popup filters on it, and
+// told everybody else's because /list shows them. Neither is authority: the host
+// checks again on every command, and this message only decides what a guest's
+// screen says.
+struct PermissionMsg {
+  std::string playerId;
+  std::uint8_t level = 0;
+};
+
+// Somebody with the authority to do it has changed this player's state without
+// asking. Both halves in one message because they are the same act, and because a
+// guest that could receive one without the other is a guest whose /clear also
+// healed it.
+//
+// Only ever sent as the result of a command the host has already checked. There is
+// no request form: a guest asking to have its own health set would be asking the
+// host to trust it, which is the one thing this protocol never does.
+struct SetStateMsg {
+  // Below zero leaves health alone, which is what /clear wants.
+  float health = -1.0f;
+  bool clearInventory = false;
+};
+
 // Whether `seq` is newer than the newest already seen, for the counters carried by
 // the messages that travel the unsequenced channel.
 //
@@ -491,6 +556,23 @@ void encode(ByteWriter& w, const PlayerLeaveMsg& m);
 bool decode(ByteReader& r, PlayerLeaveMsg& m);
 void encode(ByteWriter& w, const NotifyMsg& m);
 bool decode(ByteReader& r, NotifyMsg& m);
+void encode(ByteWriter& w, const ChatMsg& m);
+bool decode(ByteReader& r, ChatMsg& m);
+void encode(ByteWriter& w, const ChatLineMsg& m);
+bool decode(ByteReader& r, ChatLineMsg& m);
+void encode(ByteWriter& w, const PermissionMsg& m);
+bool decode(ByteReader& r, PermissionMsg& m);
+void encode(ByteWriter& w, const SetStateMsg& m);
+bool decode(ByteReader& r, SetStateMsg& m);
+
+// Strips control characters and trims. Used on every chat line before it reaches a
+// screen, because a display name is already cleaned and the text beside it is not:
+// a newline in a chat line would let one guest draw as many rows as it liked, and a
+// carriage return would let it overwrite the row above.
+//
+// Here rather than in the chat overlay so the host cleans what it relays and the
+// guest cleans what it receives — a hostile peer is on the other side of both.
+std::string cleanChat(const std::string& raw);
 
 // A player id is used as a map key and shown on a nameplate, so it is restricted
 // the same way the web build restricted it — minus the prototype-name exclusions,

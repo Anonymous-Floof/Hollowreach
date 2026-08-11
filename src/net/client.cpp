@@ -395,6 +395,27 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       if (decode(r, m) && hooks_.notify) hooks_.notify(m.message);
       break;
     }
+    case MsgType::ChatLine: {
+      ChatLineMsg m;
+      if (!decode(r, m)) break;
+      // Cleaned again on arrival. The host cleans what it relays, but a host is a
+      // peer like any other from this side of the wire, and a newline reaching the
+      // chat box would let one of them draw as many rows on our screen as it liked.
+      const std::string text = cleanChat(m.text);
+      if (text.empty()) break;
+      if (hooks_.onChatShow) hooks_.onChatShow(m.kind, cleanName(m.from), text);
+      break;
+    }
+    case MsgType::Permission: {
+      PermissionMsg m;
+      if (decode(r, m) && hooks_.onPermission) hooks_.onPermission(m.playerId, m.level);
+      break;
+    }
+    case MsgType::SetState: {
+      SetStateMsg m;
+      if (decode(r, m) && hooks_.onSetState) hooks_.onSetState(m.health, m.clearInventory);
+      break;
+    }
     case MsgType::Painting: {
       PaintingMsg m;
       if (!decode(r, m) || !game_.world) break;
@@ -471,6 +492,17 @@ void Client::sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta) 
   m.id = id;
   m.meta = meta;
   send(MsgType::Edit, m);
+}
+
+void Client::sendChat(const std::string& line) {
+  if (state_ != State::Playing) return;
+  ChatMsg m;
+  // Cleaned before it leaves rather than only on arrival, so what we send is what
+  // the host will accept — a line trimmed away to nothing here is one we know
+  // would be dropped there, and sending it anyway spends a rate-limit token on it.
+  m.text = cleanChat(line);
+  if (m.text.empty()) return;
+  send(MsgType::Chat, m);
 }
 
 void Client::sendHit(int entityId, const std::string& held, bool crit) {

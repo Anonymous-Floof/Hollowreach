@@ -53,6 +53,31 @@ class Host {
   // instead, so this is only ever the mid-session update.
   void broadcastWorldSettings();
 
+  // --- chat -------------------------------------------------------------------
+  // One line to one player, or to everybody. The host's own player is not a peer,
+  // so neither of these shows it anything: App puts the host's own copy in its own
+  // chat box, which is also what happens in single player where there is no Host
+  // at all. One path for both.
+  void sendChatLine(const std::string& playerId, std::uint8_t kind, const std::string& from,
+                    const std::string& text);
+  void broadcastChatLine(std::uint8_t kind, const std::string& from, const std::string& text);
+  // Tells everyone what level somebody now holds. Called when it changes; a guest
+  // joining is told everybody's inside onReady.
+  void broadcastPermission(const std::string& playerId, std::uint8_t level);
+  // Sends this player home with a reason. False when nobody by that id is here.
+  bool kick(const std::string& playerId, const std::string& reason);
+
+  // --- what a command does to a guest -----------------------------------------
+  // Each returns false when nobody by that id is connected, which is the only way
+  // they can fail: everything else has already been checked by the command layer,
+  // and a guest is in no position to refuse an operator. Grouped here rather than
+  // spread through App because they are all the same thing — the host reaching
+  // into a body it does not simulate.
+  bool teleportPlayer(const std::string& playerId, const Vec3& to);
+  bool givePlayer(const std::string& playerId, const std::string& key, int count, int dura);
+  // `health` below zero leaves it alone. See SetStateMsg.
+  bool setPlayerState(const std::string& playerId, float health, bool clearInventory);
+
   void onLocalSleep(bool on, float target);
 
   // The proposal currently on the table, or -1 when nobody has asked. App reads
@@ -124,6 +149,12 @@ class Host {
     Bucket be{6, 12};
     Bucket pose{40, 80};
     Bucket misc{10, 20};
+    // Chat is slower than anything else here on purpose. Every other limit guards
+    // the simulation, where the cost of an over-fast guest is CPU; this one guards
+    // everybody else's screen, where the cost is that they cannot read it. Two a
+    // second sustained is faster than anyone types, and the burst of six covers
+    // pasting a few lines or a command whose answer needs several.
+    Bucket chat{2, 6};
   };
 
   PeerState* peerFor(PeerId id);
@@ -189,6 +220,10 @@ class Host {
   std::vector<EditMsg> pendingEdits_;
   double snapTimer_ = 0;
   double timeTimer_ = 0;
+  // The host's clock as of the last update(), for the command helpers — they are
+  // driven by somebody typing rather than by the loop and have no clock of their
+  // own. See the note where it is set.
+  double now_ = 0;
   // Stamped on each snapshot so a guest can tell a new one from one that took the
   // scenic route. Starts at 1, because 0 is what an unset field decodes to.
   std::uint32_t snapSeq_ = 0;
@@ -209,6 +244,12 @@ class Host {
   std::string sleepProposer_;
   void tallySleep();
   void broadcastSleepState();
+  // A system line for EVERYBODY — the guests over the wire and the host through
+  // the session, which is not a peer and would otherwise be the one person in the
+  // world who cannot see what just happened in it. Joins and leaves both go
+  // through here, because "who is in this world" is exactly the thing the host
+  // most wants a record of.
+  void announceChat(const std::string& text);
 };
 
 }  // namespace hr::net

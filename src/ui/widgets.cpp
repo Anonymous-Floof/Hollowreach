@@ -833,6 +833,16 @@ bool TextField::handle(const UiEvent& event, bool& submitted) {
   return changed;
 }
 
+void TextField::replaceRange(std::size_t begin, std::size_t end, const std::string& with) {
+  // Clamped and ordered rather than asserted: the caller's range came from parsing
+  // a line that may have changed since, and truncating is a recoverable wrong
+  // answer where indexing past the end is not one at all.
+  begin = std::min(begin, value_.size());
+  end = std::min(std::max(end, begin), value_.size());
+  value_.replace(begin, end - begin, with);
+  caret_ = anchor_ = begin + with.size();
+}
+
 void TextField::placeCaretAt(Text& text, const Rect& box, const TextStyle& style, float x) {
   // Walk code points until the advance passes the click, which is what a browser does
   // for a hit test inside a text run.

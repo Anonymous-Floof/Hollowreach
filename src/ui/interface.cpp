@@ -119,18 +119,22 @@ void Interface::closeInventory() {
   if (callbacks.closeStation) callbacks.closeStation();
 }
 
-bool Interface::wantsCursor() const { return screen_ != Screen::None; }
+// Chat counts for both. The pointer is released because moving the mouse while
+// typing should not spin the camera, and gameplay is blocked because `W` is a
+// letter for as long as the box is up.
+bool Interface::wantsCursor() const { return screen_ != Screen::None || chat_.isOpen(); }
 
 bool Interface::blocksGameplay() const {
   // The inventory and the Atlas sit over a running world but still swallow input; only
   // the bare HUD lets gameplay keys through.
-  return screen_ != Screen::None;
+  return screen_ != Screen::None || chat_.isOpen();
 }
 
 void Interface::update(double dt, const UiFrame& frame) {
   dt_ = dt;
   tweens_.beginFrame(dt);
   notify_.update(dt);
+  chat_.update(dt);
   if (frame.inventory) hud_.update(dt, *frame.inventory);
   // The station's block entity is re-resolved every frame: mining a forge while its
   // screen is open must not leave the interface writing through a dangling pointer.
@@ -201,7 +205,7 @@ void Interface::drawFullscreenImage(const Window& window, GLuint texture, float 
   ui_.end();
 }
 
-void Interface::draw(const Window& window, const Input& input, const UiFrame& frame) {
+void Interface::draw(const Window& window, Input& input, const UiFrame& frame) {
   // backdrop-filter reads the frame *behind* the card, so the capture has to happen
   // before any interface pixel lands on it.
   if (screen_ == Screen::Menu) {
@@ -215,8 +219,18 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
   UiEvent event = gatherEvent(window, input, dt_);
   // The wheel is consumed by whichever screen is up; the hotbar only sees it while
   // nothing is open, which App enforces by checking blocksGameplay().
-  if (screen_ != Screen::None && !mouseGuard_.guarding()) {
+  if ((screen_ != Screen::None || chat_.isOpen()) && !mouseGuard_.guarding()) {
     event.wheel = static_cast<float>(input.wheelPeek());
+  }
+
+  // Chat takes the keyboard before any screen sees it. It is only ever open with
+  // no screen up — App closes it before opening one — so this is an ordering
+  // guarantee rather than a contest: the frame that closes the box must not also
+  // let its Escape reach the pause menu behind it.
+  const bool chatting = chat_.handle(event, &input);
+  if (chatting) {
+    event.leftClick = event.rightClick = false;
+    event.wheel = 0.0f;
   }
 
   // The same remote bodies the nameplates are drawn from, handed to the Atlas so
@@ -316,6 +330,10 @@ void Interface::draw(const Window& window, const Input& input, const UiFrame& fr
     case Screen::None:
       break;
   }
+
+  // Over the HUD, under the toasts. A screen being up hides it rather than drawing
+  // it behind a card: the log is still there and comes back when the screen does.
+  if (screen_ == Screen::None || screen_ == Screen::Pause) chat_.draw(ui_, text_);
 
   notify_.draw(ui_, text_);
   ui_.end();

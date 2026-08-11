@@ -197,10 +197,19 @@ void Host::forget(PeerState& st) {
   note.message = who + " left the world";
   broadcast(MsgType::Notify, note);
   if (hooks_.notify) hooks_.notify(note.message);
+  // A leave was reaching the toast and nothing else, so the one event a host most
+  // wants a record of — who was here and when they went — left no trace at all.
+  announceChat(note.message);
   if (hooks_.onRosterChange) hooks_.onRosterChange();
 }
 
 void Host::update(double dt, double now) {
+  // Cached so the command helpers below can grant a movement grace window. They
+  // are called from App in response to a typed line rather than from the update
+  // loop, so they have no clock of their own — and a grace that had to be a single
+  // exemption instead of a window would be defeated by exactly the reordering the
+  // window exists for. See PeerState::moveGraceUntil.
+  now_ = now;
   if (!transport_.active() || !game_.world) return;
 
   transport_.poll(events_);
@@ -406,6 +415,21 @@ void Host::onMessage(PeerState& st, const std::uint8_t* data, std::size_t size, 
       if (decode(r, m) && st.misc.take(now)) sendTo(st.peer, MsgType::Pong, m, Channel::Fast);
       break;
     }
+    case MsgType::Chat: {
+      ChatMsg m;
+      if (!decode(r, m) || !st.active) break;
+      // The rate limit is checked before the line is looked at, so a guest cannot
+      // buy extra tokens by sending something that turns out to be invalid. A
+      // refused line is dropped silently rather than answered: telling a flooder
+      // it is being throttled costs the same bandwidth as the flood.
+      if (!st.chat.take(now)) break;
+      const std::string text = cleanChat(m.text);
+      if (text.empty()) break;
+      // Straight up to the session, which owns the command registry and the
+      // permission table. Host deliberately cannot tell a command from a sentence.
+      if (hooks_.onChatLine) hooks_.onChatLine(st.playerId, text);
+      break;
+    }
     case MsgType::Bye: {
       // The guest has already stopped listening, so the roster is updated now
       // rather than when ENet's own handshake eventually times out.
@@ -428,9 +452,21 @@ void Host::onHello(PeerState& st, const HelloMsg& m) {
     drop(st, "Already connected");
     return;
   }
+  const std::string name = cleanName(m.name);
+  // Bans and the whitelist, asked of the session rather than answered here: the
+  // Host owns no list of people, and a transport that decided who was welcome
+  // would be a second place for that decision to live. Checked before the world is
+  // built, so refusing somebody costs nothing.
+  if (hooks_.mayJoin) {
+    std::string reason;
+    if (!hooks_.mayJoin(m.playerId, name, reason)) {
+      drop(st, reason.empty() ? "You may not join this world" : reason);
+      return;
+    }
+  }
   st.greeted = true;
   st.playerId = m.playerId;
-  st.name = cleanName(m.name);
+  st.name = name;
   sendWorld(st);
 }
 
@@ -505,11 +541,116 @@ void Host::onReady(PeerState& st) {
   join.name = st.name;
   broadcast(MsgType::PlayerJoin, join, st.peer);
 
+  // Everybody's level, to the newcomer. Its completion popup filters on its own,
+  // and /list shows everyone's, so both have to arrive before the first thing is
+  // typed. The host's own goes too: a guest that did not know the host was the
+  // owner would show them as an ordinary player in the list.
+  if (hooks_.levelOf) {
+    PermissionMsg mine;
+    mine.playerId = playerId_;
+    mine.level = hooks_.levelOf(playerId_, name_);
+    sendTo(st.peer, MsgType::Permission, mine);
+    // `st` is already active by this point, so this covers the newcomer too — which
+    // is what tells it its OWN level, the one thing it cannot work out for itself.
+    for (const PeerState& other : peers_) {
+      if (!other.active || other.playerId.empty()) continue;
+      PermissionMsg p;
+      p.playerId = other.playerId;
+      p.level = hooks_.levelOf(other.playerId, other.name);
+      sendTo(st.peer, MsgType::Permission, p);
+      // And the newcomer's own level to everybody else, so their rosters agree.
+      if (&other == &st) broadcast(MsgType::Permission, p, st.peer);
+    }
+  }
+
   NotifyMsg note;
   note.message = st.name + " joined the world";
   broadcast(MsgType::Notify, note, st.peer);
   if (hooks_.notify) hooks_.notify(note.message);
+  // The same event in the chat log, where it stays. A toast is gone in two
+  // seconds, and "when did Ada leave" is a question a log can answer.
+  announceChat(note.message);
   if (hooks_.onRosterChange) hooks_.onRosterChange();
+}
+
+void Host::announceChat(const std::string& text) {
+  broadcastChatLine(1 /*ui::Chat::Kind::System*/, {}, text);
+  // And to the host's own box. The host is not one of `peers_`, so a broadcast
+  // reaches everybody except the person running the world — which is how the
+  // guests came to have a record of who joined and the host did not.
+  if (hooks_.onChatShow) hooks_.onChatShow(1, {}, text);
+}
+
+void Host::sendChatLine(const std::string& playerId, std::uint8_t kind, const std::string& from,
+                        const std::string& text) {
+  PeerState* st = peerForPlayer(playerId);
+  if (!st || !st->active) return;
+  ChatLineMsg m;
+  m.kind = kind;
+  m.from = from;
+  m.text = text;
+  sendTo(st->peer, MsgType::ChatLine, m);
+}
+
+void Host::broadcastChatLine(std::uint8_t kind, const std::string& from,
+                             const std::string& text) {
+  ChatLineMsg m;
+  m.kind = kind;
+  m.from = from;
+  m.text = text;
+  broadcast(MsgType::ChatLine, m);
+}
+
+void Host::broadcastPermission(const std::string& playerId, std::uint8_t level) {
+  if (!validPlayerId(playerId)) return;
+  PermissionMsg m;
+  m.playerId = playerId;
+  m.level = level;
+  broadcast(MsgType::Permission, m);
+}
+
+bool Host::kick(const std::string& playerId, const std::string& reason) {
+  PeerState* st = peerForPlayer(playerId);
+  if (!st) return false;
+  drop(*st, reason.empty() ? "You were removed from this world" : reason);
+  return true;
+}
+
+bool Host::teleportPlayer(const std::string& playerId, const Vec3& to) {
+  PeerState* st = peerForPlayer(playerId);
+  if (!st || !st->active) return false;
+  TeleportMsg m;
+  m.pos = to;
+  sendTo(st->peer, MsgType::Teleport, m);
+  // The same grace a wayshard gets, and for the same reason: the guest is about to
+  // move further in one step than any speed allows, and the movement check would
+  // otherwise answer its own teleport with a teleport back. Set here rather than
+  // waiting for the guest to say so, because we are the one who moved it.
+  st->havePose = false;
+  st->moveGraceUntil = now_ + kMoveGrace;
+  st->lastPose = to;
+  return true;
+}
+
+bool Host::givePlayer(const std::string& playerId, const std::string& key, int count, int dura) {
+  PeerState* st = peerForPlayer(playerId);
+  if (!st || !st->active) return false;
+  GiveMsg m;
+  m.key = key;
+  m.count = count;
+  m.dura = dura;
+  sendTo(st->peer, MsgType::Give, m);
+  return true;
+}
+
+bool Host::setPlayerState(const std::string& playerId, float health, bool clearInventory) {
+  PeerState* st = peerForPlayer(playerId);
+  if (!st || !st->active) return false;
+  SetStateMsg m;
+  m.health = health;
+  m.clearInventory = clearInventory;
+  sendTo(st->peer, MsgType::SetState, m);
+  return true;
 }
 
 void Host::onPose(PeerState& st, const PoseMsg& m, double now) {

@@ -273,6 +273,17 @@ class TextField {
   // changed, and sets `submitted` when Enter was pressed.
   bool handle(const UiEvent& event, bool& submitted);
 
+  // Byte index of the caret. The chat box needs it to know which word is being
+  // typed; nothing else in the interface cares where the caret is.
+  std::size_t caret() const { return caret_; }
+  // Swaps a byte range for something else and leaves the caret just past it. This
+  // is what accepting a completion does — replacing the whole value would lose the
+  // rest of a line somebody is halfway through.
+  //
+  // The range is clamped and ordered, so a stale one from a line that has since
+  // changed truncates rather than corrupting the string.
+  void replaceRange(std::size_t begin, std::size_t end, const std::string& with);
+
   // Draws the value (or the placeholder), the caret and any selection inside `box`.
   void draw(Ui2D& ui, Text& text, const Rect& box, const TextStyle& style, double time);
   // Moves the caret to the code point nearest `x`, for a click inside the field.
