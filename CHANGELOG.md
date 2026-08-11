@@ -15,21 +15,6 @@ version heading when it's time to ship.
 
 ## [Latest]
 
-## [2.12.1] - 2026-08-11
-
-### Fixed
-- **The mouse is given back when you finish typing.** Opening chat released the
-  pointer and nothing ever recaptured it, so after sending a line the cursor sat
-  loose over a world that was still reading the mouse — looking around simply
-  stopped working until you opened and closed a screen.
-
-### Added
-- **The chat log is selectable and copyable.** Drag across it to select, **Ctrl+C**
-  to copy. Getting a seed or a coordinate out of the log meant reading it off the
-  screen and typing it back in by hand, which for a ten-digit seed is exactly the
-  task people are worst at. **Ctrl+V** pastes into the box and **Ctrl+X** cuts, and
-  clicking in the box puts the caret where you clicked.
-
 ## [2.12.0] - 2026-08-11
 
 ### Added
@@ -38,6 +23,12 @@ version heading when it's time to ship.
   looking at. Lines fade after ten seconds when the box is shut; **PageUp** reads
   back through them when it is open. Joins and leaves land in the log as well as
   in a toast, so "when did Ada leave" is a question you can answer.
+
+  **The log is text and behaves like text.** Drag across it to select, **Ctrl+C**
+  to copy — getting a seed or a coordinate out of it otherwise means reading ten
+  digits off the screen and typing them back in, which is exactly the task people
+  are worst at. **Ctrl+V** pastes into the box, **Ctrl+X** cuts, and clicking in
+  the box puts the caret where you clicked.
 
 - **Typed commands**, in single player as well as multiplayer. Twenty-seven of
   them: `/give` `/tp` `/time` `/gamemode` `/summon` `/heal` `/clear` `/kill`
@@ -104,6 +95,10 @@ version heading when it's time to ship.
   everyone else watched a body stand there until the connection timed out —
   seconds of a player who had already closed the window. The host had handled a
   goodbye since multiplayer landed; nothing was ever sending one.
+- **The mouse comes back when you finish typing.** Opening chat released the
+  pointer and nothing ever recaptured it, so after sending a line the cursor sat
+  loose over a world that was still reading the mouse — looking around simply
+  stopped working until you opened and closed a screen.
 - **Leaves are recorded.** Somebody leaving reached a two-second toast and nothing
   else, so the one event a host most wants a record of left no trace. Joins and
   leaves are both in the chat log now — and the host can see them, which it could
