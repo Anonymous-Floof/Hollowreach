@@ -73,6 +73,15 @@ struct DropRun {
 // leaving one must not arrive as a pristine copy if it ever could.
 game::ItemStack takeFromStack(game::ItemStack& stack, bool whole);
 
+// The outer width of the bag panel: nine columns, their gaps, the panel's padding
+// and its two borders.
+//
+// Public because the station row above the bag is given this width rather than its
+// own — see InventoryUI::build for why — and because that is the sort of agreement
+// between two pieces of layout that silently drifts unless there is one function
+// both of them call. Reads the theme, so a pack that resizes slots moves both.
+float bagPanelWidth();
+
 // Which panel set is showing. Matches js/ui/inventoryui.js's `mode`.
 enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest };
 

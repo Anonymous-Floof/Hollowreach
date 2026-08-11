@@ -65,6 +65,21 @@ struct HudFrame {
   const Camera* camera = nullptr;
 };
 
+// Where the stat rows sit above the hotbar.
+//
+// Hearts against the bar's left edge, hunger and breath against its right. Pulled
+// out of Hud::drawStats so it can be checked without a GL context — and so the
+// check exercises the real arithmetic rather than a copy of it, which is the
+// difference between a test and a decoration.
+//
+// Widths are the full pixel width of each row; the returned values are ROW
+// CENTRES, because that is what drawPips takes.
+struct StatsAnchors {
+  float heartsCx = 0, hungerCx = 0, breathCx = 0;
+};
+StatsAnchors statsAnchors(float barLeft, float barRight, float heartsWidth, float hungerWidth,
+                          float breathWidth);
+
 class Hud {
  public:
   void toggleDebug() { showDebug_ = !showDebug_; }

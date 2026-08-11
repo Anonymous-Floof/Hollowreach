@@ -37,4 +37,16 @@ bool dumpRecipes(const std::string& path);
 // and never sees the item.
 bool dumpLoot(const std::string& path);
 
+// The resolved interface theme — every palette entry, every derived role and
+// every measurement, with its current value.
+//
+// The output is a **valid theme.json**: dropping it into a pack unchanged is an
+// identity theme, so authoring one is a matter of editing the lines you care
+// about rather than guessing at names. That is also why it is not commented —
+// the moment it stops being loadable it stops being the thing you start from.
+//
+// Reflects whatever packs are enabled, so it doubles as the answer to "what did
+// this pack actually change".
+bool dumpTheme(const std::string& path);
+
 }  // namespace hr::dev

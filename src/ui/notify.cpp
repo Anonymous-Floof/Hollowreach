@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "ui/settings.h"
 #include "ui/widgets.h"
 
 namespace hr::ui {
@@ -12,8 +13,12 @@ constexpr float kPadX = 12, kPadY = 8, kRadius = 6, kAccentBar = 3, kGap = 6;
 
 }  // namespace
 
-void Notify::push(std::string message) {
+void Notify::push(std::string message, Toast kind) {
   if (message.empty()) return;
+  // Asked here rather than at each of the fifty-odd call sites, so a toast added
+  // later cannot forget the setting exists. The cost is one map lookup per toast,
+  // against a thing that happens a few times a minute at most.
+  if (kind == Toast::Routine && !settings().flag("routineNotifications")) return;
   // A hard cap the JS did not need: the DOM would scroll off screen, whereas here a
   // runaway notifier would just paint over the whole right-hand side.
   if (toasts_.size() >= 8) toasts_.pop_front();
@@ -21,7 +26,7 @@ void Notify::push(std::string message) {
 }
 
 void Notify::update(double dt) {
-  for (Toast& t : toasts_) t.age += dt;
+  for (Entry& t : toasts_) t.age += dt;
   while (!toasts_.empty() && toasts_.front().age >= kToastLife) toasts_.pop_front();
 }
 
@@ -31,8 +36,8 @@ void Notify::draw(Ui2D& ui, Text& text) {
   const TextMetrics m = text.metrics(ts);
 
   // #notify { right: 14px; top: 196px; align-items: flex-end; gap: 6px }
-  float y = metric::toastTop;
-  for (const Toast& t : toasts_) {
+  float y = px(Scalar::ToastTop);
+  for (const Entry& t : toasts_) {
     // @keyframes toastin { from { opacity: 0; transform: translateX(20px) } }
     // @keyframes toastout { to { opacity: 0; transform: translateX(20px) } }
     float alpha = 1.0f;
@@ -51,13 +56,13 @@ void Notify::draw(Ui2D& ui, Text& text) {
 
     const float w = text.measure(t.message, ts) + kPadX * 2 + kAccentBar;
     const float h = m.lineHeight + kPadY * 2;
-    const Rect box {ui.width() - metric::toastRight - w + slide, y, w, h};
+    const Rect box {ui.width() - px(Scalar::ToastRight) - w + slide, y, w, h};
 
-    ui.fillRect(box, fade(rgba(20, 26, 33, 0.92), alpha), kRadius);
+    ui.fillRect(box, col(Role::ToastBg, alpha), kRadius);
     // border-left: 3px solid var(--accent) — a square-cornered bar over the rounded
     // background's left edge, which is how the browser renders a one-sided border on
     // a rounded box.
-    ui.fillRect({box.x, box.y, kAccentBar, box.h}, fade(color::accent, alpha), 0);
+    ui.fillRect({box.x, box.y, kAccentBar, box.h}, fade(col(Role::Accent), alpha), 0);
 
     TextStyle drawStyle = ts;
     drawStyle.color = fade(ts.color, alpha);

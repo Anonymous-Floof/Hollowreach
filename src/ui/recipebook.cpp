@@ -268,19 +268,19 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   // ingredients, no arrow — there is no recipe being shown, only a thing to take.
   if (creative_) {
     Style tile = Doc::row(8, Justify::Start, Align::Center);
-    tile.bg = color::panel2;
-    tile.border = color::edge;
+    tile.bg = col(Role::PanelRaised);
+    tile.border = col(Role::Edge);
     tile.borderWidth = 1;
     tile.radius = 8;
     tile.padding = Edges(6, 8);
     const bool hot = hoveredTag_ == kTagIcon && hoveredIndex_ < static_cast<int>(iconKeys_.size()) &&
                      iconKeys_[static_cast<std::size_t>(hoveredIndex_)] == e.outKey;
     if (hot) {
-      tile.bg = color::slot;
-      tile.border = color::accent;
+      tile.bg = col(Role::SlotFill);
+      tile.border = col(Role::Accent);
     }
     doc_.begin(tile, kTagCard, familyIndex);
-    doc_.icon(iconFor(e.outKey), metric::rbIconOut, metric::rbIconOut, {}, kTagIcon,
+    doc_.icon(iconFor(e.outKey), px(Scalar::RecipeIconOut), px(Scalar::RecipeIconOut), {}, kTagIcon,
               static_cast<int>(iconKeys_.size()));
     iconKeys_.push_back(e.outKey);
     iconIsOutput_.push_back(true);
@@ -296,8 +296,8 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
 
   // .rb-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px }
   Style card = Doc::row(8, Justify::Start, Align::Center);
-  card.bg = color::panel2;
-  card.border = color::edge;
+  card.bg = col(Role::PanelRaised);
+  card.border = col(Role::Edge);
   card.borderWidth = 1;
   card.radius = 8;
   card.padding = Edges(8, 10);
@@ -305,8 +305,8 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   // else on a card to click, and hunting for a small target is the opposite of what
   // this is for.
   if (hoveredTag_ == kTagCard && hoveredIndex_ == familyIndex && e.recipe) {
-    card.bg = color::slot;
-    card.border = color::accent;
+    card.bg = col(Role::SlotFill);
+    card.border = col(Role::Accent);
   }
   doc_.begin(card, kTagCard, familyIndex);
 
@@ -315,14 +315,14 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
     Style grid;
     grid.display = Display::Grid;
     grid.gridCols = e.gridWidth;
-    grid.gridColWidth = metric::rbCell;
+    grid.gridColWidth = px(Scalar::RecipeCell);
     grid.gap = 2;
     doc_.begin(grid);
     for (const std::string& cellKey : e.cells) {
       const bool empty = cellKey.empty();
       doc_.begin(widget::rbCell(empty));
       if (!empty) {
-        doc_.icon(iconFor(cellKey), metric::rbIcon, metric::rbIcon, {}, kTagIcon,
+        doc_.icon(iconFor(cellKey), px(Scalar::RecipeIcon), px(Scalar::RecipeIcon), {}, kTagIcon,
                   static_cast<int>(iconKeys_.size()));
         iconKeys_.push_back(cellKey);
         iconIsOutput_.push_back(false);
@@ -339,7 +339,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
     chips.maxWidth = 90;
     doc_.begin(chips);
     for (const auto& [key, count] : e.chips) {
-      doc_.icon(iconFor(key), metric::rbIcon, metric::rbIcon, {}, kTagIcon,
+      doc_.icon(iconFor(key), px(Scalar::RecipeIcon), px(Scalar::RecipeIcon), {}, kTagIcon,
                 static_cast<int>(iconKeys_.size()));
       iconKeys_.push_back(key);
       iconIsOutput_.push_back(false);
@@ -354,7 +354,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
 
   TextStyle go;
   go.size = 16;
-  go.color = color::muted;
+  go.color = col(Role::Muted);
   doc_.label("\xE2\x9E\xA4", go);  // ➤
 
   // .rb-out { display: flex; align-items: center; gap: 6px; min-width: 0 }
@@ -362,7 +362,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   out.grow = 1;
   out.minWidth = 0;
   doc_.begin(out);
-  doc_.icon(iconFor(e.outKey), metric::rbIconOut, metric::rbIconOut, {}, kTagIcon,
+  doc_.icon(iconFor(e.outKey), px(Scalar::RecipeIconOut), px(Scalar::RecipeIconOut), {}, kTagIcon,
             static_cast<int>(iconKeys_.size()));
   iconKeys_.push_back(e.outKey);
   iconIsOutput_.push_back(true);
@@ -388,7 +388,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
       doc_.begin(widget::rbArrow(hovered), tag, familyIndex);
       TextStyle ts;
       ts.size = 12;
-      ts.color = hovered ? color::onAccent : color::text;
+      ts.color = hovered ? col(Role::AccentInk) : col(Role::Text);
       doc_.label(tag == kTagPrev ? "\xE2\x80\xB9" : "\xE2\x80\xBA", ts);
       doc_.end();
       if (tag == kTagPrev) {
@@ -457,7 +457,7 @@ void RecipeBook::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& t
     doc_.begin(widget::rbTab(active, hovered), kTagTab, static_cast<int>(i));
     TextStyle ts;
     ts.size = 12;
-    ts.color = active ? color::onAccent : (hovered ? color::text : color::muted);
+    ts.color = active ? col(Role::AccentInk) : (hovered ? col(Role::Text) : col(Role::Muted));
     if (active) ts.font = FontId::SansBold;
     doc_.label(kTabs[i].label, ts);
     doc_.end();
@@ -612,7 +612,7 @@ void RecipeBook::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
 }
 
 void RecipeBook::draw(Ui2D& ui, Text& text) {
-  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.55));
+  ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
   doc_.paint(ui);
 
   // The chip counts, which the CSS positions absolutely over the bottom-right of a chip.
@@ -623,8 +623,8 @@ void RecipeBook::draw(Ui2D& ui, Text& text) {
     TextStyle ts;
     ts.font = FontId::SansBlack;
     ts.size = 11;
-    ts.color = color::white;
-    ts.withShadow(1, 1, 0, color::black);
+    ts.color = kWhite;
+    ts.withShadow(1, 1, 0, kBlack);
     const std::string label = std::to_string(count);
     const TextMetrics m = text.metrics(ts);
     text.draw(ui, r.right() + 2 - text.measure(label, ts), r.bottom() + 3 - m.descent, label,

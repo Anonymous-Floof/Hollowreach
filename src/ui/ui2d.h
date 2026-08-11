@@ -73,6 +73,22 @@ enum class UiMode : int {
   MaskedTexture = 8,
 };
 
+// The nine regions of a nine-slice, as cut lines rather than as rectangles: `xs`
+// and `ys` are the four destination edges, `us` and `vs` the four source ones, so
+// region (row, col) spans xs[col]..xs[col+1] by ys[row]..ys[row+1].
+//
+// Split out of Ui2D::ninePatch so it can be tested without a GL context. That is
+// not a convenience — a test that reimplemented this arithmetic to check it would
+// be comparing the code against a copy of itself, and would go on passing with the
+// real one broken.
+struct NineSlice {
+  float xs[4] {}, ys[4] {}, us[4] {}, vs[4] {};
+  // The corner size actually used, after being fitted to the destination.
+  float corner = 0;
+};
+NineSlice computeNineSlice(const Rect& r, float u0, float v0, float u1, float v1, int texWidth,
+                           int texHeight, float slice);
+
 // A CSS box-shadow. `inset` shadows are handled separately (only one element uses
 // one, and it is a 1px highlight line).
 struct BoxShadow {
@@ -127,12 +143,32 @@ class Ui2D {
 
   // Textured quad from the bound texture. `tint` multiplies; white leaves it alone.
   void texturedRect(const Rect& r, float u0, float v0, float u1, float v1,
-                    Rgba tint = color::white);
+                    Rgba tint = kWhite);
   // The same, clipped to `mask`'s rounded corners — `overflow: hidden` on a box with a
   // border-radius. Anything the radius cuts away shows what was already behind, which is
   // what makes it different from painting over the corners.
   void texturedRectMasked(const Rect& r, float u0, float v0, float u1, float v1,
-                          const Rect& mask, float maskRadius, Rgba tint = color::white);
+                          const Rect& mask, float maskRadius, Rgba tint = kWhite);
+
+  // A nine-slice: the four corners drawn at their own size, the four edges stretched
+  // along one axis, the middle stretched along both.
+  //
+  // This is the primitive a resource pack needs. Everything else here draws a shape
+  // this engine knows how to describe — a rounded rectangle with a border and a
+  // gradient — and a pack that wants a panel made of carved stone cannot say that in
+  // those terms at any radius. A nine-slice can say it, and can say it at any size,
+  // which is what separates a themeable interface from a recolourable one.
+  //
+  // Built out of nine texturedRect calls rather than a shader mode on purpose: the
+  // whole operation is UV arithmetic, and a new UiMode would be a branch in the
+  // fragment shader that every quad in the interface pays for.
+  //
+  // `slice` is the inset, in LAYOUT pixels, of the corner region on each edge; it is
+  // the same on all four unless `sliceY` is given. A slice larger than half the
+  // destination is scaled down rather than allowed to overlap itself, so a small
+  // button drawn with a large-slice sprite degrades instead of drawing inside out.
+  void ninePatch(const Rect& r, float u0, float v0, float u1, float v1, int texWidth,
+                 int texHeight, float slice, Rgba tint = kWhite);
 
   // Convex polygon fill and its outline, in layout pixels. Used by the Atlas for
   // waypoint diamonds and the heading arrow, which were Canvas2D paths.

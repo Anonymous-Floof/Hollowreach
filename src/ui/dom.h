@@ -101,6 +101,14 @@ struct Style {
   // transform: translate(...), applied to this node and its subtree after layout.
   float translateX = 0, translateY = 0;
 
+  // A resource pack's nine-slice for this box, or nullptr for the ordinary case of
+  // drawing it as a rounded rectangle. When present it replaces the fill, the
+  // gradient and the border — a sprite of carved stone already HAS an edge, and
+  // stroking a 2px accent line around it would be drawing this engine's idea of a
+  // border on top of somebody else's. The shadow is still drawn, because that sits
+  // outside the box and belongs to the layout rather than to the material.
+  const struct UiSprite* sprite = nullptr;
+
   // "this node is a <button>". The web build hung one listener on the document and
   // played its click tick whenever `e.target.closest("button")` matched, so the
   // sound came for free on every button on every screen. Doc::clickedButton asks
@@ -114,7 +122,7 @@ enum class Content : std::uint8_t { None, Text, Icon, Custom };
 struct IconRef {
   GLuint texture = 0;
   float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-  Rgba tint = color::white;
+  Rgba tint = kWhite;
 };
 
 struct Node {

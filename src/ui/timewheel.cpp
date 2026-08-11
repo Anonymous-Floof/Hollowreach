@@ -75,20 +75,20 @@ void disc(Ui2D& ui, float cx, float cy, float r, Rgba color) {
 
 bool button(Ui2D& ui, Text& text, const Rect& box, const std::string& label, bool hovered,
             bool enabled, bool primary) {
-  Rgba bg = color::panel2;
-  Rgba edge = color::edge;
-  Rgba fg = color::text;
+  Rgba bg = col(Role::PanelRaised);
+  Rgba edge = col(Role::Edge);
+  Rgba fg = col(Role::Text);
   if (primary) {
-    bg = hovered ? color::primaryHi : color::primaryLo;
-    edge = color::primaryEdge;
-    fg = hovered ? color::onPrimary : color::text;
+    bg = hovered ? col(Role::AccentHi) : col(Role::AccentLo);
+    edge = col(Role::AccentEdge);
+    fg = hovered ? col(Role::AccentInk) : col(Role::Text);
   } else if (hovered) {
-    bg = color::hover;
+    bg = col(Role::PanelHover);
   }
   if (!enabled) {
-    bg = color::slot;
-    edge = color::slotEdge;
-    fg = color::muted;
+    bg = col(Role::SlotFill);
+    edge = col(Role::SlotEdge);
+    fg = col(Role::Muted);
   }
   ui.fillRect(box, bg, 8.0f);
   ui.strokeRect(box, edge, 1.0f, 8.0f);
@@ -208,15 +208,15 @@ void TimeWheel::draw(Ui2D& ui, Text& text, const render::Sky& sky) {
   const float now = sky.time;
   const bool ready = canSleep(sky);
 
-  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(0, 0, 0, 0.55));
-  ui.shadow(l.card, BoxShadow{0, 18, 40, 0, rgba(0, 0, 0, 0.55)}, 14.0f);
-  ui.fillRect(l.card, color::panel, 14.0f);
-  ui.strokeRect(l.card, color::edge, 1.0f, 14.0f);
+  ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
+  ui.shadow(l.card, BoxShadow{0, 18, 40, 0, col(Role::Shadow, 0.55f)}, 14.0f);
+  ui.fillRect(l.card, col(Role::Panel), 14.0f);
+  ui.strokeRect(l.card, col(Role::Edge), 1.0f, 14.0f);
 
   TextStyle title;
   title.font = FontId::SansBold;
   title.size = 17.0f;
-  title.color = color::text;
+  title.color = col(Role::Text);
   text.drawInBox(ui, {l.card.x, l.card.y + 14.0f, l.card.w, 24.0f},
                  isVote() ? voter_ + " wants to sleep" : "Time", title, TextAlign::Center);
 
@@ -234,12 +234,12 @@ void TimeWheel::draw(Ui2D& ui, Text& text, const render::Sky& sky) {
     const float t = static_cast<float>(hour) / 24.0f;
     const bool major = hour % 6 == 0;
     tick(ui, l.cx, l.cy, t, inner, inner + (major ? l.thickness : l.thickness * 0.45f),
-         rgba(0, 0, 0, major ? 0.55 : 0.3), major ? 2.0f : 1.0f);
+         col(Role::Shadow, major ? 0.55f : 0.30f), major ? 2.0f : 1.0f);
   }
   TextStyle hourLabel;
   hourLabel.font = FontId::SansSemibold;
   hourLabel.size = 11.0f;
-  hourLabel.color = color::muted;
+  hourLabel.color = col(Role::Muted);
   for (int hour = 0; hour < 24; hour += 6) {
     float ux = 0, uy = 0;
     timeToUnit(static_cast<float>(hour) / 24.0f, ux, uy);
@@ -254,28 +254,28 @@ void TimeWheel::draw(Ui2D& ui, Text& text, const render::Sky& sky) {
   // ---- now, and the hour you have chosen ----
   float nx = 0, ny = 0;
   timeToUnit(now, nx, ny);
-  tick(ui, l.cx, l.cy, now, inner - 8.0f, l.radius + 4.0f, color::text, 2.0f);
-  disc(ui, l.cx + nx * (l.radius + 4.0f), l.cy + ny * (l.radius + 4.0f), 3.0f, color::text);
+  tick(ui, l.cx, l.cy, now, inner - 8.0f, l.radius + 4.0f, col(Role::Text), 2.0f);
+  disc(ui, l.cx + nx * (l.radius + 4.0f), l.cy + ny * (l.radius + 4.0f), 3.0f, col(Role::Text));
 
   float hx = 0, hy = 0;
   timeToUnit(target_, hx, hy);
   const float handleX = l.cx + hx * (l.radius - l.thickness * 0.5f);
   const float handleY = l.cy + hy * (l.radius - l.thickness * 0.5f);
-  const Rgba handle = ready ? color::accent : color::muted;
-  disc(ui, handleX, handleY, l.thickness * 0.62f, rgba(0, 0, 0, 0.5));
+  const Rgba handle = ready ? col(Role::Accent) : col(Role::Muted);
+  disc(ui, handleX, handleY, l.thickness * 0.62f, col(Role::Shadow, 0.50f));
   disc(ui, handleX, handleY, l.thickness * 0.46f, handle);
 
   // ---- the middle: the numbers ----
-  disc(ui, l.cx, l.cy, inner - 6.0f, color::bg);
+  disc(ui, l.cx, l.cy, inner - 6.0f, col(Role::Bg));
 
   TextStyle big;
   big.font = FontId::SansBlack;
   big.size = 34.0f;
-  big.color = color::text;
+  big.color = col(Role::Text);
   TextStyle sub;
   sub.font = FontId::Sans;
   sub.size = 12.0f;
-  sub.color = color::muted;
+  sub.color = col(Role::Muted);
 
   text.drawInBox(ui, {l.cx - inner, l.cy - 30.0f, inner * 2, 34.0f},
                  render::Sky::clockStringAt(target_), big, TextAlign::Center);
@@ -290,7 +290,7 @@ void TimeWheel::draw(Ui2D& ui, Text& text, const render::Sky& sky) {
   TextStyle note;
   note.font = FontId::Sans;
   note.size = 12.5f;
-  note.color = ready ? color::muted : color::danger;
+  note.color = ready ? col(Role::Muted) : col(Role::Danger);
   std::string message;
   if (isVote()) {
     message = "Everyone has to agree before the night moves.";

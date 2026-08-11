@@ -151,7 +151,7 @@ bool Menu::buildTitleTexture(Text& text) {
   ts.font = FontId::SansBlack;
   ts.size = kTitleSize;
   ts.letterSpacing = kTitleLetterSpacing;
-  ts.color = color::white;
+  ts.color = kWhite;
 
   Image glyphs = text.rasterise(kTitleText, ts, kTitleRaster);
   if (glyphs.empty()) {
@@ -159,15 +159,15 @@ bool Menu::buildTitleTexture(Text& text) {
     return true;  // not fatal; the menu simply has no title art
   }
 
-  applyVerticalGradient(glyphs, {{0.0f, color::titleTop},
-                                 {0.52f, color::titleMid},
-                                 {1.0f, color::titleBottom}});
+  applyVerticalGradient(glyphs, {{0.0f, col(Role::TitleTop)},
+                                 {0.52f, col(Role::TitleMid)},
+                                 {1.0f, col(Role::TitleBottom)}});
 
   // Two stacked drop-shadows. CSS applies them outside-in: the second filter blurs the
   // result of the first, but with a hard 0-blur first shadow the visible result is the
   // same as compositing both under the glyphs, which is what this does.
-  const Image hard = dropShadowLayer(glyphs, 0.0f, color::primaryEdge);
-  const Image soft = dropShadowLayer(glyphs, 22.0f * kTitleRaster, rgba(0, 0, 0, 0.6));
+  const Image hard = dropShadowLayer(glyphs, 0.0f, col(Role::AccentEdge));
+  const Image soft = dropShadowLayer(glyphs, 22.0f * kTitleRaster, col(Role::Shadow, 0.60f));
 
   // Room for the largest offset plus the soft blur's spread.
   const int padX = soft.width() / 2 - glyphs.width() / 2 + 4;
@@ -272,43 +272,63 @@ void Menu::buildPageMain(const UiEvent& event, TweenStore& tweens) {
     case platform::update::Stage::Failed: updateLabel = "Update check failed"; break;
     case platform::update::Stage::Unsupported: updateLabel = nullptr; break;
   }
-  for (const Item& item : items) {
-    const bool hovered = hoveredTag_ == item.tag;
-    Style s = widget::menuButton(hovered, item.kind);
+  (void)event;
+
+  // Laid out as one primary, a two-column grid, and one exit — rather than as
+  // eight full-width rows stacked down the middle.
+  //
+  // The rows were costing a third of the screen height to say seven words, and
+  // every one of them was the same size, so nothing on the screen said which one
+  // you came here to press. A full-width Play at the top and a full-width Quit at
+  // the bottom bracket the things you might browse, and the browsing ones sit in
+  // a grid because they are peers and should look like peers.
+  const auto button = [&](int tag, const char* label, widget::ButtonKind kind, bool inGrid) {
+    const bool hovered = hoveredTag_ == tag;
+    Style s = widget::menuButton(hovered, kind);
+    // The grid's own gap does the spacing; a per-button margin on top of it would
+    // be two mechanisms fighting over the same pixels.
+    if (inGrid) s.margin = Edges(0);
     // #menu-root > .btn:hover { transform: translateX(3px) }
-    s.translateX = tweens.toward(TweenStore::key(item.tag), hovered, 0.12) * 3.0f;
-    const int node = main_.begin(s, item.tag);
-    main_.label(item.label, widget::menuButtonText(hovered, item.kind));
+    s.translateX = tweens.toward(TweenStore::key(tag), hovered, 0.12) * 3.0f;
+    main_.begin(s, tag);
+    main_.label(label, widget::menuButtonText(hovered, kind));
     main_.end();
-    (void)node;
+  };
 
-    // The ::before accent bar, scaleY(0) -> scaleY(1) over .18s. Drawn as a custom node
-    // so the bar's height can be animated independently of its slot in the layout.
-    (void)event;
+  button(items[0].tag, items[0].label, items[0].kind, false);
 
-    // The updater sits above Quit rather than at the very bottom: it is a normal
-    // thing to do and Quit should stay the last thing on the screen.
-    if (item.tag == kTagAbout && updateLabel && platform::update::supported()) {
-      const bool hoveredUp = hoveredTag_ == kTagUpdate;
-      const bool ready = up.stage == platform::update::Stage::ReadyToApply ||
-                         up.stage == platform::update::Stage::Available;
-      Style us = widget::menuButton(
-          hoveredUp, ready ? widget::ButtonKind::Primary : widget::ButtonKind::Normal);
-      us.translateX = tweens.toward(TweenStore::key(kTagUpdate), hoveredUp, 0.12) * 3.0f;
-      main_.begin(us, kTagUpdate);
-      main_.label(updateLabel, widget::menuButtonText(
-                                   hoveredUp,
-                                   ready ? widget::ButtonKind::Primary
-                                         : widget::ButtonKind::Normal));
-      main_.end();
-      if (!up.message.empty() && up.stage != platform::update::Stage::Idle) {
-        Style note;
-        note.margin = Edges(2, 0, 6, 0);
-        note.maxWidth = 320;
-        main_.label(up.message, widget::muted(11.5f), note);
-      }
-    }
+  Style grid;
+  grid.display = Display::Grid;
+  grid.gridCols = 2;
+  grid.gap = px(Scalar::Gap);
+  grid.margin = Edges(px(Scalar::Gap), 0);
+  main_.begin(grid);
+  for (std::size_t i = 1; i + 1 < std::size(items); ++i) {
+    button(items[i].tag, items[i].label, items[i].kind, true);
   }
+  // The updater's cell, when there is one. It joins the grid rather than sitting
+  // apart from it: checking for an update is an errand of exactly the same weight
+  // as opening the Gallery, and the label already carries its own state.
+  const bool showUpdate = updateLabel != nullptr && platform::update::supported();
+  if (showUpdate) {
+    const bool ready = up.stage == platform::update::Stage::ReadyToApply ||
+                       up.stage == platform::update::Stage::Available;
+    button(kTagUpdate, updateLabel,
+           ready ? widget::ButtonKind::Primary : widget::ButtonKind::Normal, true);
+  }
+  main_.end();
+
+  if (showUpdate && !up.message.empty() && up.stage != platform::update::Stage::Idle) {
+    Style note;
+    note.margin = Edges(0, 0, px(Scalar::GapTight), 0);
+    main_.label(up.message, widget::muted(11.5f), note);
+  }
+
+  // Quit last, and the only Danger button here. Escape has always quit from this
+  // screen; this is the same exit with a label on it, since nothing else says the
+  // game can be left at all.
+  button(items[std::size(items) - 1].tag, items[std::size(items) - 1].label,
+         items[std::size(items) - 1].kind, false);
 }
 
 void Menu::buildPageWorlds(const UiEvent& event, TweenStore& tweens) {
@@ -332,8 +352,8 @@ void Menu::buildPageWorlds(const UiEvent& event, TweenStore& tweens) {
     const WorldEntry& w = worlds_[i];
     // .world-row { display:flex; justify-content:space-between; align-items:center }
     Style row = Doc::row(0, Justify::SpaceBetween, Align::Center);
-    row.bg = color::panel2;
-    row.border = color::edge;
+    row.bg = col(Role::PanelRaised);
+    row.border = col(Role::Edge);
     row.borderWidth = 2;
     row.radius = 9;
     row.padding = Edges(10, 14);
@@ -347,8 +367,8 @@ void Menu::buildPageWorlds(const UiEvent& event, TweenStore& tweens) {
     main_.label(w.name.empty() ? "Unnamed" : w.name, widget::worldName());
     if (w.outdated()) {
       Style pill = Doc::row(0, Justify::Center, Align::Center);
-      pill.bg = fade(color::danger, 0.18);
-      pill.border = color::dangerEdge;
+      pill.bg = fade(col(Role::Danger), 0.18);
+      pill.border = col(Role::DangerEdge);
       pill.borderWidth = 1;
       pill.radius = 5;
       pill.padding = Edges(1, 6, 2, 6);
@@ -558,10 +578,10 @@ void Menu::buildPageJoin(const UiEvent& event, TweenStore& tweens) {
   for (std::size_t i = 0; i < lanGames_.size(); ++i) {
     const LanGame& g = lanGames_[i];
     Style row = Doc::row(0, Justify::SpaceBetween, Align::Center);
-    row.bg = color::panel2;
+    row.bg = col(Role::PanelRaised);
     row.border = hoveredTag_ == kTagLanRow && hoveredIndex_ == static_cast<int>(i)
-                     ? color::accent
-                     : color::edge;
+                     ? col(Role::Accent)
+                     : col(Role::Edge);
     row.borderWidth = 2;
     row.radius = 9;
     row.padding = Edges(9, 13);
@@ -645,8 +665,8 @@ void Menu::buildPageAbout(const UiEvent& event, TweenStore& tweens) {
   main_.begin(featureGrid);
   for (const Feature& f : kFeatures) {
     Style card = Doc::column(3, Align::Stretch);
-    card.bg = rgba(255, 255, 255, 0.04);
-    card.border = rgba(255, 255, 255, 0.07);
+    card.bg = col(Role::SubtleFill);
+    card.border = col(Role::SubtleEdge);
     card.borderWidth = 1;
     card.radius = 9;
     card.padding = Edges(9, 11);
@@ -675,8 +695,8 @@ void Menu::buildPageAbout(const UiEvent& event, TweenStore& tweens) {
     Style capCell = Doc::row(0, Justify::End, Align::Center);
     main_.begin(capCell);
     Style cap = Doc::row(0, Justify::Center, Align::Center);
-    cap.bg = color::inputBg;
-    cap.border = color::slot;
+    cap.bg = col(Role::InputBg);
+    cap.border = col(Role::SlotFill);
     cap.borderWidth = 1;
     cap.radius = 5;
     cap.padding = Edges(1, 7, 2, 7);
@@ -714,7 +734,12 @@ void Menu::buildMainCard(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   main_.begin(root);
 
   Style card = widget::glassCard();
-  card.maxWidth = ui.width() * 0.92f;
+  // Bounded, not merely capped at the viewport. The main page is a two-column
+  // grid now, and a grid measures wide by nature — left to itself it took the card
+  // to the full 92% and left the title marooned in the middle of a letterbox.
+  // 620 is two comfortable columns and no more; the other pages are narrower
+  // still, so this is a ceiling rather than a width.
+  card.maxWidth = std::min(ui.width() * 0.92f, page_ == MenuPage::Main ? 620.0f : 760.0f);
   // @keyframes menuIn — .5s of opacity and a 14px rise with a slight scale.
   const float entrance = easeMenuIn(tweens.once(TweenStore::key(999), 0.5));
   card.opacity = entrance;
@@ -740,7 +765,7 @@ void Menu::buildMainCard(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
     fallback.font = FontId::SansBlack;
     fallback.size = kTitleSize;
     fallback.letterSpacing = kTitleLetterSpacing;
-    fallback.color = color::titleMid;
+    fallback.color = col(Role::TitleMid);
     main_.label(kTitleText, fallback);
   }
   Style subtitle;
@@ -997,14 +1022,14 @@ void Menu::drawMain(Ui2D& ui, Text& text) {
     // .menu-screen::before — a vignette wash over the panorama, in two stacked layers.
     // radial-gradient(125% 95% at 50% 6%, rgba(8,12,18,0) 40%, rgba(6,9,14,0.55) 100%)
     ui.radialGradient(full, ui.width() * 0.5f, ui.height() * 0.06f, ui.width() * 1.25f,
-                      ui.height() * 0.95f, 0.40f, 1.0f, rgba(8, 12, 18, 0.0),
-                      rgba(6, 9, 14, 0.55));
+                      ui.height() * 0.95f, 0.40f, 1.0f, col(Role::Scrim, 0.0f),
+                      col(Role::Scrim, 0.55f));
     // linear-gradient(180deg, rgba(6,9,14,.30) 0%, transparent 24%, transparent 60%,
     //                 rgba(6,9,14,.66) 100%) — three bands, so three quads.
-    ui.fillGradient({0, 0, ui.width(), ui.height() * 0.24f}, rgba(6, 9, 14, 0.30),
-                    rgba(6, 9, 14, 0.0));
+    ui.fillGradient({0, 0, ui.width(), ui.height() * 0.24f}, col(Role::Scrim, 0.30f),
+                    col(Role::Scrim, 0.0f));
     ui.fillGradient({0, ui.height() * 0.60f, ui.width(), ui.height() * 0.40f},
-                    rgba(6, 9, 14, 0.0), rgba(6, 9, 14, 0.66));
+                    col(Role::Scrim, 0.0f), col(Role::Scrim, 0.66f));
   } else {
     // #menu:not(.has-pano) — a calm static gradient instead of a blank void:
     // radial-gradient(circle at 50% 24%, #223042 0%, #0c1016 80%). The panorama is a
@@ -1029,7 +1054,7 @@ void Menu::drawMain(Ui2D& ui, Text& text) {
       // The blurred copy covers the whole viewport, so the card samples its own slice.
       ui.texturedRect(card, card.x / ui.width(), card.y / ui.height(),
                       card.right() / ui.width(), card.bottom() / ui.height(),
-                      fade(color::white, main_.node(cardNode).opacity));
+                      fade(kWhite, main_.node(cardNode).opacity));
       ui.setTexture(0);
       ui.popClip();
     }
@@ -1043,7 +1068,7 @@ void Menu::drawMain(Ui2D& ui, Text& text) {
     const Node& n = main_.node(i);
     if (n.tag < kTagPlay || n.tag > kTagAbout) continue;
     if (n.tag != hoveredTag_) continue;
-    ui.fillRect({n.rect.x, n.rect.y, 3, n.rect.h}, color::accent);
+    ui.fillRect({n.rect.x, n.rect.y, 3, n.rect.h}, col(Role::Accent));
   }
 
   // Text fields draw their own caret, so they are painted after the tree.

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "ui/uisprites.h"
+
 namespace hr::ui {
 namespace {
 
@@ -111,40 +113,43 @@ Style screenDim() { return screen(); }
 Style menuCard(bool wide) {
   Style s;
   s.display = Display::Block;
-  s.bg = color::panel;
-  s.border = color::edge;
-  s.borderWidth = 2;
-  s.radius = 14;
-  s.padding = Edges(28, 32);
+  s.bg = col(Role::Panel);
+  s.border = col(Role::Edge);
+  s.borderWidth = px(Scalar::Border);
+  s.radius = px(Scalar::RadiusCard);
+  s.padding = Edges(px(Scalar::PadWide), px(Scalar::PadWide) + px(Scalar::GapTight));
   s.minWidth = wide ? 540.0f : 340.0f;
-  s.shadow = {0, 18, 50, 0, rgba(0, 0, 0, 0.5)};
+  s.shadow = {0, 18, 50, 0, col(Role::Shadow, 0.50f)};
+  s.sprite = sprite(SpriteSlot::PanelCard);
   return s;
 }
 
 Style glassCard() {
   Style s;
   s.display = Display::Block;
-  s.bg = rgba(28, 37, 48, 0.80);
-  s.bg2 = rgba(16, 22, 30, 0.86);
+  s.bg = col(Role::GlassTop);
+  s.bg2 = col(Role::GlassBottom);
   s.gradient = true;
-  s.border = rgba(127, 209, 127, 0.22);
-  s.borderWidth = 1;
-  s.radius = 16;
-  s.padding = Edges(30, 34, 24, 34);
+  s.border = col(Role::GlassEdge);
+  s.borderWidth = px(Scalar::BorderThin);
+  s.radius = px(Scalar::RadiusCard) + px(Scalar::Border);
+  s.padding = Edges(px(Scalar::PadWide) + px(Scalar::Border), px(Scalar::PadWide) + px(Scalar::RadiusSmall),
+                    px(Scalar::PadWide) - px(Scalar::GapTight), px(Scalar::PadWide) + px(Scalar::RadiusSmall));
   s.minWidth = 360;
-  s.shadow = {0, 26, 72, 0, rgba(0, 0, 0, 0.62)};
-  s.insetHighlight = rgba(255, 255, 255, 0.06);
+  s.shadow = {0, 26, 72, 0, col(Role::Shadow, 0.62f)};
+  s.insetHighlight = col(Role::GlassHighlight);
   return s;
 }
 
 Style invPanel() {
   Style s;
   s.display = Display::Block;
-  s.bg = color::panel;
-  s.border = color::edge;
-  s.borderWidth = 2;
-  s.radius = 12;
-  s.padding = Edges(16);
+  s.bg = col(Role::Panel);
+  s.border = col(Role::Edge);
+  s.borderWidth = px(Scalar::Border);
+  s.radius = px(Scalar::RadiusCard) - px(Scalar::Border);
+  s.padding = Edges(px(Scalar::Pad));
+  s.sprite = sprite(SpriteSlot::PanelInset);
   return s;
 }
 
@@ -154,25 +159,33 @@ Style invPanel() {
 
 Style btn(bool hovered, bool active, ButtonKind kind) {
   Style s = Doc::row(0, Justify::Center, Align::Center);
-  s.padding = Edges(12, 18);
-  s.margin = Edges(8, 0);
-  s.radius = 9;
-  s.borderWidth = 2;
+  s.padding = Edges(px(Scalar::ControlPadY), px(Scalar::ControlPadX));
+  s.margin = Edges(px(Scalar::Gap), 0);
+  s.radius = px(Scalar::Radius);
+  s.borderWidth = px(Scalar::Border);
   s.width = kAuto;  // display: block, width: 100% — the parent stretches it
   switch (kind) {
     case ButtonKind::Primary:
-      s.bg = hovered ? color::accent : color::accentDark;
-      s.border = color::primaryEdge;
+      s.bg = hovered ? col(Role::Accent) : col(Role::AccentDeep);
+      s.border = col(Role::AccentEdge);
       break;
     case ButtonKind::Danger:
-      s.bg = hovered ? color::danger : color::panel2;
-      s.border = hovered ? color::dangerEdge : color::edge;
+      s.bg = hovered ? col(Role::Danger) : col(Role::PanelRaised);
+      s.border = hovered ? col(Role::DangerEdge) : col(Role::Edge);
       break;
     case ButtonKind::Normal:
-      s.bg = hovered ? color::hover : color::panel2;
-      s.border = hovered ? color::accentDark : color::edge;
+      s.bg = hovered ? col(Role::PanelHover) : col(Role::PanelRaised);
+      s.border = hovered ? col(Role::AccentDeep) : col(Role::Edge);
       break;
   }
+  // A pack's own art, when it has supplied any. The primary slot is separate
+  // because a primary button is the one widget whose shape often differs rather
+  // than merely its colour.
+  s.sprite = kind == ButtonKind::Primary
+                 ? (sprite(SpriteSlot::ButtonPrimary) ? sprite(SpriteSlot::ButtonPrimary)
+                                                      : sprite(SpriteSlot::Button))
+                 : (hovered && sprite(SpriteSlot::ButtonHover) ? sprite(SpriteSlot::ButtonHover)
+                                                               : sprite(SpriteSlot::Button));
   // .btn:active { transform: translateY(1px) }
   if (active) s.translateY = 1;
   s.isButton = true;  // <button>: gets the UI click tick
@@ -181,26 +194,27 @@ Style btn(bool hovered, bool active, ButtonKind kind) {
 
 Style btnSmall(bool hovered, bool active, ButtonKind kind) {
   Style s = btn(hovered, active, kind);
-  s.padding = Edges(8, 14);
-  s.margin = Edges(4);
+  s.padding = Edges(px(Scalar::ControlPadY) - px(Scalar::GapTight),
+                    px(Scalar::ControlPadX) - px(Scalar::GapTight));
+  s.margin = Edges(px(Scalar::GapTight));
   s.isButton = true;  // <button>: gets the UI click tick
   return s;
 }
 
 Style menuButton(bool hovered, ButtonKind kind) {
   Style s = Doc::row(0, Justify::Center, Align::Center);
-  s.padding = Edges(12, 18);
-  s.margin = Edges(8, 0);
-  s.radius = 9;
-  s.borderWidth = 1;
+  s.padding = Edges(px(Scalar::ControlPadY), px(Scalar::ControlPadX));
+  s.margin = Edges(px(Scalar::Gap), 0);
+  s.radius = px(Scalar::Radius);
+  s.borderWidth = px(Scalar::BorderThin);
   if (kind == ButtonKind::Primary) {
     s.gradient = true;
-    s.bg = hovered ? color::accent : color::accentDark;
-    s.bg2 = hovered ? color::primaryHi : color::primaryLo;
-    s.border = color::primaryEdge;
+    s.bg = hovered ? col(Role::Accent) : col(Role::AccentDeep);
+    s.bg2 = hovered ? col(Role::AccentHi) : col(Role::AccentLo);
+    s.border = col(Role::AccentEdge);
   } else {
-    s.bg = hovered ? rgba(58, 78, 100, 0.86) : rgba(38, 50, 64, 0.70);
-    s.border = hovered ? rgba(127, 209, 127, 0.42) : rgba(255, 255, 255, 0.08);
+    s.bg = col(hovered ? Role::MenuButtonFillHover : Role::MenuButtonFill);
+    s.border = col(hovered ? Role::MenuButtonEdgeHover : Role::MenuButtonEdge);
   }
   s.isButton = true;  // <button>: gets the UI click tick
   return s;
@@ -208,15 +222,15 @@ Style menuButton(bool hovered, ButtonKind kind) {
 
 Style settingsTab(bool active, bool hovered) {
   Style s = Doc::row(0, Justify::Center, Align::Center);
-  s.padding = Edges(8, 16);
-  s.radius = 8;
-  s.borderWidth = 2;
+  s.padding = Edges(px(Scalar::PadTight), px(Scalar::GapWide));
+  s.radius = px(Scalar::Radius) - px(Scalar::BorderThin);
+  s.borderWidth = px(Scalar::Border);
   if (active) {
-    s.bg = color::accentDark;
-    s.border = color::primaryEdge;
+    s.bg = col(Role::AccentDeep);
+    s.border = col(Role::AccentEdge);
   } else {
-    s.bg = hovered ? color::hover : color::panel2;
-    s.border = color::edge;
+    s.bg = hovered ? col(Role::PanelHover) : col(Role::PanelRaised);
+    s.border = col(Role::Edge);
   }
   s.isButton = true;  // <button>: gets the UI click tick
   return s;
@@ -228,12 +242,12 @@ Style rbTab(bool active, bool hovered) {
   s.radius = 6;
   s.borderWidth = 1;
   if (active) {
-    s.bg = color::accent;
-    s.border = color::accent;
+    s.bg = col(Role::Accent);
+    s.border = col(Role::Accent);
   } else {
-    s.bg = color::panel2;
-    s.border = color::edge;
-    if (hovered) s.bg = color::hover;
+    s.bg = col(Role::PanelRaised);
+    s.border = col(Role::Edge);
+    if (hovered) s.bg = col(Role::PanelHover);
   }
   s.isButton = true;  // <button>: gets the UI click tick
   return s;
@@ -244,8 +258,8 @@ Style galleryButton(bool hovered, bool danger) {
   s.padding = Edges(5, 4);
   s.radius = 6;
   s.borderWidth = 1;
-  s.bg = hovered ? (danger ? color::danger : color::hover) : color::slot;
-  s.border = hovered ? (danger ? color::dangerEdge : color::accentDark) : color::slotEdge;
+  s.bg = hovered ? (danger ? col(Role::Danger) : col(Role::PanelHover)) : col(Role::SlotFill);
+  s.border = hovered ? (danger ? col(Role::DangerEdge) : col(Role::AccentDeep)) : col(Role::SlotEdge);
   s.grow = danger ? 0.0f : 1.0f;
   if (danger) s.width = 30;
   s.isButton = true;  // <button>: gets the UI click tick
@@ -257,8 +271,8 @@ Style rbArrow(bool hovered) {
   s.padding = Edges(1, 6);
   s.radius = 4;
   s.borderWidth = 1;
-  s.bg = hovered ? color::accent : color::slot;
-  s.border = color::slotEdge;
+  s.bg = hovered ? col(Role::Accent) : col(Role::SlotFill);
+  s.border = col(Role::SlotEdge);
   s.isButton = true;  // <button>: gets the UI click tick
   return s;
 }
@@ -268,7 +282,7 @@ TextStyle btnText(bool hovered, ButtonKind kind) {
   t.font = FontId::SansSemibold;
   t.size = 16;
   t.letterSpacing = 0.5f;
-  t.color = (kind == ButtonKind::Primary && hovered) ? color::onPrimary : color::text;
+  t.color = (kind == ButtonKind::Primary && hovered) ? col(Role::AccentInk) : col(Role::Text);
   return t;
 }
 
@@ -284,7 +298,7 @@ TextStyle menuButtonText(bool hovered, ButtonKind kind) {
   t.size = 15;
   t.letterSpacing = 1.4f;
   t.uppercase = true;
-  t.color = (kind == ButtonKind::Primary && hovered) ? color::onPrimaryMenu : color::text;
+  t.color = (kind == ButtonKind::Primary && hovered) ? col(Role::MenuButtonInkHover) : col(Role::Text);
   return t;
 }
 
@@ -294,12 +308,12 @@ TextStyle menuButtonText(bool hovered, ButtonKind kind) {
 
 Style textInput(bool focused) {
   Style s = Doc::row(0, Justify::Start, Align::Center);
-  s.padding = Edges(10, 12);
-  s.margin = Edges(6, 0);
-  s.radius = 8;
-  s.borderWidth = 2;
-  s.bg = color::inputBg;
-  s.border = focused ? color::accentDark : color::inputEdge;
+  s.padding = Edges(px(Scalar::PadTight) + px(Scalar::Border), px(Scalar::ControlPadY));
+  s.margin = Edges(px(Scalar::GapTight) + px(Scalar::Border), 0);
+  s.radius = px(Scalar::Radius) - px(Scalar::BorderThin);
+  s.borderWidth = px(Scalar::Border);
+  s.bg = col(Role::InputBg);
+  s.border = focused ? col(Role::AccentDeep) : col(Role::InputEdge);
   return s;
 }
 
@@ -308,8 +322,8 @@ Style searchInput(bool focused) {
   s.padding = Edges(7, 10);
   s.radius = 6;
   s.borderWidth = 1;
-  s.bg = color::panel2;
-  s.border = focused ? color::accent : color::edge;
+  s.bg = col(Role::PanelRaised);
+  s.border = focused ? col(Role::Accent) : col(Role::Edge);
   s.grow = 1;
   s.minWidth = 140;
   return s;
@@ -321,7 +335,7 @@ Style sliderTrack() {
   s.width = 220;
   s.height = 4;
   s.radius = 2;
-  s.bg = color::inputBg;
+  s.bg = col(Role::InputBg);
   return s;
 }
 
@@ -330,8 +344,8 @@ Style selectBox(bool hovered) {
   s.padding = Edges(8, 14);
   s.radius = 9;
   s.borderWidth = 2;
-  s.bg = hovered ? color::hover : color::panel2;
-  s.border = hovered ? color::accentDark : color::edge;
+  s.bg = hovered ? col(Role::PanelHover) : col(Role::PanelRaised);
+  s.border = hovered ? col(Role::AccentDeep) : col(Role::Edge);
   return s;
 }
 
@@ -342,37 +356,39 @@ Style selectBox(bool hovered) {
 Style islot(bool hovered, SlotKind kind) {
   Style s;
   s.display = Display::Block;
-  s.width = metric::invSlot;
-  s.height = metric::invSlot;
+  s.width = px(Scalar::InvSlot);
+  s.height = px(Scalar::InvSlot);
   s.radius = 5;
   s.borderWidth = 2;
-  s.bg = kind == SlotKind::Result ? color::resultSlot
-         : kind == SlotKind::Armor ? color::armorSlot
-                                   : color::slot;
-  s.border = hovered ? color::accentDark : color::slotEdge;
+  s.bg = kind == SlotKind::Result ? col(Role::SlotResultFill)
+         : kind == SlotKind::Armor ? col(Role::SlotArmorFill)
+                                   : col(Role::SlotFill);
+  s.border = hovered ? col(Role::AccentDeep) : col(Role::SlotEdge);
   return s;
 }
 
 Style hotbarSlot(bool selected) {
   Style s;
   s.display = Display::Block;
-  s.width = metric::hotbarSlot;
-  s.height = metric::hotbarSlot;
-  s.radius = 6;
-  s.borderWidth = 2;
-  s.bg = rgba(20, 26, 33, 0.72);
-  s.border = selected ? color::white : color::edge;
+  s.width = px(Scalar::HotbarSlot);
+  s.height = px(Scalar::HotbarSlot);
+  s.radius = px(Scalar::RadiusSmall);
+  s.borderWidth = px(Scalar::Border);
+  s.bg = col(Role::HotbarSlotFill);
+  s.border = selected ? kWhite : col(Role::Edge);
+  s.sprite = selected && sprite(SpriteSlot::SlotSelected) ? sprite(SpriteSlot::SlotSelected)
+                                                         : sprite(SpriteSlot::Slot);
   return s;
 }
 
 Style rbCell(bool empty) {
   Style s = Doc::row(0, Justify::Center, Align::Center);
-  s.width = metric::rbCell;
-  s.height = metric::rbCell;
+  s.width = px(Scalar::RecipeCell);
+  s.height = px(Scalar::RecipeCell);
   s.radius = 3;
   s.borderWidth = 1;
-  s.bg = empty ? kTransparent : color::slot;
-  s.border = empty ? kTransparent : color::slotEdge;
+  s.bg = empty ? kTransparent : col(Role::SlotFill);
+  s.border = empty ? kTransparent : col(Role::SlotEdge);
   return s;
 }
 
@@ -393,7 +409,7 @@ TextStyle h3() {
   t.font = FontId::SansBold;
   t.size = 15;
   t.letterSpacing = 1.0f;
-  t.color = color::accent;
+  t.color = col(Role::Accent);
   return t;
 }
 
@@ -401,13 +417,13 @@ TextStyle subtitle() {
   TextStyle t;
   t.font = FontId::SansItalic;
   t.size = 16;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
 TextStyle glassSubtitle() {
   TextStyle t = subtitle();
-  t.color = color::subtitleGlass;
+  t.color = col(Role::InkSubtitle);
   t.letterSpacing = 0.4f;
   return t;
 }
@@ -421,7 +437,7 @@ TextStyle body() {
 TextStyle muted(float size) {
   TextStyle t;
   t.size = size;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -429,14 +445,14 @@ TextStyle emptyNote() {
   TextStyle t;
   t.font = FontId::SansItalic;
   t.size = 16;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
 TextStyle fieldLabel() {
   TextStyle t;
   t.size = 13;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -449,7 +465,7 @@ TextStyle settingLabel() {
 TextStyle settingValue() {
   TextStyle t;
   t.size = 13;
-  t.color = color::accent;
+  t.color = col(Role::Accent);
   return t;
 }
 
@@ -457,7 +473,7 @@ TextStyle invTitle() {
   TextStyle t;
   t.size = 14;
   t.letterSpacing = 1.0f;
-  t.color = color::accent;
+  t.color = col(Role::Accent);
   return t;
 }
 
@@ -465,9 +481,9 @@ TextStyle slotCount() {
   TextStyle t;
   t.font = FontId::SansBlack;
   t.size = 13;
-  t.color = color::white;
+  t.color = kWhite;
   // text-shadow: 1px 1px 0 #000, -1px 1px 0 #000
-  t.withShadow(1, 1, 0, color::black).withShadow(-1, 1, 0, color::black);
+  t.withShadow(1, 1, 0, kBlack).withShadow(-1, 1, 0, kBlack);
   return t;
 }
 
@@ -481,7 +497,7 @@ TextStyle tooltipName() {
 TextStyle tooltipDesc() {
   TextStyle t;
   t.size = 12;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -489,7 +505,7 @@ TextStyle kbd() {
   TextStyle t;
   t.font = FontId::Mono;
   t.size = 11.5f;
-  t.color = color::kbdText;
+  t.color = col(Role::InkKbd);
   return t;
 }
 
@@ -497,7 +513,7 @@ TextStyle debug() {
   TextStyle t;
   t.font = FontId::Mono;
   t.size = 12;
-  t.color = color::progressFill;
+  t.color = col(Role::ProgressFill);
   return t;
 }
 
@@ -517,7 +533,7 @@ TextStyle worldName() {
 TextStyle worldMeta() {
   TextStyle t;
   t.size = 12;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -529,15 +545,15 @@ TextStyle worldBadge() {
   t.font = FontId::SansBlack;
   t.size = 9.5f;
   t.letterSpacing = 0.5f;
-  t.color = color::danger;
+  t.color = col(Role::Danger);
   return t;
 }
 
 TextStyle versionTag() {
   TextStyle t;
   t.size = 12;
-  t.color = rgba(200, 210, 220, 0.62);
-  t.withShadow(0, 1, 3, rgba(0, 0, 0, 0.85));
+  t.color = col(Role::InkFaint);
+  t.withShadow(0, 1, 3, col(Role::Shadow, 0.85f));
   return t;
 }
 
@@ -557,7 +573,7 @@ TextStyle rbName() {
 TextStyle rbFoot() {
   TextStyle t;
   t.size = 12;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -571,7 +587,7 @@ TextStyle galWorld() {
 TextStyle galDate() {
   TextStyle t;
   t.size = 11;
-  t.color = color::muted;
+  t.color = col(Role::Muted);
   return t;
 }
 
@@ -580,21 +596,21 @@ TextStyle galBadge() {
   t.font = FontId::SansBlack;
   t.size = 10;
   t.letterSpacing = 0.5f;
-  t.color = color::galBadge;
+  t.color = col(Role::InkBadge);
   return t;
 }
 
 TextStyle aboutLead() {
   TextStyle t;
   t.size = 14.5f;
-  t.color = color::aboutLead;
+  t.color = col(Role::InkLead);
   return t;
 }
 
 TextStyle aboutBody() {
   TextStyle t;
   t.size = 13.5f;
-  t.color = color::aboutText;
+  t.color = col(Role::InkProse);
   return t;
 }
 
@@ -604,7 +620,7 @@ TextStyle aboutHeading() {
   t.size = 12.5f;
   t.letterSpacing = 1.6f;
   t.uppercase = true;
-  t.color = color::accent;
+  t.color = col(Role::Accent);
   return t;
 }
 
@@ -612,21 +628,21 @@ TextStyle featTitle() {
   TextStyle t;
   t.font = FontId::SansBold;
   t.size = 12.5f;
-  t.color = color::accent;
+  t.color = col(Role::Accent);
   return t;
 }
 
 TextStyle featBody() {
   TextStyle t;
   t.size = 11.8f;
-  t.color = color::featText;
+  t.color = col(Role::InkValue);
   return t;
 }
 
 TextStyle controlValue() {
   TextStyle t;
   t.size = 13.5f;
-  t.color = color::controlValue;
+  t.color = col(Role::InkValue);
   return t;
 }
 
@@ -634,8 +650,8 @@ TextStyle heldItemLabel() {
   TextStyle t;
   t.font = FontId::SansSemibold;
   t.size = 15;
-  t.color = color::white;
-  t.withShadow(1, 1, 2, color::black);
+  t.color = kWhite;
+  t.withShadow(1, 1, 2, kBlack);
   return t;
 }
 
@@ -679,8 +695,8 @@ void drawTooltip(Ui2D& ui, Text& text, float mouseX, float mouseY, const std::st
   if (box.right() > ui.width() - 4) box.x = std::max(4.0f, mouseX - box.w - 6);
   if (box.bottom() > ui.height() - 4) box.y = std::max(4.0f, ui.height() - 4 - box.h);
 
-  ui.fillRect(box, color::inputBg, 6);
-  ui.strokeRect(box, color::accentDark, 1, 6);
+  ui.fillRect(box, col(Role::InputBg), 6);
+  ui.strokeRect(box, col(Role::AccentDeep), 1, 6);
 
   float y = box.y + kPadY;
   text.drawInBox(ui, {box.x + kPadX, y, w, nameMetrics.lineHeight}, name, nameStyle);
@@ -715,7 +731,7 @@ void drawStack(Ui2D& ui, Text& text, const Rect& slot, const StackVisual& v) {
   if (v.duraFraction >= 0.0f) {
     // .slot-dura { left: 4px; right: 4px; bottom: 3px; height: 3px }
     const Rect bar {slot.x + 4, slot.bottom() - 3 - 3, slot.w - 8, 3};
-    drawBar(ui, bar, v.duraFraction, color::accent, color::black, 2);
+    drawBar(ui, bar, v.duraFraction, col(Role::Accent), kBlack, 2);
   }
 }
 
@@ -904,7 +920,7 @@ void TextField::draw(Ui2D& ui, Text& text, const Rect& box, const TextStyle& sty
 
   if (value_.empty() && !placeholder.empty()) {
     TextStyle ph = style;
-    ph.color = color::muted;
+    ph.color = col(Role::Muted);
     text.draw(ui, box.x, baseline, placeholder, ph);
   }
 
@@ -912,7 +928,7 @@ void TextField::draw(Ui2D& ui, Text& text, const Rect& box, const TextStyle& sty
     const float a = text.measure(value_.substr(0, selectionStart()), style);
     const float b = text.measure(value_.substr(0, selectionEnd()), style);
     ui.fillRect({box.x + a, box.y + (box.h - m.lineHeight) * 0.5f, b - a, m.lineHeight},
-                fade(color::accentDark, 0.55));
+                fade(col(Role::AccentDeep), 0.55));
   }
 
   if (!value_.empty()) text.draw(ui, box.x, baseline, value_, style);

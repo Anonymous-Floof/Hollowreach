@@ -271,6 +271,9 @@ class App {
   void syncScreen();
   // Re-enters the world: pointer captured, and the click that did it swallowed.
   void resumePlaying();
+  // Whether cartography is unlocked: the Atlas item is being carried. Asked on
+  // every frame the map is open rather than latched when it opens — see frame().
+  bool hasAtlas() const;
   // The Escape / Back path. Each screen returns somewhere different.
   void closeCurrentScreen();
   std::string nextScreenshotName() const;

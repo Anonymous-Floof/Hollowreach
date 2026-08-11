@@ -76,11 +76,11 @@ void Hud::update(double dt, const game::Inventory& inventory) {
 }
 
 Rect Hud::hotbarSlotRect(Ui2D& ui, int slot) const {
-  const float slotSize = metric::hotbarSlot;
-  const float gap = metric::hotbarGap;
+  const float slotSize = px(Scalar::HotbarSlot);
+  const float gap = px(Scalar::HotbarGap);
   const float totalW = slotSize * 9 + gap * 8;
   const float x = (ui.width() - totalW) * 0.5f;
-  const float y = ui.height() - metric::hotbarBottom - slotSize;
+  const float y = ui.height() - px(Scalar::HotbarBottom) - slotSize;
   return {x + static_cast<float>(slot) * (slotSize + gap), y, slotSize, slotSize};
 }
 
@@ -95,8 +95,8 @@ void Hud::drawDamageVignette(Ui2D& ui, float strength) const {
   // Inner stop at 0.35 leaves the middle third of the screen essentially clear;
   // the alpha ramps in from there to the edge.
   ui.radialGradient({0, 0, ui.width(), ui.height()}, cx, cy, ui.width() * 0.72f,
-                    ui.height() * 0.78f, 0.35f, 1.0f, rgba(150, 10, 12, 0.0),
-                    rgba(150, 10, 12, 0.62f * s));
+                    ui.height() * 0.78f, 0.35f, 1.0f, col(Role::HurtFlash, 0.0f),
+                    col(Role::HurtFlash, 0.62f * s));
 }
 
 void Hud::drawCrosshair(Ui2D& ui, Text& text) const {
@@ -122,26 +122,49 @@ void Hud::drawCrosshair(Ui2D& ui, Text& text) const {
   ui.setBlendMode(BlendMode::Normal);
 }
 
+StatsAnchors statsAnchors(float barLeft, float barRight, float heartsWidth, float hungerWidth,
+                          float breathWidth) {
+  StatsAnchors a;
+  a.heartsCx = barLeft + heartsWidth * 0.5f;
+  a.hungerCx = barRight - hungerWidth * 0.5f;
+  // Breath shares hunger's edge rather than its centre: it shrinks as it drains,
+  // and a row centred on the hunger row's centre would crawl sideways while it
+  // did. Pinned to the same right edge, it empties toward the middle and its last
+  // bubble stays exactly where the last one before it was.
+  a.breathCx = barRight - breathWidth * 0.5f;
+  return a;
+}
+
 void Hud::drawStats(Ui2D& ui, Text& text, const game::Player& player, float bottom) const {
-  // #stats { flex-direction: column; align-items: center; gap: 3px }
-  // #bars  { display: flex; gap: 14px }
-  const float cx = ui.width() * 0.5f;
+  // Hearts against the hotbar's left edge, hunger against its right, breath above
+  // the hunger row.
+  //
+  // They used to be one centred block floating above a centred hotbar, which left
+  // three separate widths all centred on the same axis and none of them lining up
+  // with each other — the hearts ended somewhere in the middle of slot 6 and the
+  // whole thing read as unplaced. Anchoring to the bar's own edges costs nothing,
+  // uses width the interface has already claimed, and means the outermost heart
+  // and the outermost slot share a vertical line.
+  const float barLeft = hotbarSlotRect(ui, 0).x;
+  const float barRight = hotbarSlotRect(ui, game::kHotbarSlots - 1).right();
 
   TextStyle heartStyle;
   heartStyle.size = 16;
   TextStyle pipStyle;
   pipStyle.size = 15;
-  pipStyle.withShadow(1, 1, 1, color::black);
+  pipStyle.withShadow(1, 1, 1, kBlack);
 
   const float heartLine = 16.0f;  // .heart is a 16px box
   const float pipLine = 16.0f;    // .pip { line-height: 16px }
 
   // Row heights, bottom-up: the hotbar sits at `bottom`, the stats column above it.
   const float heartsW =
-      metric::heartSize * 10 + metric::pipGap * 9;
+      px(Scalar::PipSize) * 10 + px(Scalar::PipGap) * 9;
   const bool showHunger = player.hungerOn();
-  const float hungerW = showHunger ? metric::heartSize * 10 + metric::pipGap * 9 : 0.0f;
-  const float barsW = heartsW + (showHunger ? metric::barsGap + hungerW : 0.0f);
+  const float hungerW = showHunger ? px(Scalar::PipSize) * 10 + px(Scalar::PipGap) * 9 : 0.0f;
+  // Centres of the rows, each pinned to its own end of the bar. drawPips takes a
+  // centre, so the anchoring is resolved here rather than inside it.
+  const StatsAnchors anchors = statsAnchors(barLeft, barRight, heartsW, hungerW, 0.0f);
 
   const int breathPips =
       player.breath() < player.maxBreath() - 0.01f
@@ -152,36 +175,40 @@ void Hud::drawStats(Ui2D& ui, Text& text, const game::Player& player, float bott
   if (breathPips >= 0) y -= pipLine + 3.0f;
 
   if (breathPips > 0) {
-    drawPips(ui, text, cx, y - 0.0f, {metric::heartSize, pipLine, metric::pipGap}, breathPips,
-             [](int) { return std::pair<const char*, Rgba> {kBubble, color::breath}; }, pipStyle,
+    // Above the hunger row and right-aligned with it, so the two things that are
+    // about the body's supply of something sit in the same column.
+    const float breathW =
+        px(Scalar::PipSize) * static_cast<float>(breathPips) +
+        px(Scalar::PipGap) * static_cast<float>(std::max(0, breathPips - 1));
+    drawPips(ui, text, statsAnchors(barLeft, barRight, heartsW, hungerW, breathW).breathCx, y,
+             {px(Scalar::PipSize), pipLine, px(Scalar::PipGap)}, breathPips,
+             [](int) { return std::pair<const char*, Rgba> {kBubble, col(Role::BreathPip)}; }, pipStyle,
              pipLine);
     y += pipLine + 3.0f;
   } else if (breathPips == 0) {
     y += pipLine + 3.0f;
   }
 
-  // Hearts and hunger share one row, centred as a pair.
-  const float rowLeft = cx - barsW * 0.5f;
   const float health = player.health();
-  drawPips(ui, text, rowLeft + heartsW * 0.5f, y, {metric::heartSize, heartLine, metric::pipGap},
+  drawPips(ui, text, anchors.heartsCx, y, {px(Scalar::PipSize), heartLine, px(Scalar::PipGap)},
            10,
            [health](int i) {
              const bool full = health >= static_cast<float>((i + 1) * 2) - 0.01f;
              const bool half = !full && health >= static_cast<float>(i * 2 + 1);
-             const Rgba c = full ? color::heartFull : half ? color::heartHalf : color::heartEmpty;
+             const Rgba c = full ? col(Role::HealthFull) : half ? col(Role::HealthHalf) : col(Role::HealthEmpty);
              return std::pair<const char*, Rgba> {full || half ? kHeartFull : kHeartEmpty, c};
            },
            heartStyle, heartLine);
 
   if (showHunger) {
     const float hunger = player.hunger();
-    drawPips(ui, text, rowLeft + heartsW + metric::barsGap + hungerW * 0.5f, y,
-             {metric::heartSize, pipLine, metric::pipGap}, 10,
+    drawPips(ui, text, anchors.hungerCx, y,
+             {px(Scalar::PipSize), pipLine, px(Scalar::PipGap)}, 10,
              [hunger](int i) {
                const bool full = hunger >= static_cast<float>((i + 1) * 2) - 0.01f;
                const bool half = !full && hunger >= static_cast<float>(i * 2 + 1);
                const Rgba c =
-                   full ? color::hungerFull : half ? color::hungerHalf : color::hungerEmpty;
+                   full ? col(Role::HungerFull) : half ? col(Role::HungerHalf) : col(Role::HungerEmpty);
                return std::pair<const char*, Rgba> {full || half ? kFoodFull : kFoodEmpty, c};
              },
              pipStyle, pipLine);
@@ -198,7 +225,7 @@ void Hud::drawHotbar(Ui2D& ui, Text& text, const HudFrame& frame, float bottom) 
     ui.strokeRect(slot, s.border, s.borderWidth, s.radius);
     // .hslot.sel { box-shadow: 0 0 0 2px rgba(255,255,255,0.25) } — a 2px outer ring.
     if (selected) {
-      ui.strokeRect(slot.inset(-2.0f), rgba(255, 255, 255, 0.25), 2, s.radius + 2);
+      ui.strokeRect(slot.inset(-2.0f), col(Role::SlotSelectedRing), 2, s.radius + 2);
     }
 
     const game::ItemStack& stack = inv.slots()[i];
@@ -270,7 +297,7 @@ void Hud::drawDebug(Ui2D& ui, Text& text, const HudFrame& frame) const {
   float width = 0;
   for (const std::string& line : lines) width = std::max(width, text.measure(line, ts));
   const Rect box {8, 8, width + 20, lineHeight * static_cast<float>(lines.size()) + 16};
-  ui.fillRect(box, rgba(8, 11, 15, 0.6), 6);
+  ui.fillRect(box, col(Role::DebugBg), 6);
 
   const TextMetrics m = text.metrics(ts);
   float y = box.y + 8;
@@ -287,7 +314,7 @@ void Hud::drawNameplates(Ui2D& ui, Text& text, const HudFrame& frame) const {
   const float* vp = frame.camera->viewProj().data();
   TextStyle style;
   style.size = 13;
-  style.withShadow(0, 1, 2, rgba(0, 0, 0, 0.85));
+  style.withShadow(0, 1, 2, col(Role::Shadow, 0.85f));
   const TextMetrics tm = text.metrics(style);
 
   for (const HudFrame::Nameplate& plate : frame.nameplates) {
@@ -314,14 +341,14 @@ void Hud::drawNameplates(Ui2D& ui, Text& text, const HudFrame& frame) const {
     const float sy = (1.0f - ndcY) * 0.5f * ui.height();
     const float tw = text.measure(plate.name, style);
     const Rect box {sx - (tw + 14) * 0.5f, sy - (tm.lineHeight + 4), tw + 14, tm.lineHeight + 4};
-    ui.fillRect(box, fade(rgba(10, 14, 18, 0.55), alpha), 4);
+    ui.fillRect(box, col(Role::OverlayBg, alpha), 4);
 
     // A hurt player's plate carries the news: a thin bar under the name, which is
     // the only health readout anybody has for somebody else.
     if (plate.health < 19.5f) {
       const float fraction = std::clamp(plate.health / 20.0f, 0.0f, 1.0f);
       const Rect bar {box.x + 3, box.y + box.h - 1, (box.w - 6) * fraction, 2};
-      ui.fillRect(bar, fade(rgba(214, 74, 74, 0.95), alpha), 1);
+      ui.fillRect(bar, col(Role::HealthFull, alpha * 0.95f), 1);
     }
 
     TextStyle ts = style;
@@ -342,13 +369,13 @@ void Hud::draw(Ui2D& ui, Text& text, const HudFrame& frame) {
   // #break-overlay: a 40x5 bar at calc(50% + 16px), only while mining.
   if (frame.breakFraction > 0.0f) {
     const Rect bar {ui.width() * 0.5f - 20.0f, ui.height() * 0.5f + 16.0f, 40, 5};
-    widget::drawBar(ui, bar, frame.breakFraction, color::progressFill, color::black, 3);
+    widget::drawBar(ui, bar, frame.breakFraction, col(Role::ProgressFill), kBlack, 3);
   }
 
   // #hud-bottom { bottom: 16px; column; gap: 8px } — hotbar last, stats above it.
-  const float hotbarTop = ui.height() - metric::hotbarBottom - metric::hotbarSlot;
+  const float hotbarTop = ui.height() - px(Scalar::HotbarBottom) - px(Scalar::HotbarSlot);
   drawHotbar(ui, text, frame, hotbarTop);
-  drawStats(ui, text, *frame.player, hotbarTop - metric::hudColumnGap);
+  drawStats(ui, text, *frame.player, hotbarTop - px(Scalar::HudColumnGap));
 
   // #held-item-label { bottom: 80px; opacity 0 -> 1, transition .3s }
   if (!heldLabel_.empty() && heldLabelAge_ < kHeldLabelHold + kHeldLabelFade) {

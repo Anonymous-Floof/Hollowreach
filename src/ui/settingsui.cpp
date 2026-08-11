@@ -76,34 +76,55 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
   doc_.label("Settings", widget::h2());
   doc_.end();
 
-  // .settings-tabs { flex-wrap: wrap; gap: 6px; justify-content: center;
-  //                  border-bottom: 2px solid edge; padding-bottom: 12px }
+  // Categories down the left, rows on the right.
+  //
+  // They used to be a wrapping row of tabs across the top. Two things were wrong
+  // with that and both get worse rather than better over time: the tabs consumed
+  // full height while using almost none of the width, on a screen whose rows are
+  // a short label and a small control and therefore have width to spare; and a
+  // horizontal strip has nowhere to grow. Five categories fit. Adding a sixth and
+  // a seventh — which the gate mechanism exists to make easy — wrapped them onto a
+  // second line and moved every tab under the cursor.
+  //
+  // A vertical rail has room for as many as the schema ever grows, puts them in a
+  // list you read rather than a strip you scan, and costs width the rows were not
+  // using.
   const std::vector<std::string> cats = visibleCategories();
-  Style tabs = Doc::row(6, Justify::Center, Align::Center);
-  tabs.wrap = true;
-  tabs.padding = Edges(0, 0, 12, 0);
-  tabs.margin = Edges(0, 0, 14, 0);
-  doc_.begin(tabs);
+
+  Style body = Doc::row(px(Scalar::Pad), Justify::Start, Align::Start);
+  body.margin = Edges(0, 0, px(Scalar::Pad), 0);
+  doc_.begin(body);
+
+  Style rail = Doc::column(px(Scalar::GapTight), Align::Stretch);
+  rail.width = 164;
+  doc_.begin(rail);
   for (std::size_t i = 0; i < cats.size(); ++i) {
     const bool active = cats[i] == activeTab_;
     const bool hovered = hoveredTag_ == kTagTab && hoveredIndex_ == static_cast<int>(i);
     Style s = widget::settingsTab(active, hovered);
+    // Left-aligned in the rail. Centred labels in a vertical list give every row a
+    // different left edge, and the eye tracks a list by its left edge.
+    s.justify = Justify::Start;
+    s.padding = Edges(px(Scalar::PadTight), px(Scalar::GapWide) * 0.75f);
     doc_.begin(s, kTagTab, static_cast<int>(i));
     TextStyle ts;
     ts.font = FontId::SansSemibold;
     ts.size = 14;
     ts.letterSpacing = 0.5f;
-    ts.color = active ? color::settingsTabActive : (hovered ? color::text : color::muted);
+    ts.color = active ? col(Role::TabActiveInk) : (hovered ? col(Role::Text) : col(Role::Muted));
     doc_.label(cats[i], ts);
     doc_.end();
   }
   doc_.end();
 
-  // .settings-panel { max-height: 56vh; overflow-y: auto; padding-right: 6px }
+  // The rows. Taller than the old panel because the tab strip is no longer above
+  // it, and it grows into whatever width the rail leaves.
   Style panel = Doc::column(0, Align::Stretch);
   panel.scrollY = true;
-  panel.maxHeight = ui.height() * 0.56f;
-  panel.padding = Edges(0, 6, 0, 0);
+  panel.maxHeight = ui.height() * 0.62f;
+  panel.minHeight = 220;
+  panel.grow = 1;
+  panel.padding = Edges(0, px(Scalar::GapTight), 0, 0);
   doc_.begin(panel, kTagPanel);
 
   const std::vector<SettingDef>& schema = settingsSchema();
@@ -173,14 +194,16 @@ void SettingsScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStor
     // The 1px rule under each row.
     Style rule;
     rule.height = 1;
-    rule.bg = color::settingRule;
+    rule.bg = col(Role::PanelRule);
     doc_.box(rule);
   }
-  doc_.end();
+  doc_.end();  // the rows
+  doc_.end();  // the rail-and-rows body row
 
-  // .row.end with the Back button.
+  // Back, under the whole body rather than under the rows, so it stays put when a
+  // category with fewer rows is chosen.
   Style backRow = Doc::row(0, Justify::End, Align::Center);
-  backRow.margin = Edges(14, 0, 0, 0);
+  backRow.margin = Edges(px(Scalar::GapTight), 0, 0, 0);
   doc_.begin(backRow);
   const bool hovered = hoveredTag_ == kTagBack;
   Style s = widget::btn(hovered, false, widget::ButtonKind::Normal);
@@ -298,7 +321,7 @@ void SettingsScreen::draw(Ui2D& ui, Text& text) {
     // Something is already drawn behind us — a chosen menu picture, or the world
     // when this is opened from the pause menu. Darken it enough to read against
     // instead of painting over it.
-    ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.62));
+    ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::Scrim, 0.62f));
   } else {
     const float cx = ui.width() * 0.5f;
     const float cy = ui.height() * 0.30f;
@@ -314,7 +337,7 @@ void SettingsScreen::draw(Ui2D& ui, Text& text) {
   const int panel = doc_.findTag(kTagPanel);
   if (panel >= 0) {
     const Rect r = doc_.node(panel).rect;
-    ui.fillRect({r.x, r.y - 14 - 2, r.w, 2}, color::edge);
+    ui.fillRect({r.x, r.y - 14 - 2, r.w, 2}, col(Role::Edge));
   }
 
   const std::vector<SettingDef>& schema = settingsSchema();
@@ -327,15 +350,15 @@ void SettingsScreen::draw(Ui2D& ui, Text& text) {
     const float t = span > 0 ? static_cast<float>((settings().number(def.key) - def.min) / span)
                              : 0.0f;
     // accent-color: var(--accent) — the filled portion left of the thumb.
-    ui.fillRect(n.rect, color::inputBg, 2);
-    ui.fillRect({n.rect.x, n.rect.y, n.rect.w * t, n.rect.h}, color::accent, 2);
+    ui.fillRect(n.rect, col(Role::InputBg), 2);
+    ui.fillRect({n.rect.x, n.rect.y, n.rect.w * t, n.rect.h}, col(Role::Accent), 2);
     const float thumbX = n.rect.x + n.rect.w * t;
     ui.fillRect({thumbX - kThumbRadius, n.rect.centerY() - kThumbRadius, kThumbRadius * 2,
                  kThumbRadius * 2},
-                color::accent, kThumbRadius);
+                col(Role::Accent), kThumbRadius);
     ui.strokeRect({thumbX - kThumbRadius, n.rect.centerY() - kThumbRadius, kThumbRadius * 2,
                    kThumbRadius * 2},
-                  color::edge, 1, kThumbRadius);
+                  col(Role::Edge), 1, kThumbRadius);
   }
   ui.popClip();
   (void)text;

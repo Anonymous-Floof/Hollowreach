@@ -5,6 +5,7 @@
 #include "platform/window_glfw.h"
 #include "render/sky.h"
 #include "ui/settings.h"
+#include "ui/uisprites.h"
 #include "world/world.h"
 
 namespace hr::ui {
@@ -65,6 +66,10 @@ bool Interface::init(ShaderCache& shaders, const render::IconAtlas* icons) {
 }
 
 void Interface::destroy() {
+  // Not owned by anything here — the sprite set is process-wide, the way the theme
+  // is — but this is the last moment a GL context is guaranteed, and a texture
+  // freed after the context has gone is freed into nothing.
+  destroyUiSprites();
   backdrop_.destroy();
   atlas_.destroy();
   gallery_.destroy();
@@ -200,7 +205,7 @@ void Interface::drawFullscreenImage(const Window& window, GLuint texture, float 
     v = 0.5f * imageAspect / viewAspect;  // image is taller: trim top and bottom
   }
   ui_.setTexture(texture);
-  ui_.texturedRect({0, 0, w, h}, 0.5f - u, 0.5f - v, 0.5f + u, 0.5f + v, color::white);
+  ui_.texturedRect({0, 0, w, h}, 0.5f - u, 0.5f - v, 0.5f + u, 0.5f + v, kWhite);
   ui_.setTexture(0);
   ui_.end();
 }
@@ -272,7 +277,13 @@ void Interface::draw(const Window& window, Input& input, const UiFrame& frame) {
       hf.nameplates.push_back(HudFrame::Nameplate{p.pos, p.name, p.health});
     }
     hud_.draw(ui_, text_, hf);
-    // The Atlas item gates the whole feature, and the minimap has its own setting.
+    // The Atlas item gates the minimap and the in-world waypoint tags — both of
+    // which drawHud draws — and the minimap additionally has its own setting.
+    //
+    // It does NOT gate the fullscreen map from here: that is a state App owns, and
+    // App checks the same item on the keypress and on every frame the map is open.
+    // This comment used to claim it gated "the whole feature", which was how the
+    // map came to be openable with no Atlas at all for several releases.
     if (frame.world && frame.camera && screen_ == Screen::None &&
         Atlas::hasAtlasItem(*frame.inventory)) {
       atlas_.attach(frame.atlas);

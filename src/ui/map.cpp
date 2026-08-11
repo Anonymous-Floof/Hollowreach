@@ -18,7 +18,9 @@ namespace {
 constexpr int kTileBudget = 10;
 constexpr double kRedrawSeconds = 0.030;
 constexpr int kMinimapTileBudget = 6;
-constexpr float kMinimapSize = metric::minimapSize;
+// Read rather than fixed, because a theme may resize the minimap and the Atlas
+// shares this figure with the HUD corner it is drawn in.
+inline float minimapSize() { return px(Scalar::MinimapSize); }
 constexpr int kMaxWaypoints = 64;
 // Alpha below this counts as a cutout pixel and is skipped when averaging a tile.
 constexpr int kCutoutAlpha = 40;
@@ -287,7 +289,7 @@ void Atlas::addWaypoint(world::World& world, float wx, float wz) {
   w.y = static_cast<float>(surfaceHeight(world, static_cast<int>(std::floor(wx)),
                                          static_cast<int>(std::floor(wz))));
   w.name = "Waypoint " + std::to_string(n);
-  w.color = kWaypointColors[(n - 1) % kWaypointColorCount];
+  w.color = waypointColor((n - 1) % kWaypointColorCount);
   waypoints_.push_back(std::move(w));
 }
 
@@ -313,8 +315,8 @@ void Atlas::buildPanel(Ui2D& ui, Text& text, const UiEvent& event) {
   Style root = Doc::column(0, Align::Stretch);
   root.width = 240;
   root.padding = Edges(12, 14);
-  root.bg = rgba(14, 18, 24, 0.88);
-  root.border = rgba(255, 255, 255, 0.10);
+  root.bg = col(Role::OverlayBg);
+  root.border = col(Role::OverlayEdge);
   root.borderWidth = 1;
   root.radius = 10;
   root.maxHeight = ui.height() - 32.0f;
@@ -349,15 +351,15 @@ void Atlas::buildPanel(Ui2D& ui, Text& text, const UiEvent& event) {
     swatch.height = 18;
     swatch.radius = 4;
     swatch.bg = w.color;
-    swatch.border = rgba(0, 0, 0, 0.5);
+    swatch.border = col(Role::Shadow, 0.50f);
     swatch.borderWidth = 1;
     panel_.box(swatch, kTagSwatch, static_cast<int>(i));
 
     Style field = Doc::row(0, Justify::Start, Align::Center);
     field.grow = 1;
     field.minWidth = 0;
-    field.bg = color::fieldBg;
-    field.border = color::slotEdge;
+    field.bg = col(Role::FieldBg);
+    field.border = col(Role::SlotEdge);
     field.borderWidth = 1;
     field.radius = 5;
     field.padding = Edges(4, 7);
@@ -433,13 +435,13 @@ void Atlas::update(Ui2D& ui, Text& text, const UiEvent& event, world::World& wor
         Waypoint& w = waypoints_[static_cast<std::size_t>(hoveredIndex_)];
         int index = 0;
         for (int k = 0; k < kWaypointColorCount; ++k) {
-          const Rgba c = kWaypointColors[k];
+          const Rgba c = waypointColor(k);
           if (c.r == w.color.r && c.g == w.color.g && c.b == w.color.b) {
             index = k;
             break;
           }
         }
-        w.color = kWaypointColors[(index + 1) % kWaypointColorCount];
+        w.color = waypointColor((index + 1) % kWaypointColorCount);
         break;
       }
       case kTagName: {
@@ -534,7 +536,7 @@ void Atlas::update(Ui2D& ui, Text& text, const UiEvent& event, world::World& wor
 void Atlas::drawDiamond(Ui2D& ui, float x, float y, float r, Rgba color) const {
   const Vec2 points[4] = {{x, y - r}, {x + r, y}, {x, y + r}, {x - r, y}};
   ui.fillPoly(points, 4, color);
-  ui.strokePoly(points, 4, rgba(10, 12, 16, 0.9), 1.5f);
+  ui.strokePoly(points, 4, col(Role::Scrim, 0.90f), 1.5f);
 }
 
 void Atlas::drawArrow(Ui2D& ui, float x, float y, float angle, float r, Rgba color) const {
@@ -545,7 +547,7 @@ void Atlas::drawArrow(Ui2D& ui, float x, float y, float angle, float r, Rgba col
   };
   const Vec2 points[4] = {rot(0, -r), rot(r * 0.7f, r), rot(0, r * 0.45f), rot(-r * 0.7f, r)};
   ui.fillPoly(points, 4, color);
-  ui.strokePoly(points, 4, rgba(10, 12, 16, 0.9), 1.5f);
+  ui.strokePoly(points, 4, col(Role::Scrim, 0.90f), 1.5f);
 }
 
 // The waypoint swatches reused as player colours, chosen by name so the same
@@ -558,13 +560,13 @@ Rgba Atlas::companionColor(const std::string& name) {
     h ^= static_cast<std::uint8_t>(c);
     h *= 16777619u;
   }
-  return kWaypointColors[h % (kWaypointColorCount - 1)];
+  return waypointColor(h % (kWaypointColorCount - 1));
 }
 
 void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& player) {
   const float w = ui.width();
   const float h = ui.height();
-  ui.fillRect({0, 0, w, h}, color::mapBg);
+  ui.fillRect({0, 0, w, h}, col(Role::MapBg));
 
   // Tiles are only re-rendered on the throttled clock; the existing cache is drawn every
   // frame so panning stays smooth.
@@ -610,11 +612,11 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
     const float sy = jsmath::jsRoundF((static_cast<float>(cell.z * world::CZ) - centerZ_) * z +
                                       h * 0.5f);
     if (fog) {
-      ui.fillRect({sx, sy, tileScreen, tileScreen}, color::mapFog);
+      ui.fillRect({sx, sy, tileScreen, tileScreen}, col(Role::MapFog));
       continue;
     }
     if (!tile) {
-      ui.fillRect({sx, sy, tileScreen, tileScreen}, color::pending);
+      ui.fillRect({sx, sy, tileScreen, tileScreen}, col(Role::PanelPending));
       continue;
     }
     ui.setTexture(tile->texture);
@@ -633,7 +635,7 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
     drawDiamond(ui, sx, sy, 6, wp.color);
     const std::string label = wp.death ? "\xE2\x98\xA0 " + wp.name : wp.name;
     const float tw = text.measure(label, labelStyle);
-    ui.fillRect({sx - tw * 0.5f - 4, sy - 24, tw + 8, 15}, rgba(8, 10, 14, 0.75));
+    ui.fillRect({sx - tw * 0.5f - 4, sy - 24, tw + 8, 15}, col(Role::Scrim, 0.75f));
     TextStyle ts = labelStyle;
     ts.color = rgb(0xe8edf2);
     text.draw(ui, sx - tw * 0.5f, sy - 12.5f, label, ts);
@@ -650,7 +652,7 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
     drawArrow(ui, sx, sy, std::atan2(-std::sin(c.yaw), std::cos(c.yaw)), 7, tint);
     if (c.name.empty()) continue;
     const float tw = text.measure(c.name, labelStyle);
-    ui.fillRect({sx - tw * 0.5f - 4, sy - 24, tw + 8, 15}, rgba(8, 10, 14, 0.75));
+    ui.fillRect({sx - tw * 0.5f - 4, sy - 24, tw + 8, 15}, col(Role::Scrim, 0.75f));
     TextStyle ts = labelStyle;
     ts.color = tint;
     text.draw(ui, sx - tw * 0.5f, sy - 12.5f, c.name, ts);
@@ -661,7 +663,7 @@ void Atlas::draw(Ui2D& ui, Text& text, world::World& world, const game::Player& 
   const float px = (player.pos().x - centerX_) * z + w * 0.5f;
   const float py = (player.pos().z - centerZ_) * z + h * 0.5f;
   drawArrow(ui, px, py, std::atan2(-std::sin(player.yaw()), std::cos(player.yaw())), 8,
-            color::white);
+            kWhite);
 
   panel_.paint(ui);
   // The waypoint name fields, which draw their own caret.
@@ -689,9 +691,9 @@ void Atlas::drawHud(Ui2D& ui, Text& text, world::World& world, const game::Playe
                     const Camera& camera, bool minimapEnabled, double dt) {
 
   if (minimapEnabled && !open_) {
-    const float S = kMinimapSize;
-    const Rect box {ui.width() - metric::minimapInset - S, metric::minimapInset, S, S};
-    ui.fillRect(box, color::mapBg, 8);
+    const float S = minimapSize();
+    const Rect box {ui.width() - px(Scalar::MinimapInset) - S, px(Scalar::MinimapInset), S, S};
+    ui.fillRect(box, col(Role::MapBg), 8);
 
     minimapTimer_ += dt;
     const bool refresh = minimapTimer_ >= kRedrawSeconds;
@@ -751,9 +753,9 @@ void Atlas::drawHud(Ui2D& ui, Text& text, world::World& world, const game::Playe
                 std::atan2(-std::sin(c.yaw), std::cos(c.yaw)), 4.5f, companionColor(c.name));
     }
     drawArrow(ui, box.x + S * 0.5f, box.y + S * 0.5f,
-              std::atan2(-std::sin(player.yaw()), std::cos(player.yaw())), 6, color::white);
+              std::atan2(-std::sin(player.yaw()), std::cos(player.yaw())), 6, kWhite);
     ui.popClip();
-    ui.strokeRect(box, rgba(255, 255, 255, 0.18), 2, 8);
+    ui.strokeRect(box, col(Role::OverlayEdge, 1.8f), 2, 8);
   }
 
   if (open_) return;
@@ -763,7 +765,7 @@ void Atlas::drawHud(Ui2D& ui, Text& text, world::World& world, const game::Playe
   const float* vp = camera.viewProj().data();
   TextStyle tagStyle;
   tagStyle.size = 12;
-  tagStyle.withShadow(0, 1, 2, rgba(0, 0, 0, 0.8));
+  tagStyle.withShadow(0, 1, 2, col(Role::Shadow, 0.80f));
   const TextMetrics tm = text.metrics(tagStyle);
   for (const Waypoint& wp : waypoints_) {
     const float x = wp.x;
@@ -790,7 +792,7 @@ void Atlas::drawHud(Ui2D& ui, Text& text, world::World& world, const game::Playe
     // translate(-50%, -100%): centred horizontally, sitting above the point.
     const Rect plate {sx - (tw + 16) * 0.5f, sy - (tm.lineHeight + 4), tw + 16,
                       tm.lineHeight + 4};
-    ui.fillRect(plate, fade(rgba(10, 14, 18, 0.55), alpha), 4);
+    ui.fillRect(plate, col(Role::OverlayBg, alpha * 0.63f), 4);
     TextStyle ts = tagStyle;
     ts.color = fade(wp.color, alpha);
     for (int i = 0; i < ts.shadowCount; ++i) ts.shadows[i].color = fade(ts.shadows[i].color, alpha);

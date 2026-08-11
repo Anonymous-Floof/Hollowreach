@@ -636,7 +636,7 @@ void InventoryUI::slotNode(SlotId id, const game::ItemStack* stack, widget::Slot
     const widget::StackVisual v = visualFor(*stack);
     // The icon fills the slot's content box; the count and the durability bar are
     // drawn on top in draw(), because both are absolutely positioned in the CSS.
-    doc_.icon(v.icon, metric::invSlot - 4, metric::invSlot - 4);
+    doc_.icon(v.icon, px(Scalar::InvSlot) - 4, px(Scalar::InvSlot) - 4);
   }
   doc_.end();
   (void)node;
@@ -654,8 +654,8 @@ void InventoryUI::invPanel(const UiEvent& event) {
   Style grid;
   grid.display = Display::Grid;
   grid.gridCols = 9;
-  grid.gridColWidth = metric::invSlot;
-  grid.gap = metric::invSlotGap;
+  grid.gridColWidth = px(Scalar::InvSlot);
+  grid.gap = px(Scalar::InvSlotGap);
 
   doc_.begin(grid);
   for (int i = 9; i < game::kInventorySlots; ++i) {
@@ -711,8 +711,8 @@ void InventoryUI::craftPanel(const UiEvent& event) {
   Style grid;
   grid.display = Display::Grid;
   grid.gridCols = craftSize_;
-  grid.gridColWidth = metric::invSlot;
-  grid.gap = metric::invSlotGap;
+  grid.gridColWidth = px(Scalar::InvSlot);
+  grid.gap = px(Scalar::InvSlotGap);
   doc_.begin(grid);
   for (int i = 0; i < craftSize_ * craftSize_; ++i) {
     const SlotId id {Container::Craft, i};
@@ -724,7 +724,7 @@ void InventoryUI::craftPanel(const UiEvent& event) {
   // .arrow { font-size: 26px; color: muted; padding: 0 6px }
   TextStyle arrow;
   arrow.size = 26;
-  arrow.color = color::muted;
+  arrow.color = col(Role::Muted);
   Style arrowBox;
   arrowBox.padding = Edges(0, 6);
   doc_.label("\xE2\x9E\xA4", arrow, arrowBox);  // ➤ (&#10148;)
@@ -748,8 +748,8 @@ void InventoryUI::armorPanel(const UiEvent& event) {
   Style grid;
   grid.display = Display::Grid;
   grid.gridCols = 1;
-  grid.gridColWidth = metric::invSlot;
-  grid.gap = metric::invSlotGap;
+  grid.gridColWidth = px(Scalar::InvSlot);
+  grid.gap = px(Scalar::InvSlotGap);
   doc_.begin(grid);
   for (int i = 0; i < game::kArmorSlots; ++i) {
     const SlotId id {Container::Armor, i};
@@ -773,7 +773,7 @@ void InventoryUI::forgePanel(const UiEvent& event) {
   Style column;
   column.display = Display::Grid;
   column.gridCols = 1;
-  column.gridColWidth = metric::invSlot;
+  column.gridColWidth = px(Scalar::InvSlot);
   column.gap = 8;
   doc_.begin(column);
   const SlotId inId {Container::ForgeIn, 0};
@@ -789,11 +789,11 @@ void InventoryUI::forgePanel(const UiEvent& event) {
   bar.width = 80;
   bar.height = 8;
   bar.radius = 4;
-  bar.bg = color::black;
+  bar.bg = kBlack;
   doc_.custom(bar, 2001, 0);  // smelt progress
   TextStyle arrow;
   arrow.size = 26;
-  arrow.color = color::muted;
+  arrow.color = col(Role::Muted);
   doc_.label("\xE2\x9E\xA4", arrow);
   doc_.custom(bar, 2001, 1);  // fuel burn
   doc_.end();
@@ -816,8 +816,8 @@ void InventoryUI::chestPanel(const UiEvent& event) {
   Style grid;
   grid.display = Display::Grid;
   grid.gridCols = 9;
-  grid.gridColWidth = metric::invSlot;
-  grid.gap = metric::invSlotGap;
+  grid.gridColWidth = px(Scalar::InvSlot);
+  grid.gap = px(Scalar::InvSlotGap);
   doc_.begin(grid);
   for (int i = 0; i < game::kChestSlots; ++i) {
     const SlotId id {Container::Chest, i};
@@ -827,6 +827,11 @@ void InventoryUI::chestPanel(const UiEvent& event) {
   doc_.end();
   doc_.end();
   (void)event;
+}
+
+float bagPanelWidth() {
+  return px(Scalar::InvSlot) * 9 + px(Scalar::InvSlotGap) * 8 + px(Scalar::Pad) * 2 +
+         px(Scalar::Border) * 2;
 }
 
 void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& tweens) {
@@ -840,7 +845,24 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
   // then the hint line.
   doc_.begin(Doc::column(14, Align::Center));
 
-  doc_.begin(Doc::row(16, Justify::Start, Align::Start));
+  // The station row is given the BAG's width rather than its own.
+  //
+  // Every panel here was centred on its own content, which meant the armour column
+  // and the crafting grid were centred as a pair on an axis the bag below them did
+  // not share — so the top half of the screen sat visibly left of the bottom half,
+  // and nothing lined up with anything. Measuring the bag once and handing that
+  // width to the row above it is what makes the whole assembly read as one object.
+  //
+  const float bagWidth = bagPanelWidth();
+
+  // Spread when there are two panels, centred when there is one. A lone crafting
+  // grid pushed hard to one end of a bag-wide row would look like a mistake.
+  const bool twoPanels = mode_ == InventoryMode::Inventory;
+  Style stationRow = Doc::row(px(Scalar::GapWide),
+                              twoPanels ? Justify::SpaceBetween : Justify::Center,
+                              Align::Start);
+  stationRow.width = bagWidth;
+  doc_.begin(stationRow);
   switch (mode_) {
     case InventoryMode::Inventory:
       armorPanel(event);
@@ -1014,8 +1036,8 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
 void InventoryUI::draw(Ui2D& ui, Text& text) {
   if (mode_ == InventoryMode::Closed || !inv_) return;
 
-  // .screen.dim { background: rgba(8, 11, 15, 0.55) }
-  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.55));
+  // .screen.dim { background: col(Role::WashScreen) }
+  ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
   doc_.paint(ui);
 
   // The absolutely-positioned parts of a slot: the count and the durability bar sit
@@ -1043,18 +1065,18 @@ void InventoryUI::draw(Ui2D& ui, Text& text) {
     const int progressNode = doc_.findTag(2001, 0);
     const int fuelNode = doc_.findTag(2001, 1);
     if (progressNode >= 0) {
-      widget::drawBar(ui, doc_.node(progressNode).rect, forgeProgress_, color::progressFill,
-                      color::black, 4);
+      widget::drawBar(ui, doc_.node(progressNode).rect, forgeProgress_, col(Role::ProgressFill),
+                      kBlack, 4);
     }
     if (fuelNode >= 0) {
-      widget::drawBar(ui, doc_.node(fuelNode).rect, forgeFuel_, color::fuelFill, color::black, 4);
+      widget::drawBar(ui, doc_.node(fuelNode).rect, forgeFuel_, col(Role::FuelFill), kBlack, 4);
     }
   }
 
   // #held-stack — the floating stack that follows the cursor, centred on it.
   if (!cursor_.empty()) {
-    const Rect r {mouseX_ - metric::invSlot * 0.5f, mouseY_ - metric::invSlot * 0.5f,
-                  metric::invSlot, metric::invSlot};
+    const Rect r {mouseX_ - px(Scalar::InvSlot) * 0.5f, mouseY_ - px(Scalar::InvSlot) * 0.5f,
+                  px(Scalar::InvSlot), px(Scalar::InvSlot)};
     widget::drawStack(ui, text, r, visualFor(cursor_));
   } else if (haveHover_) {
     // The tooltip only shows when nothing is on the cursor, which is what the JS did by

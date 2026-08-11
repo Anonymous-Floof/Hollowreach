@@ -65,6 +65,9 @@ struct PackInfo {
   int soundFiles = 0;
   int textureFiles = 0;
   bool hasSoundsJson = false;
+  // assets/<ns>/ui/theme.json — the interface's colours and measurements. See
+  // ui/theme.h for what it may contain and ui/uipacks.h for how it is applied.
+  bool hasUiTheme = false;
 
   // Non-empty when the pack cannot be used, and phrased for a player rather than
   // for a log: it is shown on the row in the Resource Packs screen, because a
@@ -72,9 +75,10 @@ struct PackInfo {
   std::string problem;
 
   bool usable() const { return problem.empty(); }
-  // A pack with no sounds is not broken — it may be a texture pack — but it has
-  // nothing this build can apply yet.
+  // A pack with no sounds is not broken — it may be a texture or UI pack — but it
+  // has nothing the audio layer can apply.
   bool suppliesSound() const { return soundFiles > 0; }
+  bool suppliesUi() const { return hasUiTheme; }
 };
 
 // Every folder under data/resourcepacks/, sorted by id. Unreadable and malformed

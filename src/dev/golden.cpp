@@ -18,8 +18,13 @@
 #include "game/items.h"
 #include "game/loot.h"
 #include "game/recipes.h"
+#include "platform/paths.h"
 #include "resource/atlas.h"
+#include "resource/pack.h"
 #include "resource/packstack.h"
+#include "ui/settings.h"
+#include "ui/theme.h"
+#include "ui/uipacks.h"
 #include "world/chunk.h"
 #include "world/lighting.h"
 #include "world/mesher.h"
@@ -768,6 +773,29 @@ bool dumpLoot(const std::string& path) {
 
   if (!out.write(path)) return false;
   if (path != "-") std::printf("loot: %s\n", path.c_str());
+  return true;
+}
+
+bool dumpTheme(const std::string& path) {
+  // Applied here rather than inherited, because this runs on the headless path
+  // that exits before App exists — and App is what normally calls this. Without
+  // it the dump reports the built-in theme whatever is enabled, which makes the
+  // flag actively misleading for the one question it is best at answering:
+  // what did this pack change?
+  ui::settings().load(paths::settingsFile());
+  const std::vector<resource::PackInfo> installed = resource::scanPacks();
+  ui::applyUiPacks(resource::enabledPacks(installed));
+
+  const std::string body = ui::theme().dump();
+  if (path == "-") {
+    std::fwrite(body.data(), 1, body.size(), stdout);
+    return true;
+  }
+  std::FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) return false;
+  std::fwrite(body.data(), 1, body.size(), f);
+  std::fclose(f);
+  std::printf("theme: %s\n", path.c_str());
   return true;
 }
 

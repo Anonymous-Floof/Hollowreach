@@ -46,7 +46,7 @@ struct TextStyle {
   FontId font = FontId::Sans;
   float size = 14.0f;        // CSS px
   float letterSpacing = 0;   // CSS letter-spacing, px
-  Rgba color = color::text;
+  Rgba color = col(Role::Text);
   bool uppercase = false;
   // text-shadow, applied before the glyph run. Up to two, matching the deepest use
   // in the stylesheet (.slot-count draws 1px offsets both ways).

@@ -91,33 +91,33 @@ void ConfirmPrompt::draw(Ui2D& ui, Text& text) const {
   if (!active_) return;
   const Layout l = layout(ui.width(), ui.height());
 
-  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(0, 0, 0, 0.55));
-  ui.shadow(l.card, BoxShadow{0, 18, 40, 0, rgba(0, 0, 0, 0.55)}, 14.0f);
-  ui.fillRect(l.card, color::panel, 14.0f);
-  ui.strokeRect(l.card, color::edge, 1.0f, 14.0f);
+  ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
+  ui.shadow(l.card, BoxShadow{0, 18, 40, 0, col(Role::Shadow, 0.55f)}, 14.0f);
+  ui.fillRect(l.card, col(Role::Panel), 14.0f);
+  ui.strokeRect(l.card, col(Role::Edge), 1.0f, 14.0f);
 
   TextStyle title;
   title.font = FontId::SansBold;
   title.size = 16.0f;
-  title.color = color::text;
+  title.color = col(Role::Text);
   text.drawInBox(ui, {l.card.x + kPad, l.card.y + 26.0f, l.card.w - kPad * 2, 22.0f}, message_,
                  title, TextAlign::Center);
 
   TextStyle note;
   note.size = 12.5f;
-  note.color = color::muted;
+  note.color = col(Role::Muted);
   text.drawInBox(ui, {l.card.x + kPad, l.card.y + 54.0f, l.card.w - kPad * 2, 18.0f},
                  "This cannot be undone.", note, TextAlign::Center);
 
   const auto button = [&](const Rect& r, const std::string& label, bool hovered, bool danger) {
-    const Rgba bg = danger ? (hovered ? color::danger : color::dangerEdge)
-                           : (hovered ? color::hover : color::panel2);
+    const Rgba bg = danger ? (hovered ? col(Role::Danger) : col(Role::DangerEdge))
+                           : (hovered ? col(Role::PanelHover) : col(Role::PanelRaised));
     ui.fillRect(r, bg, 9.0f);
-    ui.strokeRect(r, danger ? color::danger : color::edge, 2.0f, 9.0f);
+    ui.strokeRect(r, danger ? col(Role::Danger) : col(Role::Edge), 2.0f, 9.0f);
     TextStyle ts;
     ts.font = FontId::SansBold;
     ts.size = 14.0f;
-    ts.color = color::text;
+    ts.color = col(Role::Text);
     const TextMetrics m = text.metrics(ts);
     text.drawInBox(ui, {r.x, r.y + (r.h - m.lineHeight) * 0.5f, r.w, m.lineHeight}, label, ts,
                    TextAlign::Center);

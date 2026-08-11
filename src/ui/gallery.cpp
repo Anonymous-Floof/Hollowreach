@@ -156,8 +156,8 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
       const Item& item = items_[i];
       // .gal-card { flex-direction: column; border-radius: 10px; overflow: hidden }
       Style cardStyle = Doc::column(0, Align::Stretch);
-      cardStyle.bg = color::panel2;
-      cardStyle.border = color::edge;
+      cardStyle.bg = col(Role::PanelRaised);
+      cardStyle.border = col(Role::Edge);
       cardStyle.borderWidth = 1;
       cardStyle.radius = 10;
       doc_.begin(cardStyle, kTagCard, static_cast<int>(i));
@@ -165,7 +165,7 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
       // .gal-thumb — a 16:10 box; the image is object-fit: cover.
       Style thumb;
       thumb.display = Display::Block;
-      thumb.bg = color::inputBg;
+      thumb.bg = col(Role::InputBg);
       thumb.height = kMinCard / kThumbAspect;
       doc_.custom(thumb, kTagCard, static_cast<int>(i));
 
@@ -206,7 +206,7 @@ void Gallery::build(Ui2D& ui, Text& text, const UiEvent& event) {
         TextStyle ts;
         ts.font = FontId::SansSemibold;
         ts.size = 11.5f;
-        ts.color = b.danger ? (hovered ? color::white : color::danger) : color::text;
+        ts.color = b.danger ? (hovered ? kWhite : col(Role::Danger)) : col(Role::Text);
         doc_.label(b.label, ts);
         doc_.end();
       }
@@ -325,7 +325,7 @@ void Gallery::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& twe
 }
 
 void Gallery::draw(Ui2D& ui, Text& text) {
-  ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.55));
+  ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
   doc_.paint(ui);
 
   // The thumbnails, drawn into the boxes the layout reserved. `object-fit: cover` means
@@ -364,13 +364,13 @@ void Gallery::draw(Ui2D& ui, Text& text) {
     const float w = text.measure(label, badge);
     const TextMetrics m = text.metrics(badge);
     const Rect plate {n.rect.x + 6, n.rect.y + 6, w + 12, m.lineHeight + 4};
-    ui.fillRect(plate, rgba(8, 11, 15, 0.72), 5);
+    ui.fillRect(plate, col(Role::Scrim, 0.72f), 5);
     text.drawInBox(ui, {plate.x + 6, plate.y + 2, w, m.lineHeight}, label, badge);
   }
 
   if (viewing_ >= 0 && viewTexture_) {
     // .gal-viewer — the still, at most 92vw x 84vh, over a near-opaque wash.
-    ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(5, 7, 11, 0.9));
+    ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::Scrim, 0.90f));
     const float maxW = ui.width() * 0.92f;
     const float maxH = ui.height() * 0.84f;
     const float scale = std::min(maxW / static_cast<float>(viewWidth_),
@@ -378,7 +378,7 @@ void Gallery::draw(Ui2D& ui, Text& text) {
     const float w = static_cast<float>(viewWidth_) * scale;
     const float h = static_cast<float>(viewHeight_) * scale;
     const Rect box {(ui.width() - w) * 0.5f, (ui.height() - h) * 0.5f - 14.0f, w, h};
-    ui.shadow(box, {0, 20, 60, 0, rgba(0, 0, 0, 0.7)}, 8);
+    ui.shadow(box, {0, 20, 60, 0, col(Role::Shadow, 0.70f)}, 8);
     ui.setTexture(viewTexture_);
     ui.texturedRect(box, 0, 0, 1, 1);
     ui.setTexture(0);

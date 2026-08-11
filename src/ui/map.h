@@ -41,7 +41,7 @@ namespace hr::ui {
 struct Waypoint {
   float x = 0, y = 64, z = 0;
   std::string name;
-  Rgba color = kWaypointColors[0];
+  Rgba color = waypointColor(0);
   bool death = false;
 };
 

@@ -12,6 +12,8 @@
 #include "audio/engine.h"
 #include "audio/sfx.h"
 #include "audio/soundbank.h"
+#include "ui/uipacks.h"
+#include "ui/uisprites.h"
 #include "core/assets.h"
 #include "core/jobs.h"
 #include "core/jsmath.h"
@@ -374,10 +376,30 @@ void App::applyResourcePacks() {
   const std::vector<resource::PackInfo> active = resource::enabledPacks(installed);
   audio::sounds().rebuild(active);
 
+  // The interface, from the same list and in the same order. Always called, even
+  // with no packs enabled: rebuilding from no documents is what restores the
+  // built-in theme after the last pack is switched off.
+  const ui::UiPackReport themed = ui::applyUiPacks(active);
+  for (const std::string& problem : themed.problems) log::warn("%s", problem.c_str());
+
+  // Nine-slice art, which needs a GL context. Both callers of this function have
+  // one: the atlas and the renderer are already uploaded by the time the first
+  // runs, and the second is a button on a screen that is being drawn.
+  const ui::SpriteReport sprites = ui::loadUiSprites(active);
+  for (const std::string& problem : sprites.problems) log::warn("%s", problem.c_str());
+
   const audio::SoundBank::Stats& stats = audio::sounds().stats();
   char line[192];
   if (active.empty()) {
-    std::snprintf(line, sizeof(line), "No packs enabled \xE2\x80\x94 every sound is synthesised.");
+    std::snprintf(line, sizeof(line),
+                  "No packs enabled \xE2\x80\x94 every sound is synthesised and the interface "
+                  "is the built-in theme.");
+  } else if (stats.events == 0 && themed.changedAnything()) {
+    // A pack that only themes the interface is a real and reasonable kind of
+    // pack. Reporting "0 of N sounds replaced" for one would read as broken.
+    std::snprintf(line, sizeof(line), "%d interface value%s changed by %d pack%s",
+                  themed.colors + themed.scalars, themed.colors + themed.scalars == 1 ? "" : "s",
+                  themed.packs, themed.packs == 1 ? "" : "s");
   } else {
     // The count of what is REPLACED, not of what a pack contains: the number a
     // player wants after switching one on is how much of the game now sounds
@@ -390,7 +412,17 @@ void App::applyResourcePacks() {
                   stats.clips == 1 ? "" : "s",
                   static_cast<double>(stats.bytes) / (1024.0 * 1024.0));
   }
-  interface_.packs().setSummary(line);
+
+  std::string summary = line;
+  // Appended rather than folded into the branch above, because a pack may well
+  // supply both and the sound line is the one that has to stay intact.
+  if (themed.changedAnything() && stats.events > 0) {
+    char extra[96];
+    std::snprintf(extra, sizeof(extra), " \xC2\xB7 %d interface value%s",
+                  themed.colors + themed.scalars, themed.colors + themed.scalars == 1 ? "" : "s");
+    summary += extra;
+  }
+  interface_.packs().setSummary(summary);
 }
 
 // Every setting, pushed into whichever subsystem owns it. This is the whole of "all
@@ -504,7 +536,9 @@ void App::applySettings() {
 // Everything Interact hands back to the wider game.
 game::InteractHooks App::makeInteractHooks() {
   game::InteractHooks hooks;
-  hooks.notify = [this](const std::string& message) { interface_.notify().push(message); };
+  hooks.notify = [this](const std::string& message) {
+    interface_.notify().push(message, ui::Toast::Important);
+  };
   hooks.onOpenPainting = [this](int x, int y, int z) {
     paintingX_ = x;
     paintingY_ = y;
@@ -595,11 +629,11 @@ game::InteractHooks App::makeInteractHooks() {
     const int ts = world_->topSolidY(static_cast<int>(std::floor(p.x)),
                                      static_cast<int>(std::floor(p.z)));
     if (ts < 0) {
-      interface_.notify().push("The wayshard can't find the sky here");
+      interface_.notify().push("The wayshard can't find the sky here", ui::Toast::Important);
       return false;
     }
     if (p.y >= ts - 0.5f) {
-      interface_.notify().push("You're already under the open sky");
+      interface_.notify().push("You're already under the open sky", ui::Toast::Important);
       return false;
     }
     // teleport rather than setPos: the trip up must not be charged as the fall it
@@ -772,10 +806,10 @@ void App::wireInterface() {
         pin.y = static_cast<float>(site.y);
         pin.z = static_cast<float>(site.z);
         pin.name = "Dungeon";
-        pin.color = ui::kWaypointColors[0];
+        pin.color = ui::waypointColor(0);
         pins.push_back(std::move(pin));
       } else {
-        interface_.notify().push("No dungeon within range");
+        interface_.notify().push("No dungeon within range", ui::Toast::Important);
       }
       return;
     }
@@ -859,7 +893,7 @@ void App::wireInterface() {
     resumePlaying();
     game::Painting art;
     if (!game::paintingFromPng(path, art)) {
-      interface_.notify().push("That picture could not be read");
+      interface_.notify().push("That picture could not be read", ui::Toast::Important);
       return;
     }
     // A guest asks; the host decides and tells everyone, itself included. Same
@@ -912,7 +946,7 @@ void App::wireInterface() {
     // grid behind it, and opening one uninvited would be a surprise rather than a
     // convenience.
     if (state_ != AppState::RecipeBook || recipeReturn_ != AppState::Inventory) {
-      interface_.notify().push("Open a crafting screen to lay a recipe out");
+      interface_.notify().push("Open a crafting screen to lay a recipe out", ui::Toast::Important);
       return;
     }
     state_ = recipeReturn_;
@@ -926,7 +960,7 @@ void App::wireInterface() {
         interface_.notify().push("You are missing something for that");
         break;
       case ui::InventoryUI::FillResult::NoGrid:
-        interface_.notify().push("No crafting grid open");
+        interface_.notify().push("No crafting grid open", ui::Toast::Important);
         break;
     }
   };
@@ -1001,7 +1035,7 @@ void App::wireInterface() {
     if (save::erase(id)) {
       interface_.notify().push("World deleted");
     } else {
-      interface_.notify().push("Could not delete that world");
+      interface_.notify().push("Could not delete that world", ui::Toast::Important);
     }
   };
 
@@ -1015,7 +1049,7 @@ void App::wireInterface() {
       interface_.notify().push("Copy saved");
     } else {
       log::warn("backup failed: %s", error.c_str());
-      interface_.notify().push("Could not copy that world");
+      interface_.notify().push("Could not copy that world", ui::Toast::Important);
     }
   };
 
@@ -1027,14 +1061,14 @@ void App::wireInterface() {
     std::string error;
     if (!save::backup(id, nullptr, &error)) {
       log::warn("upgrade aborted, backup failed: %s", error.c_str());
-      interface_.notify().push("Could not copy the world, so nothing was changed");
+      interface_.notify().push("Could not copy the world, so nothing was changed", ui::Toast::Important);
       return;
     }
     if (save::setGenVersion(id, world::kGenVersion, &error)) {
       interface_.notify().push("World updated \xE2\x80\x94 a copy of the old one was kept");
     } else {
       log::warn("upgrade failed: %s", error.c_str());
-      interface_.notify().push("Could not update that world");
+      interface_.notify().push("Could not update that world", ui::Toast::Important);
     }
   };
 
@@ -1042,7 +1076,7 @@ void App::wireInterface() {
     int failures = 0;
     const int imported = save::importAllFromExports(&failures);
     if (imported == 0 && failures == 0) {
-      interface_.notify().push("Put a .hrw world in data/exports first");
+      interface_.notify().push("Put a .hrw world in data/exports first", ui::Toast::Important);
     } else if (failures == 0) {
       interface_.notify().push("Imported " + std::to_string(imported) +
                                (imported == 1 ? " world" : " worlds"));
@@ -1084,7 +1118,7 @@ void App::wireInterface() {
       if (port == 0) port = net::kDefaultGamePort;
     }
     if (address.empty()) {
-      interface_.notify().push("That is not an address or an invite code");
+      interface_.notify().push("That is not an address or an invite code", ui::Toast::Important);
       return;
     }
     if (world_) leaveWorld();
@@ -1128,7 +1162,7 @@ void App::wireInterface() {
     // The pause menu passes nothing, meaning "the world I am in".
     const std::string id = idOrEmpty.empty() ? worldMeta_.id : idOrEmpty;
     if (id.empty()) {
-      interface_.notify().push("There is no saved world to export");
+      interface_.notify().push("There is no saved world to export", ui::Toast::Important);
       return;
     }
     // Export reads the file, so an open world is written out first — otherwise the
@@ -1140,12 +1174,22 @@ void App::wireInterface() {
       log::info("exported to %s", path.c_str());
       interface_.notify().push("Exported to data/exports");
     } else {
-      interface_.notify().push("Export failed: " + error);
+      interface_.notify().push("Export failed: " + error, ui::Toast::Important);
     }
   };
 
   interface_.inventory().attach(&inventory_, &icons_);
   interface_.atlas().attach(&atlas_);
+}
+
+// Whether cartography is unlocked right now.
+//
+// A property of what is being carried, asked every time rather than latched when
+// the map opens — "lose the Atlas and the map goes with it" is the documented
+// rule, and the way you lose it is by dying, which happens while you are holding
+// something else entirely.
+bool App::hasAtlas() const {
+  return player_ != nullptr && ui::Atlas::hasAtlasItem(inventory_);
 }
 
 void App::resumePlaying() {
@@ -1450,7 +1494,9 @@ net::GameRefs App::gameRefs() {
 
 net::SessionHooks App::makeSessionHooks() {
   net::SessionHooks hooks;
-  hooks.notify = [this](const std::string& message) { interface_.notify().push(message); };
+  hooks.notify = [this](const std::string& message) {
+    interface_.notify().push(message, ui::Toast::Important);
+  };
   hooks.buildSave = [this] { return buildSave(); };
   hooks.adoptWorld = [this](const save::WorldSave& data) { adoptRemoteWorld(data); };
   hooks.onDisconnected = [this](const std::string& reason) {
@@ -2067,7 +2113,7 @@ bool App::startHosting(std::uint16_t port) {
   if (multiplayer() || !world_ || !player_) return false;
   std::string error;
   if (!netHost_.start(port, playerId_, playerName_, gameRefs(), makeSessionHooks(), &error)) {
-    interface_.notify().push("Could not host: " + error);
+    interface_.notify().push("Could not host: " + error, ui::Toast::Important);
     return false;
   }
   // Every local edit — including the water simulation's own writes, which only
@@ -2091,7 +2137,7 @@ bool App::startJoining(const std::string& address, std::uint16_t port) {
   if (multiplayer()) return false;
   std::string error;
   if (!netClient_.start(address, port, playerId_, playerName_, makeSessionHooks(), &error)) {
-    interface_.notify().push("Could not join: " + error);
+    interface_.notify().push("Could not join: " + error, ui::Toast::Important);
     return false;
   }
   interface_.notify().push("Connecting to " + address + "...");
@@ -2154,7 +2200,7 @@ void App::leaveNetwork(const std::string& reason, bool sayGoodbye) {
   // answered by whichever boat happened to hold it in the next world joined.
   mountedNetId_ = 0;
   if (world_) world_->setEditSink(nullptr);
-  if (!reason.empty()) interface_.notify().push(reason);
+  if (!reason.empty()) interface_.notify().push(reason, ui::Toast::Important);
 }
 
 // ---- saves -----------------------------------------------------------------
@@ -2210,7 +2256,7 @@ bool App::saveCurrentWorld() {
     log::error("save failed: %s", error.c_str());
     // Loud, because a save that quietly did not happen is the one failure the
     // player cannot recover from by trying again later.
-    interface_.notify().push("Could not save: " + error);
+    interface_.notify().push("Could not save: " + error, ui::Toast::Important);
     return false;
   }
   worldMeta_.savedAt = data.meta.savedAt;
@@ -2223,7 +2269,7 @@ bool App::loadWorldFromDisk(const std::string& id) {
   std::string error;
   if (!save::read(id, data, &error)) {
     log::error("load failed: %s", error.c_str());
-    interface_.notify().push("Could not load: " + error);
+    interface_.notify().push("Could not load: " + error, ui::Toast::Important);
     return false;
   }
 
@@ -2285,7 +2331,7 @@ void App::applyPainting(int x, int y, int z, game::Painting art) {
   // the frame out from under it would otherwise sit in the world's map forever,
   // invisible, and be written to the save.
   if (world_->getBlock(x, y, z) != world::wk().canvas) {
-    interface_.notify().push("That painting is gone");
+    interface_.notify().push("That painting is gone", ui::Toast::Important);
     return;
   }
   world_->setPainting(x, y, z, art);
@@ -2371,6 +2417,19 @@ void App::frame() {
   // A --screen capture must not have its screen closed by the key handler or by the
   // pointer-recapture click, so the whole input path is skipped for it.
   if (options_.startScreen.empty()) handleGlobalKeys();
+
+  // The Atlas can be lost while its own map is open. Dying scatters everything you
+  // carry, and the map is exactly the screen you might be reading when something
+  // reaches you — so the gate is a per-frame invariant and not merely a check on
+  // the way in. This is the same shape as onContainerDenied: a screen whose reason
+  // to exist has gone closes itself rather than waiting to be dismissed.
+  //
+  // Skipped under --screen for the reason the key handler above is: a capture must
+  // not have its screen closed out from under it.
+  if (options_.startScreen.empty() && state_ == AppState::Map && !hasAtlas()) {
+    resumePlaying();
+    interface_.notify().push("Your Atlas is gone", ui::Toast::Important);
+  }
 
   // Chat is not a screen and it is not a pause. The reason you are typing is
   // usually something you are looking at, and a command whose effect you cannot
@@ -2701,7 +2760,7 @@ void App::refreshEntityContext() {
   entityContext_.playerOptions = &playerOptions_;
   if (!entityContext_.notify) {
     entityContext_.notify = [this](const std::string& message) {
-      interface_.notify().push(message);
+      interface_.notify().push(message, ui::Toast::Important);
     };
   }
 }
@@ -2908,10 +2967,22 @@ void App::handleGlobalKeys() {
 
   // M for the Atlas. It was N because the browser build could not have M — the
   // native port has no such constraint, and M is where every player's hand goes.
+  //
+  // The Atlas ITEM is what unlocks cartography, and this is one of the two places
+  // that has to be true. The other is below, in frame(): the minimap and the
+  // in-world waypoint tags were gated here from the start, but the fullscreen map
+  // was not, so the whole progression — papyrus, paper, leather, azurite — could
+  // be skipped by pressing a key.
   if (in.pressed(Key::M)) {
     if (state_ == AppState::Playing) {
-      state_ = AppState::Map;
-      window_.setPointerCaptured(false);
+      if (hasAtlas()) {
+        state_ = AppState::Map;
+        window_.setPointerCaptured(false);
+      } else {
+        // Named, not silent. A key that does nothing reads as a broken key; a key
+        // that says what it wants reads as something to go and craft.
+        interface_.notify().push("You need an Atlas to chart the world", ui::Toast::Important);
+      }
     } else if (state_ == AppState::Map) {
       resumePlaying();
     }
@@ -2924,7 +2995,7 @@ void App::handleGlobalKeys() {
     audio::sfx::shutter();
     const std::string path = paths::join(paths::screenshotsDir(), nextScreenshotName());
     if (captureScreenshot(path)) interface_.notify().push("Screenshot saved");
-    else interface_.notify().push("Screenshot failed");
+    else interface_.notify().push("Screenshot failed", ui::Toast::Important);
   }
 
   // Clicking the window re-captures the pointer, as the web build did on canvas

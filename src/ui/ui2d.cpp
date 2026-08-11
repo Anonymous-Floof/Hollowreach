@@ -288,6 +288,55 @@ void Ui2D::texturedRectMasked(const Rect& r, float u0, float v0, float u1, float
            u0, v0, u1, v1, 0, 0, &center);
 }
 
+NineSlice computeNineSlice(const Rect& r, float u0, float v0, float u1, float v1, int texWidth,
+                           int texHeight, float slice) {
+  NineSlice out;
+  // The corner size in destination pixels. Scaled down when the destination is too
+  // small for two corners to fit side by side — without this, a 12px-tall row drawn
+  // with an 8px slice would draw its top and bottom corners overlapping, and the
+  // middle band would have negative height and come out inside out.
+  const float fit = std::min(1.0f, std::min(r.w, r.h) / (slice * 2.0f));
+  const float d = slice * fit;
+  out.corner = d;
+
+  // The same inset in UV space, and measured against the SPRITE's pixel size rather
+  // than the destination's. That is the whole point of a nine-slice: the corners
+  // keep their authored proportions at every size the box is drawn at, and taking
+  // this fraction from the destination instead would stretch them again.
+  const float du = (u1 - u0) * (slice / static_cast<float>(texWidth));
+  const float dv = (v1 - v0) * (slice / static_cast<float>(texHeight));
+
+  out.xs[0] = r.x;         out.xs[1] = r.x + d;
+  out.xs[2] = r.right() - d; out.xs[3] = r.right();
+  out.ys[0] = r.y;         out.ys[1] = r.y + d;
+  out.ys[2] = r.bottom() - d; out.ys[3] = r.bottom();
+  out.us[0] = u0;          out.us[1] = u0 + du;
+  out.us[2] = u1 - du;     out.us[3] = u1;
+  out.vs[0] = v0;          out.vs[1] = v0 + dv;
+  out.vs[2] = v1 - dv;     out.vs[3] = v1;
+  return out;
+}
+
+void Ui2D::ninePatch(const Rect& r, float u0, float v0, float u1, float v1, int texWidth,
+                     int texHeight, float slice, Rgba tint) {
+  if (r.empty() || slice <= 0.0f || texWidth <= 0 || texHeight <= 0) {
+    texturedRect(r, u0, v0, u1, v1, tint);
+    return;
+  }
+
+  const NineSlice n = computeNineSlice(r, u0, v0, u1, v1, texWidth, texHeight, slice);
+  for (int row = 0; row < 3; ++row) {
+    for (int colIndex = 0; colIndex < 3; ++colIndex) {
+      const Rect cell {n.xs[colIndex], n.ys[row], n.xs[colIndex + 1] - n.xs[colIndex],
+                       n.ys[row + 1] - n.ys[row]};
+      // A zero-width middle band is the ordinary case for a box exactly two corners
+      // wide, not an error worth drawing an empty quad for.
+      if (cell.w <= 0.0f || cell.h <= 0.0f) continue;
+      texturedRect(cell, n.us[colIndex], n.vs[row], n.us[colIndex + 1], n.vs[row + 1], tint);
+    }
+  }
+}
+
 void Ui2D::glyphQuad(const Rect& r, float u0, float v0, float u1, float v1, Rgba colorA,
                      Rgba colorB, float gradT0, float gradT1) {
   // Glyph rects arrive already in device pixels: the text layer positions them on

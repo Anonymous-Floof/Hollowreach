@@ -33,7 +33,10 @@
 #include "game/recipes.h"
 #include "render/sky.h"
 #include "render/viewmodel.h"
+#include "ui/hud.h"
 #include "ui/inventoryui.h"
+#include "ui/map.h"
+#include "ui/notify.h"
 #include "core/bytes.h"
 #include "net/client.h"
 #include "net/discovery.h"
@@ -59,6 +62,8 @@
 #include "ui/dom.h"
 #include "ui/text.h"
 #include "ui/settings.h"
+#include "ui/theme.h"
+#include "ui/uisprites.h"
 #include "ui/timewheel.h"
 #include "world/water.h"
 #include "world/world.h"
@@ -8662,6 +8667,456 @@ void testThreading() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The theme token table
+//
+// Everything here is testable without a window, which is the argument for the
+// table existing at all: the old constants could only be checked by looking at a
+// screenshot, and "the accent moved by four" is not something anybody sees in one.
+// ---------------------------------------------------------------------------
+void testThemeTokens() {
+  std::printf("\n-- theme tokens --\n");
+  ui::Theme theme;
+
+  // --- names and the enum cannot drift ---------------------------------------
+  {
+    // The X-macro's whole job. If the two lists ever fall out of step this is the
+    // check that says so, rather than a role quietly becoming unaddressable.
+    int named = 0;
+    for (int i = 0; i < ui::kRoleCount; ++i) {
+      if (i == ui::kPaletteCount) continue;
+      const char* name = ui::nameOf(static_cast<ui::Role>(i));
+      if (name == nullptr || name[0] == '\0') continue;
+      ui::Role back{};
+      if (ui::roleByName(name, back) && static_cast<int>(back) == i) ++named;
+    }
+    check(named == ui::kRoleCount - 1, "every role round-trips through its own name");
+
+    ui::Role unused{};
+    check(!ui::roleByName("nonsense.token", unused), "an invented name matches nothing");
+    check(!ui::roleByName("", unused), "the palette boundary marker is not addressable");
+  }
+
+  // --- every role actually got a value ---------------------------------------
+  {
+    // An ABSOLUTE check, not a comparison against another theme. Sabotaging
+    // deriveRoles() out of the build was originally caught only by a check that
+    // compared two themes — and two equally underived themes agree with each
+    // other perfectly. The colour array is zero-initialised, so a role nothing
+    // ever assigned is transparent black, and no derivation produces that.
+    ui::Theme fresh;
+    int unassigned = 0;
+    const char* first = "";
+    for (int i = 0; i < ui::kRoleCount; ++i) {
+      if (i == ui::kPaletteCount) continue;
+      const Rgba c = fresh.color(static_cast<ui::Role>(i));
+      if (c.r == 0 && c.g == 0 && c.b == 0 && c.a == 0) {
+        if (unassigned == 0) first = ui::nameOf(static_cast<ui::Role>(i));
+        ++unassigned;
+      }
+    }
+    checkf(unassigned == 0, "every role is derived from the palette (%d unassigned%s%s)",
+           unassigned, unassigned ? ", first: " : "", first);
+  }
+
+  // --- a palette override reaches everything derived from it ------------------
+  {
+    const Rgba before = theme.color(ui::Role::ButtonPrimaryFill);
+
+    // The inverse of whatever the built-in accent is, rather than a literal.
+    // Repainting the built-in theme to Lantern silently made the literal this test
+    // used IDENTICAL to the default, so "overriding the accent" overrode it to the
+    // value it already had and two checks failed for a reason that had nothing to
+    // do with the code under test. A value defined against the default cannot
+    // collide with it no matter what a future theme does.
+    const Rgba base = theme.color(ui::Role::Accent);
+    const Rgba other {static_cast<std::uint8_t>(255 - base.r),
+                      static_cast<std::uint8_t>(255 - base.g),
+                      static_cast<std::uint8_t>(255 - base.b), 255};
+    ui::ThemeDoc doc;
+    doc.palette.emplace_back(ui::Role::Accent, other);
+    theme.build({doc});
+
+    check(theme.color(ui::Role::Accent).r == other.r, "the palette entry itself is set");
+    check(theme.color(ui::Role::ButtonPrimaryFill).r != before.r,
+          "a role derived from the accent followed it");
+    // The point of the two tiers: one line moves a great many values. The accent
+    // alone reaches a little under forty roles, so thirty is a floor with real
+    // headroom either side — it fails if derivation stops happening (a stray early
+    // return in deriveRoles), and it fails if the accent family is quietly
+    // disconnected from the accent, without breaking every time a role is added.
+    //
+    // A whole palette moves far more: the nine-line pack this was measured against
+    // changes 95 of the 125 colours.
+    int moved = 0;
+    ui::Theme fresh;
+    for (int i = 0; i < ui::kRoleCount; ++i) {
+      const auto role = static_cast<ui::Role>(i);
+      if (theme.color(role).r != fresh.color(role).r ||
+          theme.color(role).g != fresh.color(role).g ||
+          theme.color(role).b != fresh.color(role).b) {
+        ++moved;
+      }
+    }
+    checkf(moved > 30, "one palette line moves %d roles with it", moved);
+  }
+
+  // --- a pinned role beats the derivation it would otherwise have got ---------
+  {
+    ui::ThemeDoc doc;
+    doc.palette.emplace_back(ui::Role::Accent, ui::rgb(0x00ff00));
+    doc.roles.emplace_back(ui::Role::ButtonPrimaryFill, ui::rgb(0x123456));
+    theme.build({doc});
+    check(theme.color(ui::Role::ButtonPrimaryFill).r == 0x12 &&
+              theme.color(ui::Role::ButtonPrimaryFill).b == 0x56,
+          "an explicit role pin survives the derivation");
+    check(theme.color(ui::Role::ButtonPrimaryFillHover).g == 0xff,
+          "a role the document did not pin still follows the palette");
+  }
+
+  // --- documents apply lowest priority first ---------------------------------
+  {
+    ui::ThemeDoc low, high;
+    low.palette.emplace_back(ui::Role::Accent, ui::rgb(0xff0000));
+    high.palette.emplace_back(ui::Role::Accent, ui::rgb(0x0000ff));
+    theme.build({low, high});
+    check(theme.color(ui::Role::Accent).b == 0xff && theme.color(ui::Role::Accent).r == 0,
+          "the last document to speak about a colour wins");
+
+    // And the ordering has to reach the DERIVED roles too, not only the palette
+    // entry — that is the half a naive implementation gets wrong, because it
+    // derives once at the end instead of after each document.
+    ui::ThemeDoc pinLow;
+    pinLow.roles.emplace_back(ui::Role::ButtonPrimaryFill, ui::rgb(0x111111));
+    ui::ThemeDoc paletteHigh;
+    paletteHigh.palette.emplace_back(ui::Role::Accent, ui::rgb(0x00ff00));
+    theme.build({pinLow, paletteHigh});
+    check(theme.color(ui::Role::ButtonPrimaryFill).r != 0x11,
+          "a later palette change re-derives over an earlier pin");
+  }
+
+  // --- rebuilding from nothing restores the built-in theme -------------------
+  {
+    ui::Theme reference;
+    ui::ThemeDoc doc;
+    doc.palette.emplace_back(ui::Role::Accent, ui::rgb(0x00ff00));
+    theme.build({doc});
+    theme.build({});
+    check(theme.color(ui::Role::Accent).g == reference.color(ui::Role::Accent).g &&
+              theme.color(ui::Role::ButtonPrimaryFill).g ==
+                  reference.color(ui::Role::ButtonPrimaryFill).g,
+          "turning every pack off restores the built-in theme");
+  }
+
+  // --- reading a theme.json --------------------------------------------------
+  {
+    ui::ThemeDoc doc;
+    std::string error;
+    const bool ok = ui::parseThemeDoc(
+        R"({ "palette": { "accent": "#abc", "bg": "#11223344" },
+             "roles":   { "button.fill": "#010203" },
+             "scalars": { "radius": 4 } })",
+        "test", doc, &error);
+    check(ok && doc.unknown.empty(), "a well-formed theme parses with nothing left over");
+    const bool tiered =
+        doc.palette.size() == 2 && doc.roles.size() == 1 && doc.scalars.size() == 1;
+    check(tiered, "each value lands in the tier its token belongs to");
+    // Guarded, because the two checks below index what the one above just counted.
+    // Unguarded they read off the end of an empty vector when the tiering breaks,
+    // and a test that CRASHES on a failure reports far less than one that fails.
+    // Found by sabotage: routing every token to the wrong tier took the suite down
+    // here rather than failing the check that was watching for it.
+    if (tiered) {
+      // #abc is #aabbcc, the way CSS reads it and anybody writing one expects.
+      check(doc.palette[0].second.r == 0xaa && doc.palette[0].second.g == 0xbb,
+            "a three-digit hex expands");
+      check(doc.palette[1].second.a == 0x44, "an eight-digit hex carries its alpha");
+    }
+  }
+  {
+    // A token written under the wrong section still works. An author who puts
+    // "accent" under "roles" has made a mistake that costs them nothing to be
+    // forgiven for, and refusing it would teach them nothing.
+    ui::ThemeDoc doc;
+    ui::parseThemeDoc(R"({ "roles": { "accent": "#ffffff" } })", "test", doc, nullptr);
+    check(doc.palette.size() == 1 && doc.roles.empty(),
+          "a palette token under \"roles\" is still a palette token");
+  }
+  {
+    // Nothing here trusts the pack. Each of these is one line lost, never the file.
+    ui::ThemeDoc doc;
+    const bool ok = ui::parseThemeDoc(
+        R"({ "palette": { "accent": "not-a-colour", "nonsense": "#fff" },
+             "scalars": { "radius": 99999, "gap": "wide" } })",
+        "test", doc, nullptr);
+    check(ok, "a file full of bad values is still a file that loaded");
+    check(doc.palette.empty() && doc.scalars.empty(), "every bad value was dropped");
+    check(doc.unknown.size() == 4, "and every one of them was reported by name");
+  }
+  {
+    ui::ThemeDoc doc;
+    std::string error;
+    check(!ui::parseThemeDoc("[1, 2, 3]", "test", doc, &error) && !error.empty(),
+          "a theme whose top level is not an object is refused with a reason");
+    check(!ui::parseThemeDoc("{ this is not json", "test", doc, &error),
+          "and so is one that is not JSON at all");
+  }
+
+  // --- the dump is a theme.json, and round-trips -----------------------------
+  {
+    ui::Theme source;
+    ui::ThemeDoc doc;
+    doc.palette.emplace_back(ui::Role::Accent, ui::rgb(0xe8a13c));
+    source.build({doc});
+
+    ui::ThemeDoc reparsed;
+    std::string error;
+    const bool ok = ui::parseThemeDoc(source.dump(), "dump", reparsed, &error);
+    check(ok && reparsed.unknown.empty(), "--dump-theme output parses as a theme.json");
+
+    // The real property: feeding a dump back in reproduces the theme it came from.
+    // Without it the flag would be documentation rather than a starting point.
+    ui::Theme rebuilt;
+    rebuilt.build({reparsed});
+    bool identical = true;
+    for (int i = 0; i < ui::kRoleCount; ++i) {
+      const auto role = static_cast<ui::Role>(i);
+      if (rebuilt.color(role).r != source.color(role).r ||
+          rebuilt.color(role).g != source.color(role).g ||
+          rebuilt.color(role).b != source.color(role).b ||
+          rebuilt.color(role).a != source.color(role).a) {
+        identical = false;
+      }
+    }
+    check(identical, "and reproduces the theme it was dumped from, colour for colour");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nine-slice geometry
+//
+// Ui2D needs a GL context, so what is checked here is the arithmetic that decides
+// the nine regions — which is the part that can be wrong in a way a screenshot
+// makes look merely ugly rather than incorrect.
+// ---------------------------------------------------------------------------
+void testNinePatch() {
+  std::printf("\n-- nine-slice --\n");
+
+  // Everything below calls the real computeNineSlice. Reimplementing its
+  // arithmetic here would compare the code against a copy of itself and go on
+  // passing with the original broken — which is precisely what the first draft of
+  // this test did, and what reverting the fix exposed.
+  const auto cut = [](float w, float h, float slice) {
+    return ui::computeNineSlice({0, 0, w, h}, 0, 0, 1, 1, 48, 48, slice);
+  };
+
+  check(cut(200, 60, 12).corner == 12.0f, "a box with room keeps the authored slice");
+  check(cut(16, 16, 12).corner == 8.0f, "a box too small shrinks its corners to fit");
+  check(cut(20, 200, 12).corner == 10.0f, "the tighter axis is the one that decides");
+
+  // The property that matters, swept rather than sampled: at no width do two
+  // corners overlap, and the cut lines never run backwards.
+  bool sane = true;
+  for (float w = 1.0f; w < 96.0f; w += 1.0f) {
+    const ui::NineSlice n = cut(w, 40.0f, 12.0f);
+    if (n.corner * 2.0f > w + 0.001f) sane = false;
+    for (int i = 0; i < 3; ++i) {
+      if (n.xs[i] > n.xs[i + 1] + 0.001f || n.us[i] > n.us[i + 1] + 0.001f) sane = false;
+    }
+  }
+  check(sane, "at no width do the nine regions overlap or invert");
+
+  // A sprite's corners keep their authored proportion of the SOURCE image, which
+  // is what stops them stretching as the destination grows. Two very different
+  // destinations, one sprite, and the uv inset has to be identical in both.
+  {
+    const ui::NineSlice small = cut(60, 30, 12);
+    const ui::NineSlice large = cut(600, 300, 12);
+    check(std::fabs((small.us[1] - small.us[0]) - 0.25f) < 1e-6f,
+          "the uv inset is measured against the sprite, not the destination");
+    check(std::fabs((small.us[1] - small.us[0]) - (large.us[1] - large.us[0])) < 1e-6f,
+          "and so does not move when the box it is drawn in does");
+    check(large.xs[1] - large.xs[0] == small.xs[1] - small.xs[0],
+          "a corner is the same size on a large panel as on a small one");
+  }
+
+  // Slot names round-trip, for the same reason role names do.
+  {
+    int named = 0;
+    for (int i = 0; i < ui::kSpriteSlotCount; ++i) {
+      ui::SpriteSlot back{};
+      if (ui::spriteSlotByName(ui::nameOf(static_cast<ui::SpriteSlot>(i)), back) &&
+          static_cast<int>(back) == i) {
+        ++named;
+      }
+    }
+    check(named == ui::kSpriteSlotCount, "every sprite slot round-trips through its name");
+    ui::SpriteSlot unused{};
+    check(!ui::spriteSlotByName("panel.nonsense", unused), "an invented slot matches nothing");
+  }
+
+  // With no pack loaded every slot is absent, which is what makes the built-in
+  // interface cost nothing for this feature existing.
+  {
+    int present = 0;
+    for (int i = 0; i < ui::kSpriteSlotCount; ++i) {
+      if (ui::sprite(static_cast<ui::SpriteSlot>(i)) != nullptr) ++present;
+    }
+    check(present == 0, "the built-in theme supplies no sprites at all");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The redesigned layouts
+//
+// Only the arithmetic, because the screens themselves need a GL context. Both of
+// these were extracted from the drawing code specifically so the checks below
+// exercise the real function — a test that recomputed the same formula would
+// agree with a broken implementation as happily as with a working one.
+// ---------------------------------------------------------------------------
+void testLayoutAnchors() {
+  std::printf("\n-- redesigned layout --\n");
+
+  // --- the HUD stat rows ------------------------------------------------------
+  {
+    // A hotbar spanning 400..880, and rows 200 and 180 wide.
+    const ui::StatsAnchors a = ui::statsAnchors(400.0f, 880.0f, 200.0f, 180.0f, 100.0f);
+    check(std::fabs(a.heartsCx - 500.0f) < 0.001f, "the hearts row starts at the bar's left edge");
+    check(std::fabs(a.hungerCx - 790.0f) < 0.001f, "the hunger row ends at the bar's right edge");
+
+    // Stated as edges rather than centres, which is the property that actually
+    // matters on screen: the outermost pip and the outermost slot share a line.
+    check(std::fabs((a.heartsCx - 100.0f) - 400.0f) < 0.001f,
+          "so the first heart and the first slot share a left edge");
+    check(std::fabs((a.hungerCx + 90.0f) - 880.0f) < 0.001f,
+          "and the last hunger pip and the last slot share a right edge");
+
+    // Breath drains, so its width changes every few seconds. Pinned to the right
+    // edge it empties inward; centred on the hunger row it would crawl sideways.
+    const ui::StatsAnchors full = ui::statsAnchors(400.0f, 880.0f, 200.0f, 180.0f, 100.0f);
+    const ui::StatsAnchors low = ui::statsAnchors(400.0f, 880.0f, 200.0f, 180.0f, 40.0f);
+    check(std::fabs((full.breathCx + 50.0f) - (low.breathCx + 20.0f)) < 0.001f,
+          "a draining breath row keeps its right edge still");
+  }
+
+  // --- the inventory's shared width -------------------------------------------
+  {
+    const float bag = ui::bagPanelWidth();
+    // Nine slots and eight gaps have to be inside it, with the padding and the two
+    // borders on top. An off-by-one on the gap count is the classic version of
+    // this mistake and it is invisible until the panels are side by side.
+    const float contents = ui::px(ui::Scalar::InvSlot) * 9 + ui::px(ui::Scalar::InvSlotGap) * 8;
+    check(bag > contents, "the bag is wider than the slots it holds");
+    check(std::fabs(bag - contents - ui::px(ui::Scalar::Pad) * 2 -
+                    ui::px(ui::Scalar::Border) * 2) < 0.001f,
+          "by exactly its padding and its two borders");
+
+    // And it follows the theme, which is what makes a pack that resizes slots move
+    // the station row above the bag as well as the bag itself.
+    const float before = ui::bagPanelWidth();
+    ui::ThemeDoc doc;
+    doc.scalars.emplace_back(ui::Scalar::InvSlot, ui::px(ui::Scalar::InvSlot) * 2.0f);
+    ui::theme().build({doc});
+    const float after = ui::bagPanelWidth();
+    ui::theme().build({});
+    check(after > before, "and a theme that grows the slots grows the panel with them");
+    check(std::fabs(ui::bagPanelWidth() - before) < 0.001f,
+          "and turning that theme off puts it back");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The Atlas gate
+//
+// Carrying the Atlas is what unlocks cartography. The minimap and the in-world
+// waypoint tags were gated on it from the start; the fullscreen map was not, so
+// M opened it with nothing in the bag and the whole papyrus-paper-leather-azurite
+// progression could be skipped by pressing a key.
+//
+// What is checked here is the predicate. The wiring — that App consults it on the
+// keypress and on every frame the map is open — needs a window and a key press,
+// so it is NOT covered below; see the note in the changelog.
+// ---------------------------------------------------------------------------
+void testAtlasGate() {
+  std::printf("\n-- the atlas gate --\n");
+
+  game::Inventory inv;
+  check(!ui::Atlas::hasAtlasItem(inv), "an empty bag has no Atlas");
+
+  inv.give("planks", 10);
+  inv.give("pick_stone", 1);
+  check(!ui::Atlas::hasAtlasItem(inv), "nor does a bag full of other things");
+
+  check(inv.give("atlas", 1) == 0, "the Atlas is a real item that fits in a bag");
+  check(ui::Atlas::hasAtlasItem(inv), "and carrying one unlocks cartography");
+
+  // Anywhere in the bag, not just the hotbar: it is carried, not held.
+  {
+    game::Inventory deep;
+    for (int i = 0; i < 20; ++i) deep.give("cobbled", 64);
+    check(deep.give("atlas", 1) == 0, "an Atlas buried at slot 20 still fits");
+    check(ui::Atlas::hasAtlasItem(deep), "and still counts as carried");
+  }
+
+  // The case the bug was actually about. Dying tosses everything carried, and the
+  // map is exactly the screen you might be reading when something reaches you —
+  // so the predicate has to go false the moment the bag is emptied, which is what
+  // makes checking it per frame worth doing.
+  for (game::ItemStack& s : inv.slots()) s.clear();
+  check(!ui::Atlas::hasAtlasItem(inv), "and dying with it takes cartography away again");
+
+  // A near-miss key must not open the map. The lookup is an exact string compare
+  // and there is no item called "atlas_page", but a future one would be a silent
+  // bypass of a progression gate rather than a compile error.
+  {
+    game::Inventory other;
+    other.give("paper", 3);
+    other.give("leather", 1);
+    other.give("azurite", 1);
+    check(!ui::Atlas::hasAtlasItem(other),
+          "holding everything the Atlas is made of is not holding an Atlas");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The routine-notification switch
+//
+// The half worth testing is the half that is easy to get wrong later: that
+// turning the setting off does NOT silence a refusal. Somebody adding a toast in
+// six months gets Routine by default, which is the safe direction — but somebody
+// "simplifying" push() by dropping the kind would silently mute every failure
+// message in the game, and nothing else would notice.
+// ---------------------------------------------------------------------------
+void testNotificationSetting() {
+  std::printf("\n-- routine notifications --\n");
+  ui::Notify notify;
+  const bool restore = ui::settings().flag("routineNotifications");
+
+  ui::settings().setFlag("routineNotifications", true, /*persist=*/false);
+  notify.push("Autosaved");
+  check(!notify.empty(), "with the setting on, a routine toast shows");
+  notify.clear();
+
+  ui::settings().setFlag("routineNotifications", false, /*persist=*/false);
+  notify.push("Autosaved");
+  check(notify.empty(), "with it off, a routine toast is suppressed");
+
+  notify.push("Could not save: disk full", ui::Toast::Important);
+  check(!notify.empty(), "but a failure is shown whatever the setting says");
+  notify.clear();
+
+  notify.push("You need an Atlas to chart the world", ui::Toast::Important);
+  check(!notify.empty(), "and so is a refusal, for the same reason");
+  notify.clear();
+
+  // An empty message was never a toast and must not become one now that push()
+  // has a second early return to get past.
+  notify.push("", ui::Toast::Important);
+  check(notify.empty(), "an empty message is still not a toast");
+
+  ui::settings().setFlag("routineNotifications", restore, /*persist=*/false);
+}
+
 }  // namespace
 
 int runSelfTest() {
@@ -8722,6 +9177,11 @@ int runSelfTest() {
   testCommandDispatch();
   testChatOverlay();
   testChatProtocol();
+  testThemeTokens();
+  testNinePatch();
+  testLayoutAnchors();
+  testAtlasGate();
+  testNotificationSetting();
   testThreading();
   testAudio();
   std::printf("\n%d checks, %d failure(s)\n", gChecks, gFailures);

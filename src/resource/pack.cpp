@@ -240,6 +240,7 @@ std::vector<PackInfo> scanPacks() {
       pack.soundFiles += countFiles(nsDir / "sounds", {".ogg", ".wav"});
       pack.textureFiles += countFiles(nsDir / "textures", {".png"});
       if (fs::is_regular_file(nsDir / "sounds.json", ec)) pack.hasSoundsJson = true;
+      if (fs::is_regular_file(nsDir / "ui" / "theme.json", ec)) pack.hasUiTheme = true;
     }
 
     if (pack.namespaces.empty() && pack.problem.empty()) {

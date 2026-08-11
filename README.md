@@ -109,7 +109,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1027 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1111 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -837,6 +837,71 @@ recording stands in for which event, why footsteps and mining ticks are capped a
 a third of a second, and how each volume was measured against the synthesised
 sound it replaces rather than guessed. Stacking it *under* a Minecraft pack fills
 whatever that pack has no sound for, which is what the load order is for.
+
+#### The interface
+
+**A pack can re-theme the whole interface**, from one small file:
+
+```
+MyPack/
+  assets/hollowreach/
+    ui/
+      theme.json                     colours and measurements
+      sprites/panel.card.png         optional nine-slice art
+      sprites/panel.card.json        optional { "slice": 8 }
+```
+
+The theme has **two tiers**, and that is the whole design. A *palette* of the two
+dozen colours a theme actually decides, and about 110 *roles* derived from it —
+`button.primary.fill`, `slot.edge`, `chat.whisper`. Roles are what the game draws
+with; the palette is what you set. So a complete, coherent theme is:
+
+```json
+{ "palette": { "accent": "#d8d2c4", "panel": "#20222a", "bg": "#15161a" } }
+```
+
+Nine lines of palette move **95 of the 125 colours** in the interface, all of them
+in step with each other. The alternative — one flat table of 130 names — sounds
+simpler until you write a pack and have to get 130 colours to agree by hand.
+
+Anything the derivation gets wrong for you can be pinned outright:
+
+```json
+{ "roles": { "button.danger.fill.hover": "#8e2a1e" } }
+```
+
+and `"scalars"` does the same for measurements — `radius`, `gap`, `hotbar.slot`,
+`inv.slot` — so a pack can make the interface denser or rounder, not only
+recoloured.
+
+**`--dump-theme <file>` writes the resolved theme, and the output is itself a
+valid `theme.json`.** Dump it, edit the lines you care about, drop it in a pack.
+It reflects whatever packs are enabled, so it also answers "what did this pack
+actually change".
+
+**Nine-slice sprites** go further than colour: the four corners keep their
+authored size while the edges and middle stretch, so one 48×48 image of carved
+stone is a panel at any size. The slots are `panel.card`, `panel.inset`,
+`button`, `button.hover`, `button.primary`, `slot`, `slot.selected`, `field` and
+`overlay`. A sprite is tinted by the role it replaces, so one greyscale image
+serves every variant of a widget and still follows the theme.
+
+**The built-in theme ships no sprites at all**, and that is deliberate: every
+widget draws as a rounded rectangle unless a pack says otherwise, so the feature
+costs one null check per painted node until somebody uses it.
+
+Nothing here trusts the pack. A name this build has never heard of is reported
+and skipped rather than obeyed, a colour that will not parse costs that one line,
+an out-of-range measurement is dropped, and a `theme.json` that is not JSON at
+all leaves the interface exactly as it was — because a half-applied theme is an
+interface with invisible text in it and no way to reach the menu that would turn
+it off.
+
+Two palettes designed alongside the built-in one are written up in
+`docs/ROADMAP.md`, in full, as ready-made candidates: **Verdant Reforged** and
+**Slate & Bone**.
+
+#### Textures
 
 **Textures are detected and counted but not applied yet** — that is the next
 pass. The abstractions it needs are already load-bearing rather than

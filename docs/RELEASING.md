@@ -64,6 +64,14 @@ actually changes — don't touch them for a release:
 `### Changed` / `### Fixed` headings work well). These lines become the release
 notes verbatim, so this is the "outline changes and additions" step.
 
+> **`### Fixed` is for bugs that were in a version somebody could download**, not
+> for bugs introduced and fixed inside this development cycle. Nobody ran that
+> code, so listing it answers a question no player asked — and reads as though the
+> game had a fault they should have noticed. Refactors, renames and test coverage
+> do not belong in the notes at all. The full rule, with examples, is at the top of
+> [CHANGELOG.md](../CHANGELOG.md); read it before writing an entry, and again
+> before shipping.
+
 **0b. Re-read what the game tells players, and fix what has gone stale.**
 Not optional, and not a formality — every item on this list has actually been
 wrong in a shipped or nearly-shipped build:

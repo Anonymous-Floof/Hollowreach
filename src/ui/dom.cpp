@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "ui/uisprites.h"
+
 namespace hr::ui {
 namespace {
 
@@ -635,20 +637,31 @@ void Doc::paintNode(Ui2D& ui, const Node& n) const {
   if (s.shadow.color.a != 0) ui.shadow(n.rect, {s.shadow.dx, s.shadow.dy, s.shadow.blur,
                                                 s.shadow.spread, tint(s.shadow.color)},
                                        s.radius);
-  if (s.bg.a != 0 || (s.gradient && s.bg2.a != 0)) {
+  if (s.sprite != nullptr && s.sprite->valid()) {
+    // Tinted by the node's own background, so one greyscale sprite can serve every
+    // variant of a widget and still follow the theme — a pack ships `button.png`
+    // once and the primary, danger and hover colours all come from the tokens.
+    // A pack that wants its own colours ships a coloured sprite and sets the token
+    // to white, which is the same mechanism read the other way round.
+    ui.setTexture(s.sprite->texture);
+    ui.ninePatch(n.rect, s.sprite->u0, s.sprite->v0, s.sprite->u1, s.sprite->v1,
+                 s.sprite->width, s.sprite->height, s.sprite->slice,
+                 tint(s.bg.a != 0 ? s.bg : kWhite));
+    ui.setTexture(0);
+  } else if (s.bg.a != 0 || (s.gradient && s.bg2.a != 0)) {
     if (s.gradient) {
       ui.fillGradient(n.rect, tint(s.bg), tint(s.bg2), s.radius);
     } else {
       ui.fillRect(n.rect, tint(s.bg), s.radius);
     }
   }
-  if (s.insetHighlight.a != 0) {
+  if (s.insetHighlight.a != 0 && s.sprite == nullptr) {
     // inset 0 1px 0 rgba(...) is a one-pixel line just inside the top edge.
     ui.fillRect({n.rect.x + s.radius * 0.5f, n.rect.y + s.borderWidth,
                  std::max(0.0f, n.rect.w - s.radius), 1.0f},
                 tint(s.insetHighlight));
   }
-  if (s.borderWidth > 0 && s.border.a != 0) {
+  if (s.borderWidth > 0 && s.border.a != 0 && s.sprite == nullptr) {
     ui.strokeRect(n.rect, tint(s.border), s.borderWidth, s.radius);
   }
 
@@ -717,7 +730,7 @@ void Doc::paintSubtree(Ui2D& ui, int i) const {
                             ? st->offset / (st->contentHeight - st->viewHeight)
                             : 0.0f;
         ui.fillRect({n.rect.right() - 8.0f, n.rect.y + travel * t, 8.0f, thumbH},
-                    color::panel2, 4.0f);
+                    col(Role::PanelRaised), 4.0f);
       }
     }
   }

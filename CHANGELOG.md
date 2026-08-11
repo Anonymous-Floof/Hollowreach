@@ -13,7 +13,114 @@ players, not for the git log. Day-to-day changes go under **[Latest]**;
 `python tools/release.py bump <major|minor|patch>` moves them under a new
 version heading when it's time to ship.
 
+## What goes in **Fixed**
+
+**Only things that were broken in a version somebody could actually download.**
+
+A player reading the notes is asking one question: *what is different from the
+version I have?* A bug that was introduced and fixed between two releases was
+never in their copy, so listing it answers a question nobody asked — and worse,
+it reads as though the game had a fault they should have noticed.
+
+So:
+
+- **Yes** — it was wrong in the last published release and is right now. "M
+  opened the Atlas without an Atlas." The player either hit it or could have.
+- **No** — it broke and was fixed inside this development cycle. Nobody ran that
+  code. It is git history, not release notes.
+- **No** — refactors, renames, internal cleanups, test coverage, tooling. If the
+  only way to notice is to read the source, it is not a change to the game.
+
+The same test applies to **Changed**: describe what is different *to play*, not
+what moved in the codebase. Groundwork that a player cannot see yet belongs in
+`docs/ROADMAP.md`, which exists for exactly that.
+
+One exception worth stating: work that enables something a player *can* use —
+resource-pack surfaces, new commands, new settings — is **Added**, described by
+what it lets them do, never by the refactor that made it possible.
+
 ## [Latest]
+
+### Added
+- **Resource packs can re-theme the interface.** A pack drops one file —
+  `assets/hollowreach/ui/theme.json` — and the whole interface follows it.
+
+  The theme has **two tiers**: a *palette* of the two dozen colours a theme
+  actually decides, and about 110 *roles* derived from it (`button.primary.fill`,
+  `slot.edge`, `chat.whisper`). You set the palette; everything else moves in step.
+  Nine lines of palette change **95 of the 125 colours** in the interface. Anything
+  the derivation gets wrong for you can be pinned outright, and `"scalars"` does
+  the same for measurements, so a pack can make the interface denser or rounder
+  rather than only recoloured.
+
+  **`--dump-theme` writes the resolved theme, and its output is itself a valid
+  `theme.json`** — dump it, edit the lines you care about, drop it in a pack. It
+  reflects whatever packs are on, so it also answers "what did this pack change".
+
+- **Nine-slice sprites**, so a pack can change what the interface is made of and
+  not just what colour it is. The four corners keep their authored size while the
+  edges and middle stretch, so one 48×48 image of carved stone is a panel at any
+  size. Nine slots: `panel.card`, `panel.inset`, `button`, `button.hover`,
+  `button.primary`, `slot`, `slot.selected`, `field`, `overlay`. The built-in
+  theme ships none of them and stays fully procedural, so this costs nothing until
+  a pack uses it.
+
+- **Routine notifications can be turned off** — Settings → Gameplay. The corner
+  toasts that narrate the ordinary ("Autosaved", "Screenshot saved", "Welcome
+  to…") are useful the first few times and wallpaper after that.
+
+  Refusals and failures still show. "Could not save", "You need an Atlas", "That
+  boat is taken" are the answer to something you just did, and a control that
+  silently does nothing is indistinguishable from a broken one.
+
+### Changed
+- **The interface has been redesigned, and repainted.** The new theme is
+  **Lantern** — warm amber on a near-black warm brown-grey, the interface as seen
+  by lamplight underground. The previous green sat on blue-grey panels, which is
+  why it read as washed out: the ground was fighting the accent.
+
+- **The main menu is a grid.** Eight identical full-width rows down the middle
+  became one full-width **Play**, a two-column grid of the things you might browse,
+  and **Quit** at the bottom — about a third less height, and the screen now says
+  which button you came to press.
+
+- **Settings has a category rail down the left** instead of tabs across the top.
+  The tabs used full height and almost no width, on a screen whose rows are a
+  short label and a small control and therefore had width to spare — and a
+  horizontal strip has nowhere to grow, so a sixth category wrapped onto a second
+  line and moved every tab under the cursor. The rail has room for as many as the
+  schema ever grows, and the rows got taller in the bargain.
+
+- **The health and hunger rows line up with the hotbar.** They used to be one
+  centred block floating above a centred bar, so three separate widths were all
+  centred on the same axis and none of them lined up. Hearts now sit against the
+  bar's left edge and hunger against its right, with breath above hunger.
+
+- **The inventory's panels share the bag's axis.** Armour and Crafting were
+  centred on their own combined width, which put the top half of the screen
+  visibly left of the bottom half. They are now given the bag's width, so the
+  whole assembly reads as one object.
+
+- **Hunger is a brown rather than an amber.** The obvious food colour sits 29/255
+  from the new lantern accent, which is not far enough apart to tell at pip size
+  in the corner of an eye that is looking at something else.
+
+- **Widget padding, corner radii and border widths are theme values too**, not
+  just colours, so a pack can set `control.pad.y`, `radius` or `border` and make
+  the whole interface denser or rounder.
+
+### Fixed
+- **M opened the Atlas without an Atlas.** The item is meant to unlock
+  cartography — it is why papyrus, paper, leather and azurite are worth
+  gathering — and the minimap and the in-world waypoint tags had always honoured
+  that. The fullscreen map never did, so the whole progression could be skipped by
+  pressing a key.
+
+  It is now checked in both places it has to be: when you press **M**, and on
+  every frame the map is open. The second matters because of how you actually lose
+  an Atlas — you die holding it, and the map is exactly the screen you might be
+  reading when something reaches you. The map now closes when the Atlas goes, the
+  way flight already ends when a world stops allowing it.
 
 ## [2.12.0] - 2026-08-11
 

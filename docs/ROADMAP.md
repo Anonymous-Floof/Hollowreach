@@ -494,6 +494,109 @@ argues.
   `netLevels_`. A server would hold the authoritative copy in `Access` and never
   need the map.
 
+## The interface, and the two palettes that were not chosen
+
+The UI was redesigned on 2026-08-11. The part worth recording is not what it
+looks like but the shape underneath it, because that shape is what a resource
+pack gets to reach.
+
+**Tokens are two-tier, and that is the whole design.** A small *palette* — the
+dozen-odd colours a theme actually decides — and ~70 *roles* derived from it in
+C++. A pack that overrides the palette recolours the entire interface
+coherently, which is what makes a ten-line theme file possible; a pack that
+wants one specific widget different overrides that one role. The alternative
+was a flat table of 70 names, which sounds simpler and means every pack author
+has to get 70 colours to agree with each other by hand.
+
+Names are for authors, indices are for frames. A token is written
+`"panel.bg"` in JSON and resolved **once at load** into a dense array, so
+drawing costs an array index rather than a hash lookup. The enum and the name
+table come from one X-macro for the single reason that two hand-maintained
+lists of 80 names will drift, and the drift is silent — a role nobody can
+address any more still compiles and still draws.
+
+**The palette that was chosen is Lantern**: warm amber on a near-black warm
+brown-grey, the interface as seen by lamplight underground. It has one known
+cost, and it was known before it was chosen — lantern amber sits close to both
+the health red and the hunger amber of the HUD pips, which are the two things on
+screen that must stay readable at a glance. Those pips had to be reworked rather
+than left to collide. If a future change moves the accent, check them again.
+
+### Two things deliberately NOT built, and why
+
+**A separate skin / StyleRecipe layer.** The original plan had a third tier
+between the tokens and the widget builders: a table of recipes per widget per
+state, so a pack could restyle "every primary button". It was dropped once the
+token table existed, because the tokens are already role-per-widget-per-state —
+`button.primary.fill.hover` is exactly what a recipe row would have held. A skin
+table would have been a second indirection over the same data with no capability
+the first one lacked. If it comes back, it should come back for a reason the
+tokens genuinely cannot express, not for tidiness.
+
+**Free-form anchored nodes in the layout engine.** The plan was to give `Doc`
+absolute positioning so the HUD, toasts and chat could stop being hand-positioned
+floats and a pack could move them. The HUD was redesigned by hand instead, which
+means there is currently **no consumer** for such a feature — and building layout
+infrastructure against a guessed use rather than a real one is how engines end up
+with two layout systems that disagree.
+
+Much of what it was for is already covered: `hotbar.slot`, `hotbar.bottom`,
+`hotbar.gap`, `pip.size`, `pip.gap`, `minimap.size`, `minimap.inset`, `toast.top`
+and `toast.right` are all theme scalars, so a pack can already resize and shift
+most of the HUD. What is missing is moving a widget to a *different corner*, and
+that is the thing to build anchors for when somebody actually wants it.
+
+### Two candidate UI Style Packs
+
+Both were designed alongside Lantern on 2026-08-11 and both were liked; they
+lost on one choice, not on merit. They are recorded here in full so that
+building either as a resource pack is a matter of transcribing a palette rather
+than re-deriving one. Each is a **palette override only** — no role overrides,
+no sprites — which is also the honest test of whether the two-tier design works:
+if either needs more than its palette to look right, the derivations are wrong.
+
+**Verdant Reforged** — what the pre-redesign interface was reaching for. The old
+UI paired a pastel green accent with blue-grey panels, and the ground fighting
+the accent is exactly why it read as washed out. This keeps the green identity
+and gives it a green ground to sit on.
+
+| token | value | |
+|---|---|---|
+| `bg` | `#0f1411` | dark green-black |
+| `panel` | `#18211b` | |
+| `panel2` | `#222e26` | |
+| `edge` | `#070a08` | |
+| `accent` | `#6ee787` | saturated, not pastel |
+| `accent.dark` | `#2f7a45` | |
+| `text` | `#e9f2ea` | |
+| `muted` | `#93a598` | |
+| `danger` | `#e0604e` | |
+
+**Slate & Bone** — near-monochrome warm greys with a bone off-white accent, on
+one rule: **colour is reserved for meaning**. Nothing in the chrome is saturated,
+so item icons, ore glows, rarity tints and the health and hunger pips become the
+only coloured things on screen and need no help to stand out. It is the quietest
+of the three and the one that ages best, and it is the natural pairing for anyone
+who finds Lantern too warm to read for long sessions.
+
+| token | value | |
+|---|---|---|
+| `bg` | `#15161a` | |
+| `panel` | `#20222a` | |
+| `panel2` | `#2b2e38` | |
+| `edge` | `#0a0b0e` | |
+| `accent` | `#d8d2c4` | bone |
+| `accent.dark` | `#8d8778` | |
+| `text` | `#eceae4` | |
+| `muted` | `#9a978e` | |
+| `danger` | `#d9584a` | the only saturated chrome colour |
+
+A third direction was considered and dropped before it was offered: **Aetherite**,
+a cyan-teal accent taken from the ore's own texture hex on deep indigo-black. It
+is worth remembering only because it is the palette whose accent sits *furthest*
+from health red and hunger amber, so it is the one to reach for if the pip
+readability problem above ever proves unfixable rather than merely awkward.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

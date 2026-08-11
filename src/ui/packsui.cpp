@@ -100,7 +100,7 @@ void PacksScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
   if (!summary_.empty()) doc_.label(summary_, widget::muted(12.0f), note);
   if (!notice_.empty()) {
     TextStyle ts = widget::muted(12.0f);
-    ts.color = color::accent;
+    ts.color = col(Role::Accent);
     doc_.label(notice_, ts, note);
   }
 
@@ -122,8 +122,8 @@ void PacksScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
     const int index = static_cast<int>(i);
 
     Style rowStyle = Doc::row(0, Justify::SpaceBetween, Align::Center);
-    rowStyle.bg = row.enabled ? color::panel2 : color::panel;
-    rowStyle.border = row.enabled ? color::accentDark : color::edge;
+    rowStyle.bg = row.enabled ? col(Role::PanelRaised) : col(Role::Panel);
+    rowStyle.border = row.enabled ? col(Role::AccentDeep) : col(Role::Edge);
     rowStyle.borderWidth = 2;
     rowStyle.radius = 9;
     rowStyle.padding = Edges(10, 14);
@@ -137,8 +137,8 @@ void PacksScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
       // The load position, on the row, because the whole point of the ordering
       // controls is knowing where a pack currently sits.
       Style pill = Doc::row(0, Justify::Center, Align::Center);
-      pill.bg = fade(color::accent, 0.18);
-      pill.border = color::accentDark;
+      pill.bg = fade(col(Role::Accent), 0.18);
+      pill.border = col(Role::AccentDeep);
       pill.borderWidth = 1;
       pill.radius = 5;
       pill.padding = Edges(1, 6, 2, 6);
@@ -152,16 +152,17 @@ void PacksScreen::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
 
     if (!row.pack.usable()) {
       TextStyle ts = widget::worldMeta();
-      ts.color = color::danger;
+      ts.color = col(Role::Danger);
       doc_.label(row.pack.problem, ts);
     } else {
-      char meta[192];
+      char meta[224];
       // Textures are counted and shown even though nothing applies them yet. A
       // pack that supplies them is not broken and should not be described as if
       // it were; saying what was found and what is used is the honest version.
-      std::snprintf(meta, sizeof(meta), "%d sound%s%s%s \xC2\xB7 %s", row.pack.soundFiles,
+      std::snprintf(meta, sizeof(meta), "%d sound%s%s%s%s \xC2\xB7 %s", row.pack.soundFiles,
                     row.pack.soundFiles == 1 ? "" : "s",
                     row.pack.hasSoundsJson ? " \xC2\xB7 sounds.json" : "",
+                    row.pack.hasUiTheme ? " \xC2\xB7 interface" : "",
                     row.pack.textureFiles > 0 ? " \xC2\xB7 textures (not applied yet)" : "",
                     row.pack.id.c_str());
       doc_.label(meta, widget::worldMeta());
@@ -302,7 +303,7 @@ void PacksScreen::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
 
 void PacksScreen::draw(Ui2D& ui, Text& text) {
   if (hasBackdrop_) {
-    ui.fillRect({0, 0, ui.width(), ui.height()}, rgba(8, 11, 15, 0.62));
+    ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::Scrim, 0.62f));
   } else {
     const float cx = ui.width() * 0.5f;
     const float cy = ui.height() * 0.30f;

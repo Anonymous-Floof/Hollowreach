@@ -24,23 +24,23 @@ constexpr float kTextSize = 13.5f;
 
 Rgba tintFor(Chat::Kind kind) {
   switch (kind) {
-    case Chat::Kind::System: return color::chatSystem;
-    case Chat::Kind::Whisper: return color::chatWhisper;
-    case Chat::Kind::Reply: return color::chatReply;
-    case Chat::Kind::Error: return color::danger;
+    case Chat::Kind::System: return col(Role::ChatSystem);
+    case Chat::Kind::Whisper: return col(Role::ChatWhisper);
+    case Chat::Kind::Reply: return col(Role::ChatReply);
+    case Chat::Kind::Error: return col(Role::Danger);
     case Chat::Kind::Say: break;
   }
-  return color::text;
+  return col(Role::Text);
 }
 
 TextStyle lineStyle() {
   TextStyle style;
   style.size = kTextSize;
-  style.color = color::text;
+  style.color = col(Role::Text);
   // Chat is drawn over a live world, which may be a snowfield or a cave. Without a
   // shadow half the lines are unreadable half the time, and which half depends on
   // where you happen to be standing.
-  style.withShadow(0, 1, 2, rgba(0, 0, 0, 0.9f));
+  style.withShadow(0, 1, 2, col(Role::Shadow, 0.90f));
   return style;
 }
 
@@ -272,7 +272,7 @@ bool Chat::handle(const UiEvent& event, Input* input, Text& text) {
     if (inputBox_.contains(event.mouseX, event.mouseY)) {
       clearSelection();
       TextStyle typed = lineStyle();
-      typed.color = color::text;
+      typed.color = col(Role::Text);
       field_.placeCaretAt(text, {inputBox_.x + kPad, inputBox_.y, inputBox_.w - kPad * 2,
                                  inputBox_.h},
                           typed, event.mouseX);
@@ -394,12 +394,12 @@ void Chat::draw(Ui2D& ui, Text& text) {
   // world with nothing but their own shadow, because a permanent dark rectangle in
   // the corner of every screenshot is not what a mostly-empty log should cost.
   if (open_) {
-    ui.fillRect(panel, rgba(0, 0, 0, 0.42f), 8.0f);
-    ui.fillRect(input, rgba(0, 0, 0, 0.72f), 8.0f);
-    ui.strokeRect(input, color::accentDark, 1.5f, 8.0f);
+    ui.fillRect(panel, col(Role::WashPanel), 8.0f);
+    ui.fillRect(input, col(Role::Scrim, 0.72f), 8.0f);
+    ui.strokeRect(input, col(Role::AccentDeep), 1.5f, 8.0f);
 
     TextStyle typedStyle = base;
-    typedStyle.color = color::text;
+    typedStyle.color = col(Role::Text);
     // Inset sideways only: the field centres on its own line box, and squeezing the
     // height as well would push the caret off the bottom of a 30px row.
     field_.draw(ui, text, {input.x + kPad, input.y, input.w - kPad * 2, input.h}, typedStyle,
@@ -471,7 +471,7 @@ void Chat::draw(Ui2D& ui, Text& text) {
       if (end <= begin) continue;
       const float x0 = row.rect.x + text.measure(row.text.substr(0, begin), styles[r]);
       const float x1 = row.rect.x + text.measure(row.text.substr(0, end), styles[r]);
-      ui.fillRect({x0, row.rect.y, std::max(x1 - x0, 2.0f), row.rect.h}, color::accentDark, 2.0f);
+      ui.fillRect({x0, row.rect.y, std::max(x1 - x0, 2.0f), row.rect.h}, col(Role::AccentDeep), 2.0f);
     }
   }
 
@@ -485,7 +485,7 @@ void Chat::draw(Ui2D& ui, Text& text) {
   if (scroll_ > 0) {
     TextStyle note = base;
     note.size = 11.5f;
-    note.color = color::muted;
+    note.color = col(Role::Muted);
     text.drawInBox(ui, {left + kPad, panel.bottom(), innerWidth, 14.0f},
                    "\xE2\x86\x91 scrolled back \xC2\xB7 PageDown to return", note,
                    TextAlign::Right);
@@ -501,8 +501,8 @@ void Chat::draw(Ui2D& ui, Text& text) {
   // Fully opaque, not merely nearly. At 0.97 the history behind it ghosted through
   // between the rows, which is exactly the unreadable overlap that drawing it in
   // the wrong order caused in the first place, only fainter.
-  ui.fillRect(popup, rgba(4, 6, 10, 1.0f), 8.0f);
-  ui.strokeRect(popup, color::accentDark, 1.0f, 8.0f);
+  ui.fillRect(popup, col(Role::WashPopup), 8.0f);
+  ui.strokeRect(popup, col(Role::AccentDeep), 1.0f, 8.0f);
 
   TextStyle label = base;
   label.shadowCount = 0;
@@ -513,11 +513,11 @@ void Chat::draw(Ui2D& ui, Text& text) {
     const Rect row {popup.x + 4.0f, popup.y + kPad * 0.5f + kRowHeight * i, popup.w - 8.0f,
                     kRowHeight};
     const bool active = static_cast<int>(i) == selected_;
-    if (active) ui.fillRect(row, color::accentDark, 5.0f);
-    label.color = active ? color::text : color::muted;
+    if (active) ui.fillRect(row, col(Role::AccentDeep), 5.0f);
+    label.color = active ? col(Role::Text) : col(Role::Muted);
     text.drawInBox(ui, row.inset(6.0f), completion_.items[i].label, label);
     if (!completion_.items[i].hint.empty()) {
-      hint.color = active ? color::kbdText : color::slot;
+      hint.color = active ? col(Role::InkKbd) : col(Role::SlotFill);
       text.drawInBox(ui, row.inset(6.0f), completion_.items[i].hint, hint, TextAlign::Right);
     }
   }

@@ -33,6 +33,8 @@ void printUsage() {
       "  --dump-atlas <png>    build the texture atlas headlessly and write it\n"
       "  --dump-recipes <file> write the crafting, smelting and fuel tables and exit\n"
       "  --dump-loot <file>    write the loot tables and exit (\"-\" for stdout)\n"
+      "  --dump-theme <file>   write the resolved interface theme and exit; the\n"
+      "                        output is a valid theme.json to start a UI pack from\n"
       "  --find-dungeon        print the nearest dungeon to spawn and exit\n"
       "  --dump-audio <event> <path>  render one sound event to a wav and exit\n"
       "                        (\"all\" writes every event into a directory;\n"
@@ -109,6 +111,7 @@ int main(int argc, char** argv) {
   std::string atlasPath;
   std::string recipesPath;
   std::string lootPath;
+  std::string themePath;
   bool findDungeon = false;
   int listPacksMode = 0;  // 0 off, 1 replacements only, 2 every event
   bool examplePack = false;
@@ -162,6 +165,8 @@ int main(int argc, char** argv) {
       if (!takeValue(argc, argv, i, arg, recipesPath)) return 2;
     } else if (std::strcmp(arg, "--dump-loot") == 0) {
       if (!takeValue(argc, argv, i, arg, lootPath)) return 2;
+    } else if (std::strcmp(arg, "--dump-theme") == 0) {
+      if (!takeValue(argc, argv, i, arg, themePath)) return 2;
     } else if (std::strcmp(arg, "--find-dungeon") == 0) {
       findDungeon = true;
     } else if (std::strcmp(arg, "--list-packs") == 0) {
@@ -386,6 +391,12 @@ int main(int argc, char** argv) {
   }
   if (!lootPath.empty()) {
     return hr::dev::dumpLoot(lootPath) ? 0 : 1;
+  }
+  if (!themePath.empty()) {
+    // Needs the data directory for the same reason --dump-audio does: the dump is
+    // of the theme as it actually resolves, which is through whatever packs are on.
+    hr::paths::init(options.dataDir);
+    return hr::dev::dumpTheme(themePath) ? 0 : 1;
   }
   if (findDungeon) {
     // Uses --seed, so a specific world can be asked about. Headless like the dumps
