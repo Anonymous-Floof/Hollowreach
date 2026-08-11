@@ -276,6 +276,15 @@ class TextField {
   // Byte index of the caret. The chat box needs it to know which word is being
   // typed; nothing else in the interface cares where the caret is.
   std::size_t caret() const { return caret_; }
+  // What is highlighted, or empty. Copying is the owning screen's job — the
+  // clipboard belongs to the window — so this is how it asks what to copy.
+  std::string selectedText() const;
+  // Replaces the highlighted range, or inserts at the caret when nothing is
+  // highlighted. This is the paste half of the same arrangement; handle()'s note
+  // about Ctrl+V has referred to it since it was written.
+  void insert(const std::string& text);
+  // Drops whatever is highlighted. The cut half.
+  void eraseSelection() { deleteSelection(); }
   // Swaps a byte range for something else and leaves the caret just past it. This
   // is what accepting a completion does — replacing the whole value would lose the
   // rest of a line somebody is halfway through.

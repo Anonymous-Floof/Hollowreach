@@ -15,6 +15,19 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+### Fixed
+- **The mouse is given back when you finish typing.** Opening chat released the
+  pointer and nothing ever recaptured it, so after sending a line the cursor sat
+  loose over a world that was still reading the mouse — looking around simply
+  stopped working until you opened and closed a screen.
+
+### Added
+- **The chat log is selectable and copyable.** Drag across it to select, **Ctrl+C**
+  to copy. Getting a seed or a coordinate out of the log meant reading it off the
+  screen and typing it back in by hand, which for a ten-digit seed is exactly the
+  task people are worst at. **Ctrl+V** pastes into the box and **Ctrl+X** cuts, and
+  clicking in the box puts the caret where you clicked.
+
 ## [2.12.0] - 2026-08-11
 
 ### Added

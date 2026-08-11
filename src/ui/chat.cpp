@@ -79,6 +79,9 @@ void Chat::open(Input* input, const std::string& prefill) {
 
 void Chat::close(Input* input) {
   open_ = false;
+  clearSelection();
+  rows_.clear();
+  inputBox_ = Rect{};
   field_.setFocused(false, input);
   field_.clear();
   completion_ = {};
@@ -106,6 +109,95 @@ void Chat::refresh() {
   // The highlight does not survive the list changing under it. Keeping an index
   // into a list that has been rebuilt is how Enter takes a word you never read.
   selected_ = -1;
+}
+
+// ---- selecting the log with the mouse ---------------------------------------
+
+std::size_t Chat::byteAt(Text& text, const Row& row, float x) const {
+  const TextStyle style = lineStyle();
+  const float local = x - row.rect.x;
+  if (local <= 0.0f) return 0;
+  // Walk code points, measuring the prefix, and take the boundary the click is
+  // nearest to — the same rule TextField uses, and the same one a browser uses for
+  // a hit test inside a run.
+  std::size_t best = 0;
+  float bestDistance = std::fabs(local);
+  std::size_t i = 0;
+  while (i < row.text.size()) {
+    decodeUtf8(row.text, i);
+    const float width = text.measure(row.text.substr(0, i), style);
+    const float distance = std::fabs(local - width);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best;
+}
+
+Chat::Spot Chat::spotAt(Text& text, float x, float y) const {
+  if (rows_.empty()) return {};
+  // Clamped to the nearest row rather than requiring a hit, so dragging off the
+  // top or bottom of the box extends the selection instead of dropping it.
+  int nearest = 0;
+  float bestDistance = 1e9f;
+  for (std::size_t i = 0; i < rows_.size(); ++i) {
+    const Rect& r = rows_[i].rect;
+    const float distance = y < r.y ? r.y - y : (y > r.bottom() ? y - r.bottom() : 0.0f);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearest = static_cast<int>(i);
+    }
+  }
+  Spot spot;
+  spot.row = nearest;
+  spot.byte = byteAt(text, rows_[static_cast<std::size_t>(nearest)], x);
+  return spot;
+}
+
+bool Chat::hasSelection() const {
+  return selA_.valid() && selB_.valid() && !(selA_.row == selB_.row && selA_.byte == selB_.byte);
+}
+
+void Chat::clearSelection() {
+  selA_ = selB_ = Spot{};
+  dragging_ = false;
+}
+
+std::string Chat::extractRange(const std::vector<std::string>& rows, int rowA,
+                               std::size_t byteA, int rowB, std::size_t byteB) {
+  if (rows.empty() || rowA < 0 || rowB < 0) return {};
+  // A drag runs whichever way the hand went; the text always comes back in
+  // reading order.
+  if (rowB < rowA || (rowA == rowB && byteB < byteA)) {
+    std::swap(rowA, rowB);
+    std::swap(byteA, byteB);
+  }
+  const int last = static_cast<int>(rows.size()) - 1;
+  // Clamped rather than refused. The rows are last frame's layout and the log may
+  // have scrolled since, so a range can legitimately point past the end — and
+  // returning nothing at all would mean a copy that silently did nothing.
+  rowA = std::min(rowA, last);
+  rowB = std::min(rowB, last);
+
+  std::string out;
+  for (int r = rowA; r <= rowB; ++r) {
+    const std::string& line = rows[static_cast<std::size_t>(r)];
+    const std::size_t begin = r == rowA ? std::min(byteA, line.size()) : 0;
+    const std::size_t end = r == rowB ? std::min(byteB, line.size()) : line.size();
+    if (r != rowA) out.push_back('\n');
+    if (end > begin) out += line.substr(begin, end - begin);
+  }
+  return out;
+}
+
+std::string Chat::selectedText(Text& text) const {
+  (void)text;
+  if (!hasSelection()) return {};
+  std::vector<std::string> lines;
+  lines.reserve(rows_.size());
+  for (const Row& row : rows_) lines.push_back(row.text);
+  return extractRange(lines, selA_.row, selA_.byte, selB_.row, selB_.byte);
 }
 
 bool Chat::moveSelection(int delta) {
@@ -166,13 +258,59 @@ void Chat::submit() {
   }
 }
 
-bool Chat::handle(const UiEvent& event, Input* input) {
+bool Chat::handle(const UiEvent& event, Input* input, Text& text) {
   if (!open_ || !event.input) return open_;
   const Input& in = *event.input;
 
   if (in.pressed(Key::Escape)) {
     close(input);
     return true;
+  }
+
+  // --- the mouse: selecting the log, and placing the caret in the box ---------
+  if (event.leftClick) {
+    if (inputBox_.contains(event.mouseX, event.mouseY)) {
+      clearSelection();
+      TextStyle typed = lineStyle();
+      typed.color = color::text;
+      field_.placeCaretAt(text, {inputBox_.x + kPad, inputBox_.y, inputBox_.w - kPad * 2,
+                                 inputBox_.h},
+                          typed, event.mouseX);
+    } else {
+      // A press anywhere else starts a fresh selection. Starting one outside the
+      // rows is deliberate: dragging from the empty space above the log down
+      // through it is the natural way to grab the last few lines.
+      clearSelection();
+      selA_ = selB_ = spotAt(text, event.mouseX, event.mouseY);
+      dragging_ = selA_.valid();
+    }
+  }
+  if (dragging_ && event.leftDown) selB_ = spotAt(text, event.mouseX, event.mouseY);
+  if (event.leftRelease) dragging_ = false;
+
+  // --- the clipboard ---------------------------------------------------------
+  // The log first: a selection there is what the mouse just made, and is what
+  // somebody pressing Ctrl+C is looking at. Otherwise the box, so a typed line can
+  // be copied like any other field.
+  if (event.ctrl && in.pressed(Key::C)) {
+    const std::string copied = hasSelection() ? selectedText(text) : field_.selectedText();
+    if (!copied.empty() && onCopy) onCopy(copied);
+  }
+  if (event.ctrl && in.pressed(Key::X)) {
+    const std::string cut = field_.selectedText();
+    if (!cut.empty()) {
+      if (onCopy) onCopy(cut);
+      field_.eraseSelection();
+      refresh();
+    }
+  }
+  if (event.ctrl && in.pressed(Key::V) && onPaste) {
+    const std::string pasted = onPaste();
+    if (!pasted.empty()) {
+      field_.insert(pasted);
+      recallAt_ = 0;
+      refresh();
+    }
   }
 
   // Scrollback. Held separately from the suggestion list because they are answers
@@ -266,6 +404,7 @@ void Chat::draw(Ui2D& ui, Text& text) {
     // height as well would push the caret off the bottom of a 30px row.
     field_.draw(ui, text, {input.x + kPad, input.y, input.w - kPad * 2, input.h}, typedStyle,
                 time_);
+    inputBox_ = input;  // so next frame's click can place the caret in it
     historyBottom = panel.bottom() - kPad;
     // Clipped to the panel so a line that wraps to three rows cannot climb out of
     // the top of it and float over the sky.
@@ -275,6 +414,12 @@ void Chat::draw(Ui2D& ui, Text& text) {
   // 2. The lines, newest at the bottom, wrapping upward. Bottom-up rather than
   // top-down because the bottom is the edge that is fixed: a line that wraps to
   // three rows has to push the older ones up, not itself down off the box.
+  //
+  // Laid out into rows_ first and painted afterwards, because the selection
+  // highlight has to go UNDER the glyphs and the glyphs are produced bottom-up. It
+  // is also what the mouse hit-tests against next frame — see Chat::Row.
+  rows_.clear();
+  std::vector<TextStyle> styles;
   float y = historyBottom;
   const float top = historyBottom - lineHeight * rows;
   std::size_t index = lines_.size();
@@ -302,16 +447,36 @@ void Chat::draw(Ui2D& ui, Text& text) {
     // it drops the leading ones — and the indented rows of a /help or a /list are
     // the one thing in this box whose leading spaces carry meaning. A line that
     // fits is drawn exactly as it was written.
-    if (text.measure(line.text, style) <= innerWidth) {
-      y -= lineHeight;
-      text.drawInBox(ui, {left + kPad, y, innerWidth, lineHeight}, line.text, style);
-      continue;
-    }
-    const std::vector<std::string> wrapped = text.wrap(line.text, style, innerWidth);
+    const bool fits = text.measure(line.text, style) <= innerWidth;
+    const std::vector<std::string> wrapped =
+        fits ? std::vector<std::string>{line.text} : text.wrap(line.text, style, innerWidth);
     for (std::size_t w = wrapped.size(); w > 0 && y > top; --w) {
       y -= lineHeight;
-      text.drawInBox(ui, {left + kPad, y, innerWidth, lineHeight}, wrapped[w - 1], style);
+      rows_.push_back(Row{{left + kPad, y, innerWidth, lineHeight}, wrapped[w - 1]});
+      styles.push_back(style);
     }
+  }
+  // Built bottom-up; a Spot is ordered top-down, the way reading is.
+  std::reverse(rows_.begin(), rows_.end());
+  std::reverse(styles.begin(), styles.end());
+
+  if (open_ && hasSelection()) {
+    Spot from = selA_, to = selB_;
+    if (before(to, from)) std::swap(from, to);
+    for (int r = std::max(from.row, 0);
+         r <= to.row && r < static_cast<int>(rows_.size()); ++r) {
+      const Row& row = rows_[static_cast<std::size_t>(r)];
+      const std::size_t begin = r == from.row ? std::min(from.byte, row.text.size()) : 0;
+      const std::size_t end = r == to.row ? std::min(to.byte, row.text.size()) : row.text.size();
+      if (end <= begin) continue;
+      const float x0 = row.rect.x + text.measure(row.text.substr(0, begin), styles[r]);
+      const float x1 = row.rect.x + text.measure(row.text.substr(0, end), styles[r]);
+      ui.fillRect({x0, row.rect.y, std::max(x1 - x0, 2.0f), row.rect.h}, color::accentDark, 2.0f);
+    }
+  }
+
+  for (std::size_t r = 0; r < rows_.size(); ++r) {
+    text.drawInBox(ui, rows_[r].rect, rows_[r].text, styles[r]);
   }
 
   if (!open_) return;

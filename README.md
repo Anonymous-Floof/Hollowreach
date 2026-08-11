@@ -138,6 +138,8 @@ all and is the fastest way to know a change did not break something.
 | Command | `/` (opens chat with the slash already typed) |
 | Complete the word you are typing | Tab, or ↑/↓ to pick from the list |
 | Recall something you sent | ↑/↓ when nothing is being suggested |
+| Select text in the chat log | Click and drag across it |
+| Copy · paste · cut | Ctrl+C · Ctrl+V · Ctrl+X |
 | Atlas map (needs an **Atlas**) | M |
 | Screenshot | F2 |
 | Hide the interface | F1 |
@@ -558,6 +560,11 @@ you have already sent.
 Arguments complete from whatever they actually accept — a player argument offers
 whoever is in the world, an item argument the item registry, `/set` the settings
 schema, and the value after `/set` whatever *that* setting takes.
+
+**The log is text, and behaves like text.** Drag across it to select, **Ctrl+C**
+to copy — a seed, a coordinate, something somebody said. **Ctrl+V** pastes into
+the box and **Ctrl+X** cuts, so a seed copied out of one world can be typed
+straight into another. Clicking in the box puts the caret where you clicked.
 
 #### Who may run what
 

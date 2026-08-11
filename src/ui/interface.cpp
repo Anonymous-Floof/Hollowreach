@@ -227,7 +227,7 @@ void Interface::draw(const Window& window, Input& input, const UiFrame& frame) {
   // no screen up — App closes it before opening one — so this is an ordering
   // guarantee rather than a contest: the frame that closes the box must not also
   // let its Escape reach the pause menu behind it.
-  const bool chatting = chat_.handle(event, &input);
+  const bool chatting = chat_.handle(event, &input, text_);
   if (chatting) {
     event.leftClick = event.rightClick = false;
     event.wheel = 0.0f;

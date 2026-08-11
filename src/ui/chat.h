@@ -88,10 +88,16 @@ class Chat {
   // A finished line, already trimmed and never empty.
   std::function<void(const std::string&)> onSubmit;
 
+  // The clipboard belongs to the window, so these are the only ways in and out of
+  // here. Unset means copy and paste quietly do nothing rather than crash.
+  std::function<void(const std::string&)> onCopy;
+  std::function<std::string()> onPaste;
+
   void update(double dt);
-  // Consumes the frame's keyboard while open, and reports that it did so the rest
-  // of the interface leaves it alone.
-  bool handle(const UiEvent& event, Input* input);
+  // Consumes the frame's keyboard and, while open, the mouse. `text` is needed
+  // because selecting by mouse means measuring glyphs, and the rows to measure are
+  // the ones the last draw laid out.
+  bool handle(const UiEvent& event, Input* input, Text& text);
   void draw(Ui2D& ui, Text& text);
 
   // --- for the tests ---------------------------------------------------------
@@ -124,6 +130,22 @@ class Chat {
   // a suggestion list back with it. Otherwise the second press of Up silently
   // stops going back in time and starts moving through that list instead.
   bool arrowsWalkHistory() const { return recallAt_ > 0 || completion_.items.empty(); }
+
+  // What the mouse has highlighted in the log, joined by newlines, or empty.
+  // Rows are what was drawn, so a selection spanning a wrapped line comes back
+  // wrapped — which is what was on screen, and what somebody dragging across it
+  // meant to take.
+  std::string selectedText(Text& text) const;
+  bool hasSelection() const;
+  void clearSelection();
+
+  // The text between two points in a list of rows, joined by newlines. Static and
+  // taking the rows explicitly because laying them out needs a window and a font,
+  // while the rule for what a drag across them MEANS does not — and that rule is
+  // the part with edges worth pinning down: a backwards drag, a click that
+  // selects nothing, a range running off the end of a log that has since scrolled.
+  static std::string extractRange(const std::vector<std::string>& rows, int rowA,
+                                  std::size_t byteA, int rowB, std::size_t byteB);
   // Puts the highlighted suggestion — or the best one, when none is highlighted —
   // into the line. False when there was nothing to take.
   bool acceptSuggestion();
@@ -135,6 +157,32 @@ class Chat {
     std::string text;
     double age = 0;
   };
+
+  // One row of the log exactly as it was last painted — after wrapping, in screen
+  // coordinates. Selection works against these rather than against `lines_`
+  // because what somebody drags across is what they can see, and a line that
+  // wrapped into three rows is three things on screen.
+  //
+  // Rebuilt every draw. Held from one frame to the next because handling the mouse
+  // happens before drawing, so the newest layout available when a click arrives is
+  // the previous frame's — a frame of lag on a hit test nobody can perceive.
+  struct Row {
+    Rect rect;
+    std::string text;
+  };
+  // A point in the log: which row, and how far into it in bytes.
+  struct Spot {
+    int row = -1;
+    std::size_t byte = 0;
+    bool valid() const { return row >= 0; }
+  };
+  static bool before(const Spot& a, const Spot& b) {
+    return a.row != b.row ? a.row < b.row : a.byte < b.byte;
+  }
+  // Nearest code point boundary to `x` within a row, the way a browser resolves a
+  // click inside a text run.
+  std::size_t byteAt(Text& text, const Row& row, float x) const;
+  Spot spotAt(Text& text, float x, float y) const;
 
   // Rebuilds the suggestion list from the current line and caret. Cheap enough to
   // call on every edit, and deliberately NOT called every frame: it walks the item
@@ -166,6 +214,11 @@ class Chat {
   bool open_ = false;
   // How far up the scrollback the box is looking, in whole lines from the newest.
   std::size_t scroll_ = 0;
+
+  std::vector<Row> rows_;   // last frame's layout, top to bottom
+  Rect inputBox_ {};        // ditto, so a click can place the caret in it
+  Spot selA_, selB_;
+  bool dragging_ = false;
 };
 
 }  // namespace hr::ui

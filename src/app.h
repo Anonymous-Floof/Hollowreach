@@ -428,6 +428,10 @@ class App {
   // exactly the road a typed one takes.
   void runStartupCommands();
   bool startupCommandsDone_ = false;
+  // Whether the chat box was up last frame, so closing it can hand the pointer
+  // back. Held here rather than asked of the interface twice, because the answer
+  // has to be the one from BEFORE this frame's input was handled.
+  bool chatWasOpen_ = false;
   bool startHosting(std::uint16_t port);
   bool startJoining(const std::string& address, std::uint16_t port);
   // `sayGoodbye` false only when the connection is already gone — the host dropped

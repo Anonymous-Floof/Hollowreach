@@ -8310,6 +8310,36 @@ void testChatOverlay() {
           "so the arrow keys are free to walk the lines you have already sent");
   }
 
+  // --- selecting the log with the mouse ---
+  //
+  // Laying the rows out needs a window and a font; what a drag across them MEANS
+  // does not, and that is the half with edges. The mouse itself — where a click
+  // lands, how far a drag reaches — is not reachable from here and is checked by
+  // hand.
+  {
+    const std::vector<std::string> rows = {"seed: 3918175327", "  Ada (host) \xC2\xB7 owner",
+                                           "<Bob> hello"};
+
+    check(ui::Chat::extractRange(rows, 0, 6, 0, 16) == "3918175327",
+          "a drag inside one row takes exactly that much of it");
+    check(ui::Chat::extractRange(rows, 0, 16, 0, 6) == "3918175327",
+          "and a drag made right-to-left comes back in reading order");
+    check(ui::Chat::extractRange(rows, 0, 0, 2, rows[2].size()) ==
+              "seed: 3918175327\n  Ada (host) \xC2\xB7 owner\n<Bob> hello",
+          "a drag across rows joins them with newlines, indent and all");
+    check(ui::Chat::extractRange(rows, 1, 2, 2, 5) == "Ada (host) \xC2\xB7 owner\n<Bob>",
+          "starting and ending mid-row keeps only what was covered");
+    check(ui::Chat::extractRange(rows, 0, 4, 0, 4).empty(),
+          "a click that covers nothing copies nothing");
+    // The rows are the previous frame's layout, so a range can legitimately point
+    // past the end of a log that has scrolled since. Clamped, because a copy that
+    // silently does nothing is worse than one that takes slightly less.
+    check(ui::Chat::extractRange(rows, 0, 0, 99, 500) ==
+              "seed: 3918175327\n  Ada (host) \xC2\xB7 owner\n<Bob> hello",
+          "a range running off the end is clamped, not refused");
+    check(ui::Chat::extractRange({}, 0, 0, 1, 1).empty(), "and an empty log yields nothing");
+  }
+
   // --- the arrow keys' two jobs ---
   {
     ui::Chat sent;

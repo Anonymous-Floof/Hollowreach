@@ -833,6 +833,39 @@ bool TextField::handle(const UiEvent& event, bool& submitted) {
   return changed;
 }
 
+std::string TextField::selectedText() const {
+  const std::size_t a = selectionStart();
+  const std::size_t b = selectionEnd();
+  return a == b ? std::string() : value_.substr(a, b - a);
+}
+
+void TextField::insert(const std::string& text) {
+  deleteSelection();
+  // Control characters out, whatever the clipboard happened to hold: a newline
+  // pasted into a single-line field is not a line break, it is a field that has
+  // silently become two.
+  std::string clean;
+  for (const unsigned char c : text) {
+    if (c >= 32 && c != 127) clean.push_back(static_cast<char>(c));
+  }
+  if (maxLength > 0) {
+    const int room = maxLength - codePointCount();
+    if (room <= 0) return;
+    // Trimmed by code point rather than by byte, so a paste is never cut through
+    // the middle of a multi-byte character.
+    std::size_t i = 0;
+    int taken = 0;
+    while (i < clean.size() && taken < room) {
+      decodeUtf8(clean, i);
+      ++taken;
+    }
+    clean.resize(i);
+  }
+  value_.insert(caret_, clean);
+  caret_ += clean.size();
+  anchor_ = caret_;
+}
+
 void TextField::replaceRange(std::size_t begin, std::size_t end, const std::string& with) {
   // Clamped and ordered rather than asserted: the caller's range came from parsing
   // a line that may have changed since, and truncating is a recoverable wrong

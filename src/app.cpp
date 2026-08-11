@@ -736,6 +736,13 @@ void App::wireInterface() {
   };
   interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
   interface_.chat().onSubmit = [this](const std::string& line) { submitChat(line); };
+  // The clipboard belongs to the window, so the chat box borrows it through here.
+  // Copying a seed out of the log, or pasting one into a command, is most of what
+  // makes the log worth reading rather than just watching.
+  interface_.chat().onCopy = [this](const std::string& text) {
+    window_.setClipboardText(text);
+  };
+  interface_.chat().onPaste = [this] { return window_.clipboardText(); };
   interface_.callbacks.settingChanged = [this](const std::string& key) {
     // Actions do nothing to the settings and everything here. Handled before
     // applySettings, which would only re-read a row that stores nothing.
@@ -2373,6 +2380,18 @@ void App::frame() {
   // makes the completion popup notice somebody joining while the box is already up.
   const bool chatting = interface_.chat().isOpen();
   if (chatting) refreshChatSources();
+  // The box took the pointer when it opened and has to give it back. Closing runs
+  // inside the interface — Escape, or a line sent — so there is no single call site
+  // to hang this off; the transition is the event. Without it the cursor stayed
+  // free over a world that was still reading the mouse, so looking around simply
+  // stopped working until you opened and closed a screen.
+  if (chatWasOpen_ && !chatting && state_ == AppState::Playing) {
+    window_.setPointerCaptured(true);
+    // The same guard resuming from a screen uses: the click that dismissed the box
+    // must not also swing at whatever is under the crosshair.
+    resumeClickGuard_ = 1;
+  }
+  chatWasOpen_ = chatting;
 
   if (state_ == AppState::Playing && !chatting) {
     updatePlaying(dt);
