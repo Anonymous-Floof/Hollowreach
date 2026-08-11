@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.12.0] - 2026-08-11
+
 ### Added
 - **Chat.** **T** to talk, **`/`** to run a command. It draws over the world and
   does not pause it — the reason you are typing is usually something you are
@@ -45,8 +47,15 @@ version heading when it's time to ship.
 
 - **Permissions, and a host who can hand them out.** Four levels — *anyone*,
   *trusted*, *operator*, *owner*. The host is always owner; `/op ada trusted`
-  promotes a friend, `/deop` takes it back. Nobody can grant a level above their
-  own, and nobody can kick, ban or demote somebody who outranks them.
+  promotes a friend, `/deop` takes it back.
+
+  Two rules hold it together. **You may grant at most your own level**, so an
+  operator can vouch for a newcomer up to operator and no further — a host can
+  delegate looking after a world without handing it over, and only an owner mints
+  another owner. And **you may only act on somebody strictly below you**: two
+  operators able to kick or demote each other is how a disagreement becomes a
+  kicking match, and the point of having an owner is that there is somebody to
+  settle it. Standing down yourself is always allowed.
 
 - **`/kick`, `/ban`, `/pardon`, `/banlist` and `/whitelist`**, kept in
   `data/access.json` beside your settings rather than inside a world — being an
@@ -60,10 +69,13 @@ version heading when it's time to ship.
   This is also the groundwork for the dedicated server: it is the same file, the
   same levels and the same commands a server with no window will need.
 
-- **`--command <line>`**, repeatable, runs a command once the world is up. Every
-  chat line also goes to `data/hollowreach.log`. Between them a command can be
-  checked without a keyboard, and somebody running a world for other people can
-  see what was said in it.
+- **`--command <line>`**, repeatable: types a line into chat once the session is
+  up, exactly as if by hand — a leading slash makes it a command, anything else is
+  said out loud. As a guest it goes to the host like any other line rather than
+  running locally, which is the whole point. `--screen chat` and `chat-suggest`
+  capture the box for a screenshot. Every chat line also goes to
+  `data/hollowreach.log`, so a command can be checked without a keyboard and
+  somebody running a world for other people can see what was said in it.
 
 ### Changed
 - The multiplayer protocol is now version 11, so **both machines need this
@@ -1001,7 +1013,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.11.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.0...HEAD
+[2.12.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.0
 [2.11.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.11.0
 [2.10.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.10.1
 [2.10.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.10.0
