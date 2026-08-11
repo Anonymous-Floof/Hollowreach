@@ -15,6 +15,8 @@ version heading when it's time to ship.
 
 ## [Latest]
 
+## [2.12.1] - 2026-08-11
+
 ### Fixed
 - **The mouse is given back when you finish typing.** Opening chat released the
   pointer and nothing ever recaptured it, so after sending a line the cursor sat
@@ -1026,7 +1028,8 @@ Python script. Highlights of everything on board at 1.0:
 - Windows (`run.bat`) and Linux/macOS (`run.sh`) launchers; the only
   requirements are Python 3 and a WebGL2 browser.
 
-[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.0...HEAD
+[Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.12.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.1
 [2.12.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.0
 [2.11.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.11.0
 [2.10.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.10.1
