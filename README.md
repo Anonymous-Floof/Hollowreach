@@ -53,6 +53,7 @@ nothing that phones home.
   - [Building it](#building-it)
 - [Controls](#controls)
 - [The gameplay loop](#the-gameplay-loop)
+- [Farming and cooking](#farming-and-cooking)
 - [Multiplayer](#multiplayer)
   - [Chat and commands](#chat-and-commands)
     - [Who may run what](#who-may-run-what)
@@ -345,8 +346,8 @@ daylight. Left-click to attack (a sword hits hardest, and striking **while
 falling lands a critical hit** for 1.5× damage). A sheep drops a block of
 **white wool** (which, with planks, crafts a **bed**); a pig drops a **Raw
 Porkchop**; a cow drops **Raw Beef** and sometimes **Leather** — cook the meats
-in the forge for much better food, and right-click a cow with an empty bucket
-to **milk** it. All of them climb hills and steer clear of water, so they stay
+on a **Stove** (the forge smelts ore, not dinner), and right-click a cow with an
+empty bucket to **milk** it, which is the only source of dairy in the game. All of them climb hills and steer clear of water, so they stay
 on dry land instead of drowning.
 
 **Monsters:** **zombies** rise wherever it is pitch dark — light level zero, and
@@ -484,6 +485,55 @@ Export World** writes it to `data/exports/`, and the world-select screen imports
 anything sitting in that same folder — one folder is both outbox and inbox,
 which is a smaller cost than a native file dialog for two buttons.
 `--export-world` and `--import-world` take real paths for anything scripted.
+
+## Farming and cooking
+
+**Eighteen crops** grow wild across the world, and where you find them depends on
+where you are: wheat, barley and maize in meadows; potatoes, garlic and soybeans
+in forest; cabbage and blueberries in the cold; melon and chili in desert; rice
+in the wettest ground anywhere. Travelling is how you widen a diet.
+
+**The produce is the seed.** Till soil with a **hoe** and right-click it with a
+carrot to plant a carrot — there are no separate seed items, so nothing doubles
+up in your bag or in the recipe list. Shake **Wild Seeds** out of tall grass if
+you have not found a patch yet. Crops grow through four visible stages and pay
+out several times over when ripe; pull one early and you get your seed back and
+nothing else. The debug overlay (**F3**) names the crop and stage you are looking
+at.
+
+**Ground is worth improving, and shows it.** A crop takes about **half an hour**
+on plain dry soil. Tilled ground within four blocks of water grows it **twice as
+fast**, **Fertiliser** (verdanite composted with rotten flesh) does the same
+again and adds a 50% chance of an extra item at harvest, and the two stack — so a
+watered, fertilised plot is ready in roughly seven minutes. All four states are
+visibly different tiles, darkening as the soil improves, so a field can be read
+by looking at it.
+
+**Cooking is where the labour pays.** Three stations, all crafted at a workbench:
+
+| | |
+|---|---|
+| **Cutting Board** | Prep, no fuel. Mills grain into flour; butchers one raw chop into **two** strips, so worked meat goes further. |
+| **Stove** | Cooks one thing at a time — meat, bread, roast vegetables, pies, cheese. Meat is cooked here, not in the forge. |
+| **Cooking Pot** | Up to six ingredients, a bowl and fuel, into a real meal. Bowls come back when you eat what was in them. |
+
+**Better ingredients make a better meal from the same recipe** — three plain
+vegetables make Vegetable Soup, and the same pot with a chili or some garlic in
+it makes Hearty Stew.
+
+**Single foods are the fallback now.** Every food carries its own *saturation* —
+how long it actually holds you, shown on its tooltip — instead of the flat value
+everything used to share. A cooked meal is worth several times a cooked chop, and
+raw produce is worth almost nothing.
+
+**A varied diet is worth extra hearts.** Food belongs to one of five groups —
+grain, vegetable, fruit, protein, dairy — and keeping several of them up earns up
+to **three extra hearts**. Living on one crop earns none of them, however much of
+it you grow. The five levels drain over about a day and are shown on the
+inventory screen.
+
+`--find-crop` prints the wild crops near a seed's spawn and points at the densest
+patch, the way `--find-dungeon` does for dungeons.
 
 ## Multiplayer
 
@@ -947,13 +997,13 @@ colour smuggled through the UV slot.
 ## Deliberately deferred (foundation already in place)
 
 More mob types & deeper combat variety (sheep, pigs, cows and zombies are in,
-and the zombie already has real line-of-sight and pathfinding), farming/crops
-(hunger, eating, milk and cooking are in — planting and growing isn't), greedy
-meshing, fully smooth (non-voxel) global lighting, texture resource packs (sound
-packs have landed; the abstractions above carry the rest), zip packs, and future
-uses for the newest
-ores — **Gloamite** is earmarked for more teleport/void tech beyond the
-Wayshard, and **Verdanite** for growth and alchemy once farming lands.
+and the zombie already has real line-of-sight and pathfinding), **animal
+husbandry** (breeding and herding — the reason meat is deliberately scarce and
+worth cooking into meals rather than eaten on its own), greedy meshing, fully
+smooth (non-voxel) global lighting, texture resource packs (sound packs have
+landed; the abstractions above carry the rest), zip packs, and a future use for
+**Gloamite**, which is earmarked for more teleport/void tech beyond the
+Wayshard.
 
 ### What the port does not carry over
 
