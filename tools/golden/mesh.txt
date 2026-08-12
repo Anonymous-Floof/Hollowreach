@@ -1,7 +1,7 @@
 # hollowreach golden vectors v1
 # source: c++
 # GEN_VERSION=2 SEA_LEVEL=46
-# blocks=125 CX=16 CZ=16 WH=192
+# blocks=150 CX=16 CZ=16 WH=192
 
 ## mesher.chunks
 mesh(3479357960, v1, 0, 0) opaqueVerts=18384 waterVerts=150 opaque=f0a0aa37 water=ce82edfe sky=f142249d blk=4f564121 emitters=18

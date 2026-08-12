@@ -1,6 +1,6 @@
 # hollowreach recipes v1
 # source: c++
-# recipes=141 smelting=8
+# recipes=152 smelting=6
 
 ## recipes
 recipe(000) = shapeless|hand|log*1|out=planks*4
@@ -144,6 +144,17 @@ recipe(137) = shaped|workbench|3x3|0,0,aetherite 0,2,aetherite 1,0,aetherite 1,1
 recipe(138) = shaped|workbench|3x3|0,0,aetherite 0,1,aetherite 0,2,aetherite 1,0,aetherite 1,2,aetherite 2,0,aetherite 2,2,aetherite|out=legs_aetherite*1
 recipe(139) = shaped|workbench|3x2|0,0,aetherite 0,2,aetherite 1,0,aetherite 1,2,aetherite|out=boots_aetherite*1
 recipe(140) = shaped|workbench|3x3|0,0,#planks 0,1,#planks 0,2,#planks 1,0,#planks 1,1,wool 1,2,#planks 2,0,#planks 2,1,azurite 2,2,#planks|out=canvas*1
+recipe(141) = shaped|workbench|2x3|0,0,#planks 0,1,#planks 1,0,stick 2,0,stick|out=hoe_wood*1
+recipe(142) = shaped|workbench|2x3|0,0,cobbled 0,1,cobbled 1,0,stick 2,0,stick|out=hoe_stone*1
+recipe(143) = shaped|workbench|2x3|0,0,copper_ingot 0,1,copper_ingot 1,0,stick 2,0,stick|out=hoe_copper*1
+recipe(144) = shaped|workbench|2x3|0,0,ferralite_ingot 0,1,ferralite_ingot 1,0,stick 2,0,stick|out=hoe_ferralite*1
+recipe(145) = shaped|workbench|2x3|0,0,sunbrass_ingot 0,1,sunbrass_ingot 1,0,stick 2,0,stick|out=hoe_sunbrass*1
+recipe(146) = shaped|workbench|2x3|0,0,aetherite 0,1,aetherite 1,0,stick 2,0,stick|out=hoe_aetherite*1
+recipe(147) = shaped|workbench|3x2|0,0,#planks 0,2,#planks 1,0,#planks 1,1,#planks 1,2,#planks|out=bowl*4
+recipe(148) = shaped|workbench|3x2|0,0,#planks 0,1,#planks 0,2,#planks 1,0,log 1,2,log|out=cutting_board*1
+recipe(149) = shaped|workbench|3x3|0,0,cobbled 0,1,cobbled 0,2,cobbled 1,0,cobbled 1,2,cobbled 2,0,cobbled 2,1,cobbled 2,2,cobbled|out=stove*1
+recipe(150) = shaped|workbench|3x3|0,0,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,2,ferralite_ingot 2,0,ferralite_ingot 2,1,ferralite_ingot 2,2,ferralite_ingot|out=cooking_pot*1
+recipe(151) = shapeless|workbench|rotten_flesh*2 verdanite*1|out=fertiliser*3
 
 ## smelting
 smelt(00) = #logs -> charcoal in 8s
@@ -152,8 +163,6 @@ smelt(02) = raw_ferralite -> ferralite_ingot in 8s
 smelt(03) = raw_sunbrass -> sunbrass_ingot in 8s
 smelt(04) = sand -> glass in 5s
 smelt(05) = cobbled -> greystone in 6s
-smelt(06) = pork_raw -> pork_cooked in 6s
-smelt(07) = beef_raw -> beef_cooked in 6s
 
 ## fuel
 fuel(log) = 12
@@ -190,14 +199,17 @@ fuel(birch_planks_stairs) = 9
 fuel(birch_planks_slab) = 4.5
 fuel(palm_planks_stairs) = 9
 fuel(palm_planks_slab) = 4.5
+fuel(cutting_board) = 51
 fuel(stick) = 3
 fuel(embercoal) = 48
 fuel(charcoal) = 48
+fuel(bowl) = 11.25
 fuel(boat) = 45
 fuel(pick_wood) = 33
 fuel(axe_wood) = 33
 fuel(shovel_wood) = 15
 fuel(sword_wood) = 21
+fuel(hoe_wood) = 24
 
 ## craft
 craft(log->planks (2x2 hand)) = planks*4
