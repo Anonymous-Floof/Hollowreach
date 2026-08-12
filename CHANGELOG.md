@@ -41,6 +41,8 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.14.0] - 2026-08-12
+
 ### Added
 - **Farming.** Eighteen crops grow wild across the world — wheat, barley, rice and
   maize; carrots, potatoes, onions, beetroot, garlic and cabbage; pumpkins, melons,
@@ -1186,6 +1188,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.14.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.14.0
 [2.13.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.13.0
 [2.12.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.1
 [2.12.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.0
