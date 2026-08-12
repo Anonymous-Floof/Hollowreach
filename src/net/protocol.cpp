@@ -484,7 +484,7 @@ bool decode(ByteReader& r, BeRequestMsg& m) {
   m.kind = r.u8();
   const auto coord = static_cast<std::int32_t>(kMaxCoord);
   return r.ok() && m.x >= -coord && m.x <= coord && m.z >= -coord && m.z <= coord &&
-         m.y >= 0 && m.y < 512 && m.kind <= 2;
+         m.y >= 0 && m.y < 512 && m.kind <= kMaxBlockEntityKind;
 }
 
 void encode(ByteWriter& w, const BeStateMsg& m) {
@@ -500,6 +500,7 @@ void encode(ByteWriter& w, const BeStateMsg& m) {
   w.f32(m.progress);
   w.u16(static_cast<std::uint16_t>(m.slots.size()));
   for (const WireSlot& s : m.slots) writeSlot(w, s);
+  writeSlot(w, m.container);
   w.boolean(m.final);
 }
 bool decode(ByteReader& r, BeStateMsg& m) {
@@ -517,10 +518,11 @@ bool decode(ByteReader& r, BeStateMsg& m) {
   for (WireSlot& s : m.slots) {
     if (!readSlot(r, s)) return false;
   }
+  if (!readSlot(r, m.container)) return false;
   m.final = r.boolean();
   const auto coord = static_cast<std::int32_t>(kMaxCoord);
   return r.ok() && m.x >= -coord && m.x <= coord && m.z >= -coord && m.z <= coord &&
-         m.y >= 0 && m.y < 512 && m.kind <= 2 && okF(m.fuelLeft, 0, 1e6f) &&
+         m.y >= 0 && m.y < 512 && m.kind <= kMaxBlockEntityKind && okF(m.fuelLeft, 0, 1e6f) &&
          okF(m.fuelMax, 0, 1e6f) && okF(m.progress, 0, 1e6f);
 }
 

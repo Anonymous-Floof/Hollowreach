@@ -438,6 +438,11 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
         out.dura = s.dura;
         return out;
       };
+      const auto copySlots = [&] {
+        for (std::size_t i = 0; i < be->slots.size(); ++i) {
+          be->slots[i] = i < m.slots.size() ? fromWire(m.slots[i]) : game::ItemStack{};
+        }
+      };
       if (kind == game::BlockEntityKind::Forge) {
         be->input = fromWire(m.input);
         be->fuel = fromWire(m.fuel);
@@ -446,9 +451,19 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
         be->fuelMax = m.fuelMax;
         be->progress = m.progress;
       } else if (kind == game::BlockEntityKind::Chest) {
-        for (std::size_t i = 0; i < be->slots.size(); ++i) {
-          be->slots[i] = i < m.slots.size() ? fromWire(m.slots[i]) : game::ItemStack{};
-        }
+        copySlots();
+      } else if (game::isKitchen(kind)) {
+        // The mirror of the hole in Host::onBeState: the guest ignored the state the
+        // host sent, so every kitchen opened EMPTY on a guest no matter what was in
+        // it — including one mid-cook, whose progress bar sat at zero throughout.
+        be->input = fromWire(m.input);
+        be->fuel = fromWire(m.fuel);
+        be->output = fromWire(m.output);
+        be->container = fromWire(m.container);
+        be->fuelLeft = m.fuelLeft;
+        be->fuelMax = m.fuelMax;
+        be->progress = m.progress;
+        copySlots();
       }
       break;
     }

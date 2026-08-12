@@ -894,6 +894,7 @@ void App::wireInterface() {
         state.fuelMax = be->fuelMax;
         state.progress = be->progress;
         for (const game::ItemStack& slot : be->slots) state.slots.push_back(wire(slot));
+        state.container = wire(be->container);
         state.final = true;
         netClient_.sendBlockEntityState(state);
       }
@@ -3194,9 +3195,10 @@ bool App::applyStartScreen(const std::string& name) {
           break;
         case world::Station::Stove:
           scratchStation_ = game::makeStove();
-          scratchStation_.input = game::ItemStack {"flour", 3, -1};
+          scratchStation_.slots[0] = game::ItemStack {"flour", 2, -1};
+          scratchStation_.slots[1] = game::ItemStack {"carrot", 2, -1};
           scratchStation_.fuel = game::ItemStack {"embercoal", 8, -1};
-          scratchStation_.output = game::ItemStack {"bread", 2, -1};
+          scratchStation_.output = game::ItemStack {"veg_pie", 1, -1};
           break;
         case world::Station::Pot:
           scratchStation_ = game::makePot();

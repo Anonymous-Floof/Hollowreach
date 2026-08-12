@@ -26,6 +26,7 @@ BlockEntity makeCutting() {
 BlockEntity makeStove() {
   BlockEntity be;
   be.kind = BlockEntityKind::Stove;
+  be.slots.resize(kStoveSlots);
   return be;
 }
 
@@ -109,15 +110,19 @@ Kitchen kitchenFor(BlockEntityKind kind) {
 }  // namespace
 
 void tickKitchen(BlockEntity& s, float dt) {
-  // The pot cooks out of `slots`; the board and the stove out of `input`. Building
-  // one ingredient view here rather than branching three ways below is what lets the
-  // state machine itself be identical for all three — which is the point of them
-  // sharing a struct at all.
+  // The pot and the stove cook out of `slots`; the board out of `input`. Building one
+  // ingredient view here rather than branching three ways below is what lets the state
+  // machine itself be identical for all three — which is the point of them sharing a
+  // struct at all.
+  //
+  // Asking whether `slots` is empty rather than naming the kinds is deliberate: it is
+  // the same question the save and the wire ask, so a station cannot end up with a
+  // tray the cooker refuses to read. That mismatch is how the stove lost five recipes.
   std::vector<ItemStack> offered;
-  if (s.kind == BlockEntityKind::Pot) {
-    offered = s.slots;
-  } else {
+  if (s.slots.empty()) {
     offered.push_back(s.input);
+  } else {
+    offered = s.slots;
   }
 
   const CookMatch m = matchCooking(kitchenFor(s.kind), offered, s.container);
@@ -156,13 +161,15 @@ void tickKitchen(BlockEntity& s, float dt) {
   if (s.progress < m.seconds) return;
   s.progress = 0;
 
+  // Consume out of whichever view was offered, and by the same test, so the station
+  // can never take from a place it did not look at.
   const CookingRecipe& r = recipeBook().cooking()[static_cast<std::size_t>(m.recipe)];
-  if (s.kind == BlockEntityKind::Pot) {
-    consumeCooking(r, s.slots, s.container);
-  } else {
+  if (s.slots.empty()) {
     std::vector<ItemStack> one {s.input};
     consumeCooking(r, one, s.container);
     s.input = one[0];
+  } else {
+    consumeCooking(r, s.slots, s.container);
   }
 
   if (s.output.empty()) {

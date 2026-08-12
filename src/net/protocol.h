@@ -369,14 +369,29 @@ struct WireSlot {
   std::int32_t dura = -1;
 };
 
+// The highest game::BlockEntityKind a state message may name. This read `2` — Forge
+// and Chest — and the Farming update added three kinds above it, so decode REFUSED
+// every message about a cutting board, a stove or a cooking pot and dropped it in
+// silence. A guest's kitchen was empty on opening, ate whatever was put in it, and
+// showed a cook that never progressed, all without one line of error anywhere.
+//
+// It lives here rather than being read out of `game/` because net does not depend on
+// game; host.cpp sees both and static_asserts that they still agree, so the next kind
+// added cannot repeat this quietly.
+inline constexpr std::uint8_t kMaxBlockEntityKind = 5;
+
 struct BeStateMsg {
   std::int32_t x = 0, y = 0, z = 0;
   std::uint8_t kind = 0;  // matches game::BlockEntityKind
   // Forge.
   WireSlot input, fuel, output;
   float fuelLeft = 0, fuelMax = 0, progress = 0;
-  // Chest.
+  // Chest, and the pot's and stove's ingredient trays.
   std::vector<WireSlot> slots;
+  // The pot's bowl. It had no field here at all, so a guest's bowl never reached the
+  // host — and since Host::onBeState wrote back nothing but forges and chests, a
+  // guest who filled a cooking pot and closed it lost the lot.
+  WireSlot container;
   bool final = false;  // close and unlock
 };
 

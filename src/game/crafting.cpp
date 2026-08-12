@@ -309,13 +309,22 @@ CookMatch matchCooking(Kitchen station, const std::vector<ItemStack>& slots,
     // player the lesser dish every single time while the better recipe sat there
     // looking correct.
     //
-    // Demand is the total ingredient count, so a three-ingredient recipe beats a
-    // two-ingredient one. Ties keep table order, which preserves the old contract
-    // that a recipe added later cannot shadow one already there.
+    // Demand weighs SPECIFICITY first and quantity second. A concrete ingredient
+    // names exactly what has to be in the pot; a tag accepts any of eighteen crops,
+    // so satisfying it says much less about what the player actually assembled.
+    //
+    // Counting only quantity made "any three vegetables" tie with "two pumpkin and a
+    // garlic" at three apiece — and ties keep table order, so the general recipe won
+    // and Pumpkin Soup, Tomato Soup and Garden Salad could never be cooked at all.
+    // Three authored meals that looked perfectly correct in the table and in the
+    // handbook, and simply did not exist.
+    //
+    // Ties still keep table order, so a recipe added later cannot shadow one already
+    // there — that contract is unchanged, it just no longer decides this case.
     int demand = 0;
     for (const auto& [want, need] : r.ingredients) {
-      (void)want;
-      demand += need;
+      const int specificity = (!want.empty() && want.front() == '#') ? 1 : 2;
+      demand += need * specificity;
     }
     if (demand <= bestDemand) continue;
     bestDemand = demand;

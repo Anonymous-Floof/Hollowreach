@@ -645,6 +645,47 @@ unreachable.
   nearest cell, because the nearest cell is always a lone straggler and frames a
   screenshot on one plant.
 
+### Then nine more of the same shape, and the gate that now catches them
+
+The three above were found by looking. Nine were not, and shipped in the 2.14.0
+draft — the Stove could not be crafted at all, which is how this was reported.
+
+Every one was **authored content that no player could reach**, and every one looked
+perfectly correct in the table it was written in. They came in four mechanisms:
+
+- **Two identical crafting patterns, the earlier one winning.** `matchGrid` returns
+  the first recipe a grid satisfies. The Stove was a ring of cobbled and so was the
+  forge; the Bowl was a hull of planks and so was the boat. The bowl one was worse
+  than the reported bug: every pot meal needs a bowl, so the entire Cooking Pot was
+  unusable and nobody had noticed.
+- **A recipe wanting more ingredients than its station has slots.** The stove had one
+  input and five of its thirteen recipes name two or three different things. Not a
+  matching bug at all, and invisible unless you count a recipe's keys against the
+  station's capacity.
+- **A general tag recipe tying with a specific one.** `matchCooking` ranked by total
+  ingredient count, so "any three vegetables" tied with "two pumpkin and a garlic",
+  and ties keep table order. Pumpkin Soup, Tomato Soup and Garden Salad existed in
+  the table, in the handbook, and nowhere else. Demand now weighs **specificity above
+  quantity** — a concrete key counts double a tag.
+- **A validator that was right when it was written.** `BeRequestMsg::decode` and
+  `BeStateMsg::decode` both ended in `m.kind <= 2`, correct when Forge and Chest were
+  the only kinds. The three kitchens are 3, 4 and 5, so **every network message about
+  a kitchen was refused and dropped in silence**: a guest's station opened empty, ate
+  whatever was put in it, and showed a cook that never advanced. There was no error
+  anywhere, and the check that should have caught it asserted no *denial* had arrived
+  — which a dropped message also satisfies. `kMaxBlockEntityKind` now holds the bound
+  and a `static_assert` in host.cpp ties it to the enum.
+
+**`testRecipesReachable` and `testCookingReachable` are the general form.** They lay
+out every recipe's own ingredients and demand the matcher hand back *that* recipe, by
+pointer — comparing output keys lets a shadowed duplicate pass under its twin's name.
+Between them they found all nine, including the five nobody had reported.
+
+The reason no earlier test caught any of this: **every recipe test asserts a recipe it
+names**, and an unreachable recipe is exactly the one nobody thought to name. A test
+per recipe would not have been written; a test over the whole table costs forty lines.
+Reach for that shape whenever a registry is append-only and matching is ordered.
+
 ### A note on fuzzy completion, and content pressure
 
 `/give sto` no longer offers `greystone`. Nothing broke: `fuzzyScore` pays +14 for a

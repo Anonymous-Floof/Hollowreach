@@ -366,8 +366,11 @@ bool InventoryUI::invSourceTargets(const game::ItemStack& stack, int index,
       out = {{Container::CookFuel, {0}}};
       return true;
     }
-    if (mode_ == InventoryMode::Pot) {
-      out = {{Container::CookSlots, range(0, game::kPotSlots)}};
+    // Off the station's real tray size, for the same reason the panel draws it that
+    // way: routing by mode is what let the stove's slots and its window disagree.
+    const int tray = station_ ? static_cast<int>(station_->slots.size()) : 0;
+    if (tray > 0) {
+      out = {{Container::CookSlots, range(0, tray)}};
     } else {
       out = {{Container::CookIn, {0}}};
     }
@@ -904,7 +907,7 @@ void InventoryUI::kitchenPanel(const UiEvent& event) {
   // same row, for the same reason the workbench carries it: "what can I make here"
   // is asked while looking at the slots.
   const char* blurb = isPot ? "Several ingredients into one meal. Needs a bowl and fuel."
-                     : isStove ? "Cooks one thing at a time. Meat, bread, roasts. Needs fuel."
+                     : isStove ? "Dry heat: meat, bread, roasts and pies. Needs fuel."
                                : "Prep: mills grain into flour, cuts meat into strips. No fuel.";
 
   doc_.begin(widget::invPanel());
@@ -932,16 +935,20 @@ void InventoryUI::kitchenPanel(const UiEvent& event) {
   }
   doc_.begin(Doc::row(8, Justify::Start, Align::Center));
 
-  // Ingredients. The pot takes six in two rows of three; the board and the stove
-  // take one.
-  if (isPot) {
+  // Ingredients. The pot takes six in two rows of three and the stove three in one
+  // row; the board takes one. Both trays are drawn by the same code off the station's
+  // ACTUAL slot count rather than a mode test, so a station can never be given slots
+  // the window does not draw — which is precisely how the stove ended up with five
+  // recipes that needed ingredients there was nowhere to put.
+  const int tray = station_ ? static_cast<int>(station_->slots.size()) : 0;
+  if (tray > 0) {
     Style grid;
     grid.display = Display::Grid;
     grid.gridCols = 3;
     grid.gridColWidth = px(Scalar::InvSlot);
     grid.gap = 6;
     doc_.begin(grid);
-    for (int i = 0; i < game::kPotSlots; ++i) {
+    for (int i = 0; i < tray; ++i) {
       const SlotId id {Container::CookSlots, i};
       slotNode(id, slotAt(id), widget::SlotKind::Normal, haveHover_ && hovered_ == id);
     }
@@ -958,8 +965,16 @@ void InventoryUI::kitchenPanel(const UiEvent& event) {
   // The cutting board shows neither — it serves nothing and burns nothing — so its
   // window is honestly two slots and a bar rather than four slots, two of which
   // silently do nothing.
+  //
+  // It is held off from the tray by a wider gap than the tray's own, and that gap is
+  // load-bearing rather than taste. The pot's six sit in two rows and read as a block
+  // whatever sits beside them, but the stove's three sit in ONE row, so at the tray's
+  // own spacing the fuel slot became a fourth ingredient slot to look at — which is
+  // how coal ends up in the pie.
   if (isPot || mode_ == InventoryMode::Stove) {
-    doc_.begin(Doc::column(8, Align::Center));
+    Style stack = Doc::column(8, Align::Center);
+    stack.margin = Edges(0, 0, 0, 10);
+    doc_.begin(stack);
     if (isPot) {
       const SlotId bowl {Container::CookContainer, 0};
       slotNode(bowl, slotAt(bowl), widget::SlotKind::Normal, haveHover_ && hovered_ == bowl);

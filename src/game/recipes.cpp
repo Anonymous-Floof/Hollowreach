@@ -212,9 +212,21 @@ RecipeBook::RecipeBook() {
   }
 
   // The three kitchen stations, and the bowls every pot meal is served into.
-  shaped({"P P", "PPP"}, {{'P', "#planks"}}, "bowl", 4, kBench);
+  //
+  // The bowl is a shallow wooden V — the bucket's shape in wood rather than iron,
+  // which is exactly how it reads. It was authored as the BOAT's hull, and the boat
+  // is registered a hundred and thirty lines above out of the same #planks, so the
+  // bowl could not be crafted and every pot meal needs one. The whole Cooking Pot
+  // was unusable because of one repeated pattern.
+  shaped({"P P", " P "}, {{'P', "#planks"}}, "bowl", 4, kBench);
   shaped({"PPP", "L L"}, {{'P', "#planks"}, {'L', "log"}}, "cutting_board", 1, kBench);
-  shaped({"CCC", "C C", "CCC"}, {{'C', "cobbled"}}, "stove", 1, kBench);
+  // A stone shell with a firebox burnt into the bottom of it. The embercoal is not
+  // decoration: a ring of plain cobbled is ALREADY the forge, registered two hundred
+  // lines above, and matching is first-match-wins — so the stove shipped in the
+  // 2.14.0 draft could not be crafted at all. The grid handed back a forge every
+  // time. `testRecipesReachable` now proves every recipe can be made, which is the
+  // general form of that bug and the only reason it will not happen again.
+  shaped({"CCC", "C C", "CEC"}, {{'C', "cobbled"}, {'E', "embercoal"}}, "stove", 1, kBench);
   shaped({"I I", "I I", "III"}, {{'I', "ferralite_ingot"}}, "cooking_pot", 1, kBench);
   shapeless({{"verdanite", 1}, {"rotten_flesh", 2}}, "fertiliser", 3, kBench);
 

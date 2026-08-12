@@ -20,6 +20,14 @@
 #include "world/world.h"
 
 namespace hr::net {
+
+// The one place both halves are visible. Raise kMaxBlockEntityKind when a kind is
+// added, or decode refuses every state message about it and the new station silently
+// does nothing over the network — which is exactly what happened to all three
+// kitchens in the 2.14.0 draft.
+static_assert(static_cast<std::uint8_t>(game::BlockEntityKind::Pot) == kMaxBlockEntityKind,
+              "a new BlockEntityKind needs kMaxBlockEntityKind raised to match");
+
 namespace {
 
 // Semantic limits, from js/net/host.js:31-35.
@@ -1204,6 +1212,7 @@ void Host::onBeRequest(PeerState& st, const BeRequestMsg& m, double now) {
   state.fuelMax = be->fuelMax;
   state.progress = be->progress;
   for (const game::ItemStack& s : be->slots) state.slots.push_back(toWire(s));
+  state.container = toWire(be->container);
   sendTo(st.peer, MsgType::BeState, state);
 }
 
@@ -1226,14 +1235,28 @@ void Host::onBeState(PeerState& st, const BeStateMsg& m, double now) {
       out.dura = s.dura;
       return out;
     };
+    const auto copySlots = [&] {
+      for (std::size_t i = 0; i < be->slots.size(); ++i) {
+        be->slots[i] = i < m.slots.size() ? fromWire(m.slots[i]) : game::ItemStack{};
+      }
+    };
     if (be->kind == game::BlockEntityKind::Forge) {
       be->input = fromWire(m.input);
       be->fuel = fromWire(m.fuel);
       be->output = fromWire(m.output);
     } else if (be->kind == game::BlockEntityKind::Chest) {
-      for (std::size_t i = 0; i < be->slots.size(); ++i) {
-        be->slots[i] = i < m.slots.size() ? fromWire(m.slots[i]) : game::ItemStack{};
-      }
+      copySlots();
+    } else if (game::isKitchen(be->kind)) {
+      // This branch did not exist. The three kitchens fell off the end of the if and
+      // the host wrote back NOTHING, so a guest who loaded a cooking pot with six
+      // vegetables and a bowl and closed the window handed them all to the void: gone
+      // from the guest's inventory, never once written on the host, and wiped from
+      // the guest's own copy the next time the host re-sent the real state.
+      be->input = fromWire(m.input);
+      be->fuel = fromWire(m.fuel);
+      be->output = fromWire(m.output);
+      be->container = fromWire(m.container);
+      copySlots();
     }
   }
   if (m.final) beLocks_.erase(key);

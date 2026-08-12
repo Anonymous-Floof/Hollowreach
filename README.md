@@ -514,7 +514,7 @@ by looking at it.
 | | |
 |---|---|
 | **Cutting Board** | Prep, no fuel. Mills grain into flour; butchers one raw chop into **two** strips, so worked meat goes further. |
-| **Stove** | Cooks one thing at a time — meat, bread, roast vegetables, pies, cheese. Meat is cooked here, not in the forge. |
+| **Stove** | Dry heat, up to three ingredients and fuel — meat, bread, roasts, pies, cheese. Meat is cooked here, not in the forge. |
 | **Cooking Pot** | Up to six ingredients, a bowl and fuel, into a real meal. Bowls come back when you eat what was in them. |
 
 **Better ingredients make a better meal from the same recipe** — three plain

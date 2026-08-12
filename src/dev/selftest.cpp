@@ -670,6 +670,119 @@ void testCrafting() {
         "an ingredient tag resolves to its representative");
 }
 
+// --- every authored recipe can actually be made ------------------------------
+//
+// The 2.14.0 draft shipped a Stove nobody could craft. Its pattern was a ring of
+// cobbled — cell for cell the forge's, registered two hundred lines earlier — and
+// matchGrid returns the FIRST recipe a grid satisfies, so laying a stove out handed
+// back a forge every single time.
+//
+// Every recipe test in this file asserts a recipe it NAMES, and a shadowed recipe is
+// invisible to that: the forge test passed, the stove test was never written, and an
+// authored-but-unreachable recipe looks exactly like one that works. So assert the
+// property over the whole table instead. Lay out each recipe's own ingredients and
+// require the grid to hand back THAT recipe, by pointer — comparing output keys
+// would let a shadowed duplicate pass by matching its twin's name.
+void testRecipesReachable() {
+  std::printf("recipe reachability\n");
+
+  const world::BlockRegistry& reg = world::blocks();
+  auto concrete = [&](const std::string& key) {
+    return !key.empty() && key.front() == '#' ? reg.tagRepresentative(key) : key;
+  };
+
+  int total = 0, dead = 0;
+  for (const game::Recipe& r : game::recipeBook().recipes()) {
+    ++total;
+    std::vector<game::ItemStack> grid(9);
+    if (r.type == game::RecipeType::Shaped) {
+      for (const game::RecipeCell& c : r.cells) {
+        grid[c.row * 3 + c.col] = {concrete(c.key), 1, -1};
+      }
+    } else {
+      // The shapeless matcher counts occupied CELLS, so a count of 3 needs three
+      // separate slots, not one stack of three.
+      int at = 0;
+      for (const auto& [key, need] : r.ingredients) {
+        for (int n = 0; n < need && at < 9; ++n) grid[at++] = {concrete(key), 1, -1};
+      }
+    }
+    const game::CraftMatch m = game::matchGrid(grid, 3, game::CraftStation::Workbench);
+    if (m.recipe == &r) continue;
+    ++dead;
+    std::printf("    UNREACHABLE: %s is shadowed by %s\n", r.outKey.c_str(),
+                m ? m.outKey.c_str() : "(nothing at all)");
+  }
+  checkf(total > 100, "the crafting table has %d recipes", total);
+  checkf(dead == 0, "every one of them can be crafted (%d unreachable)", dead);
+
+  // And the bug itself, named, so the reason this test exists survives in the output.
+  {
+    std::vector<game::ItemStack> grid(9);
+    for (int i = 0; i < 9; ++i) grid[i] = {"cobbled", 1, -1};
+    grid[4] = {};
+    const game::CraftMatch forge = game::matchGrid(grid, 3, game::CraftStation::Workbench);
+    check(forge && forge.outKey == "forge", "a plain ring of cobbled is still the forge");
+    grid[7] = {"embercoal", 1, -1};
+    const game::CraftMatch stove = game::matchGrid(grid, 3, game::CraftStation::Workbench);
+    check(stove && stove.outKey == "stove", "and the same ring with a firebox is the stove");
+  }
+}
+
+// The same question asked of the kitchen, where it is a harder one: a station has a
+// fixed number of ingredient slots, so a recipe can be unreachable for wanting more
+// distinct ingredients than the station can hold. That is not a matching bug and no
+// amount of staring at the recipe table shows it — it only appears when you count
+// the recipe's keys against the station's slots, which is what this does.
+void testCookingReachable() {
+  std::printf("cooking reachability\n");
+
+  // A representative item for each food tag, found the same way the cooker finds a
+  // match, so this test cannot drift from the tag rules it is testing.
+  auto concrete = [](const std::string& key) {
+    if (key.empty() || key.front() != '#') return key;
+    for (const game::ItemDef& d : game::items().all()) {
+      if (game::cookTagMatches(key, d.key)) return d.key;
+    }
+    return std::string();
+  };
+
+  int total = 0, dead = 0;
+  for (std::size_t i = 0; i < game::recipeBook().cooking().size(); ++i) {
+    const game::CookingRecipe& r = game::recipeBook().cooking()[i];
+    ++total;
+
+    // One stack per distinct ingredient, which is how a player would fill it.
+    std::vector<game::ItemStack> offered;
+    for (const auto& [key, need] : r.ingredients) {
+      offered.push_back({concrete(key), need, -1});
+    }
+    // Ask the station itself how many ingredient slots it has rather than restating
+    // it here, so this cannot quietly agree with a stale idea of the answer. The
+    // board has none and takes one item through `input`, which is a tray of one.
+    const game::BlockEntity station = game::makeEntity(game::entityKindFor(
+        r.station == game::Kitchen::Pot     ? "cooking_pot"
+        : r.station == game::Kitchen::Stove ? "stove"
+                                            : "cutting_board"));
+    const int capacity = station.slots.empty() ? 1 : static_cast<int>(station.slots.size());
+    const bool fits = static_cast<int>(offered.size()) <= capacity;
+    offered.resize(static_cast<std::size_t>(capacity));
+
+    game::ItemStack bowl;
+    if (!r.container.empty()) bowl = {r.container, 1, -1};
+
+    const game::CookMatch m = game::matchCooking(r.station, offered, bowl);
+    if (fits && m.recipe == static_cast<int>(i)) continue;
+    ++dead;
+    const char* why = fits ? "shadowed by an earlier recipe" : "wants more slots than the station has";
+    std::printf("    UNREACHABLE: %s (%d ingredients, %d slots) - %s\n",
+                r.tiers.empty() ? "?" : r.tiers.back().out.c_str(),
+                static_cast<int>(r.ingredients.size()), static_cast<int>(capacity), why);
+  }
+  checkf(total >= 25, "the kitchen has %d recipes", total);
+  checkf(dead == 0, "every one of them can be cooked (%d unreachable)", dead);
+}
+
 // --- survival ----------------------------------------------------------------
 //
 // Breath, hunger and regeneration are coupled through damage(), which is what makes them
@@ -2010,10 +2123,61 @@ void testCooking() {
 
     // The stove took meat off the forge.
     game::BlockEntity stove = game::makeStove();
-    stove.input = stack("beef_raw", 1);
+    stove.slots[0] = stack("beef_raw", 1);
     stove.fuel = stack("embercoal", 1);
     for (int i = 0; i < 200; ++i) game::tickKitchen(stove, 0.1f);
     check(stove.output.key == "beef_cooked", "and the stove is where meat is cooked now");
+
+    // And the reason the stove has a tray at all: five of its recipes name more than
+    // one ingredient, and with the single input slot it shipped with in the draft not
+    // one of them could ever be cooked. A pie is the test because it needs two
+    // different things AND a tag.
+    game::BlockEntity baker = game::makeStove();
+    baker.slots[0] = stack("flour", 2);
+    baker.slots[1] = stack("carrot", 2);
+    baker.fuel = stack("embercoal", 1);
+    for (int i = 0; i < 300; ++i) game::tickKitchen(baker, 0.1f);
+    check(baker.output.key == "veg_pie", "and a stove can hold the two things a pie needs");
+    check(baker.slots[0].empty() && baker.slots[1].empty(),
+          "consuming both of them out of the tray it read");
+
+    // --- which recipe wins when several are satisfied -------------------------
+    //
+    // Reachability says each recipe CAN fire; this says the right one does. Demand
+    // weighs specificity above quantity, and both halves of that need holding down:
+    // a concrete recipe must beat a tag recipe it ties with on count, and a longer
+    // recipe must still beat a shorter one, which was the original rule.
+    {
+      const auto cooked = [](game::Kitchen where, std::vector<game::ItemStack> in,
+                             game::ItemStack bowl) {
+        in.resize(where == game::Kitchen::Pot ? game::kPotSlots : game::kStoveSlots);
+        return game::matchCooking(where, in, bowl);
+      };
+      const game::ItemStack bowl {"bowl", 1, -1};
+
+      // Two pumpkins and a garlic are three vegetables, so "any three vegetables"
+      // fits them exactly — and being registered first, it used to win every time.
+      const game::CookMatch soup =
+          cooked(game::Kitchen::Pot, {{"pumpkin", 2, -1}, {"garlic", 1, -1}}, bowl);
+      check(soup.out == "pumpkin_soup", "a recipe naming its ingredients beats one taking a tag");
+
+      // Three tomatoes are likewise three vegetables.
+      const game::CookMatch tomato = cooked(game::Kitchen::Pot, {{"tomato", 3, -1}}, bowl);
+      check(tomato.out == "tomato_soup", "even when the specific recipe is a single stack");
+
+      // And the case the rule was written for in the first place: the pumpkin, grain
+      // and vegetable of a stuffed pumpkin also satisfy "any two vegetables".
+      const game::CookMatch stuffed = cooked(
+          game::Kitchen::Stove, {{"pumpkin", 1, -1}, {"wheat", 1, -1}, {"carrot", 1, -1}}, {});
+      check(stuffed.out == "stuffed_pumpkin",
+            "and a longer recipe still beats a shorter one it contains");
+
+      // Nothing specific applies, so the general one is exactly right.
+      const game::CookMatch plain =
+          cooked(game::Kitchen::Pot, {{"carrot", 2, -1}, {"potato", 1, -1}}, bowl);
+      check(plain.out == "vegetable_soup" || plain.out == "hearty_stew",
+            "while three unremarkable vegetables still make soup");
+    }
   }
 
   // --- the balance promise --------------------------------------------------
@@ -7746,6 +7910,88 @@ void testNetSession() {
     checkf(hostWorld->getBlockEntity(cx, cy, cz) == nullptr,
            "with nothing left behind at that position");
 
+    // The same journey for a kitchen, which nothing made. Host::onBeState handled
+    // Forge and Chest and fell off the end for the other three, so a guest who
+    // loaded a cooking pot and shut the window handed it all to nobody: taken out of
+    // the guest's inventory, never written on the host, and wiped from the guest's
+    // own copy the moment the host next sent the real state. The bowl could not have
+    // arrived in any case — BeStateMsg had no field for it.
+    {
+      const int px = 11, py = kY - 2, pz = 9;
+      guestWorld->setBlock(px, py, pz, world::blocks().idOf("cooking_pot"), 0);
+      guestWorld->getOrCreateBlockEntity(px, py, pz, game::BlockEntityKind::Pot);
+      pump(40);
+      checkf(hostWorld->getBlock(px, py, pz) == world::blocks().idOf("cooking_pot"),
+             "a cooking pot a guest places reaches the host (it is \"%s\" there)",
+             world::blocks().def(hostWorld->getBlock(px, py, pz)).key.c_str());
+      // Something in the HOST's pot before the guest opens it, because "no refusal
+      // arrived" is not evidence of anything: BeRequestMsg::decode refused every kind
+      // above Chest, so the request was dropped in total silence — no lock, no state,
+      // no deny. Checking for the absence of a complaint passed with flying colours
+      // while nothing whatsoever happened. Seeing the host's carrot appear on the
+      // guest is the difference between silence and success.
+      if (game::BlockEntity* hostSide = hostWorld->getBlockEntity(px, py, pz)) {
+        hostSide->slots[0] = game::ItemStack{"pumpkin", 1, -1};
+      }
+      lastDeny.clear();
+      client.sendBlockEntityRequest(px, py, pz,
+                                    static_cast<std::uint8_t>(game::BlockEntityKind::Pot));
+      pump(40);
+      checkf(lastDeny.empty(), "a guest may open a cooking pot (\"%s\")", lastDeny.c_str());
+      const game::BlockEntity* seen = guestWorld->getBlockEntity(px, py, pz);
+      check(seen != nullptr && !seen->slots.empty() && seen->slots[0].key == "pumpkin",
+            "and sees what is actually in it, rather than an empty copy of its own");
+
+      game::BlockEntity* mine = guestWorld->getBlockEntity(px, py, pz);
+      checkf(mine != nullptr && mine->slots.size() == game::kPotSlots,
+             "and the guest has a pot with a tray to fill (%d slots)",
+             mine ? static_cast<int>(mine->slots.size()) : -1);
+      if (mine) {
+        mine->slots[0] = game::ItemStack{"carrot", 3, -1};
+        mine->container = game::ItemStack{"bowl", 2, -1};
+        net::BeStateMsg state;
+        state.x = px;
+        state.y = py;
+        state.z = pz;
+        state.kind = static_cast<std::uint8_t>(game::BlockEntityKind::Pot);
+        const auto wire = [](const game::ItemStack& s) {
+          net::WireSlot out;
+          if (!s.empty()) {
+            out.key = s.key;
+            out.count = s.count;
+            out.dura = s.dura;
+          }
+          return out;
+        };
+        for (const game::ItemStack& s : mine->slots) state.slots.push_back(wire(s));
+        state.container = wire(mine->container);
+        state.final = true;
+
+        // The message has to survive its own encoding before anything about the host
+        // means much: a decode that returns false is dropped in silence by design, so
+        // a wire bug and a missing handler look identical from the far end.
+        ByteWriter w;
+        net::encode(w, state);
+        ByteReader rr(w.data().data(), w.data().size());
+        net::BeStateMsg back;
+        const bool rt = net::decode(rr, back);
+        checkf(rt && back.container.key == "bowl" && back.slots.size() == game::kPotSlots,
+               "a pot's state survives the wire (%s, container \"%s\", %d slots)",
+               rt ? "decoded" : "REFUSED", back.container.key.c_str(),
+               static_cast<int>(back.slots.size()));
+
+        client.sendBlockEntityState(state);
+      }
+      pump(40);
+      const game::BlockEntity* hostPot = hostWorld->getBlockEntity(px, py, pz);
+      check(hostPot != nullptr && !hostPot->slots.empty() && hostPot->slots[0].key == "carrot" &&
+                hostPot->slots[0].count == 3,
+            "and what a guest puts in a cooking pot is held by the host");
+      check(hostPot != nullptr && hostPot->container.key == "bowl" &&
+                hostPot->container.count == 2,
+            "including the bowl, which had no field on the wire at all");
+    }
+
     // A chest already standing in the world with nothing behind it, which is what
     // every save written by an older build holds: the block was relayed and
     // stored, the container never was. Reloading could not fix it and neither
@@ -10101,6 +10347,8 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testRecipesReachable();
+  testCookingReachable();
   testSettingScope();
   testSettingsRoundTrip();
   testDropping();

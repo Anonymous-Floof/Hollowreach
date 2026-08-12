@@ -68,8 +68,9 @@ what it lets them do, never by the refactor that made it possible.
   workbench:
   - the **Cutting Board** mills grain into flour and butchers meat — one raw chop
     becomes *two* strips, so meat goes further when you work it;
-  - the **Stove** cooks single things: bread, roast vegetables, baked potatoes,
-    cheese, pies. **Meat is cooked here now rather than at the forge.**
+  - the **Stove** is dry heat, up to three ingredients and fuel: bread, roast
+    vegetables, baked potatoes, cheese, garlic bread, pies.
+    **Meat is cooked here now rather than at the forge.**
   - the **Cooking Pot** takes up to six ingredients, a bowl and fuel, and makes the
     real meals.
 

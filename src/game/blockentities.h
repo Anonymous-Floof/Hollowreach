@@ -41,6 +41,25 @@ enum class BlockEntityKind : std::uint8_t {
 // recipe with room to spare, and few enough that the window stays one row.
 inline constexpr int kPotSlots = 6;
 
+// And how many the stove holds. It shipped in the 2.14.0 draft with ONE, which is
+// what "cooks one thing at a time" was taken to mean — but five of its thirteen
+// recipes name two or three different ingredients (bread and garlic, flour and
+// vegetables, a stuffed pumpkin), and a station with one slot cannot hold two things
+// however long you stare at it. Those five could never be cooked.
+//
+// Three is the largest stove recipe, and it keeps the distinction that actually
+// matters: the stove bakes dry and serves nothing, the pot simmers six things into a
+// bowl. "One at a time" is about throughput, not about how many things go into a pie.
+inline constexpr int kStoveSlots = 3;
+
+// Ingredient slots per station. Zero for the cutting board, which takes a single
+// item through `input` the way the forge does.
+inline constexpr int cookSlotsFor(BlockEntityKind kind) {
+  return kind == BlockEntityKind::Pot     ? kPotSlots
+         : kind == BlockEntityKind::Stove ? kStoveSlots
+                                          : 0;
+}
+
 // Is this kind one of the kitchen stations? Used by the save layer to decide which
 // section an entity belongs in, so the test is written once.
 inline bool isKitchen(BlockEntityKind kind) {
@@ -62,10 +81,10 @@ struct BlockEntity {
 
   // --- kitchen --------------------------------------------------------------
   //
-  // The pot's ingredients live in `slots` (sized kPotSlots) so they reuse the same
-  // container plumbing a chest already has; the cutting board and the stove use
-  // `input` and `output` exactly as the forge does, and the stove reuses `fuel`,
-  // `fuelLeft` and `fuelMax` too. Only the bowl needs a field of its own.
+  // The pot's and the stove's ingredients live in `slots` (sized by cookSlotsFor) so
+  // they reuse the same container plumbing a chest already has; the cutting board
+  // uses `input` and `output` exactly as the forge does, and both cookers reuse
+  // `fuel`, `fuelLeft` and `fuelMax` too. Only the bowl needs a field of its own.
   ItemStack container;
   // Which cooking recipe is in progress, or -1. Held as an index rather than
   // re-matched every tick: a pot holding six ingredients would otherwise re-run the
