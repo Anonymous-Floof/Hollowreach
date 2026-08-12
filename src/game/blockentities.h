@@ -21,7 +21,32 @@ namespace hr::game {
 
 inline constexpr int kChestSlots = 27;
 
-enum class BlockEntityKind : std::uint8_t { None = 0, Forge, Chest };
+// APPEND ONLY. The raw value is on disk and on the wire, so inserting a kind would
+// turn every saved chest into whatever now sits at its number.
+//
+// The three kitchen kinds are saved in a section of their OWN rather than alongside
+// Forge and Chest — see save/format.h. decodeBlockEntities cannot skip a kind it
+// does not know, because entity payloads carry no length, so adding one to that
+// section would make an older build lose every entity sorted after the first cooker.
+enum class BlockEntityKind : std::uint8_t {
+  None = 0,
+  Forge,
+  Chest,
+  Cutting,  // prep: one in, one out, no fuel
+  Stove,    // one in, fuel, one out
+  Pot,      // several in, a bowl, fuel, one out
+};
+
+// How many ingredient slots a cooking pot holds. Six is enough for the largest
+// recipe with room to spare, and few enough that the window stays one row.
+inline constexpr int kPotSlots = 6;
+
+// Is this kind one of the kitchen stations? Used by the save layer to decide which
+// section an entity belongs in, so the test is written once.
+inline bool isKitchen(BlockEntityKind kind) {
+  return kind == BlockEntityKind::Cutting || kind == BlockEntityKind::Stove ||
+         kind == BlockEntityKind::Pot;
+}
 
 struct BlockEntity {
   BlockEntityKind kind = BlockEntityKind::None;
@@ -34,10 +59,29 @@ struct BlockEntity {
 
   // Chest.
   std::vector<ItemStack> slots;
+
+  // --- kitchen --------------------------------------------------------------
+  //
+  // The pot's ingredients live in `slots` (sized kPotSlots) so they reuse the same
+  // container plumbing a chest already has; the cutting board and the stove use
+  // `input` and `output` exactly as the forge does, and the stove reuses `fuel`,
+  // `fuelLeft` and `fuelMax` too. Only the bowl needs a field of its own.
+  ItemStack container;
+  // Which cooking recipe is in progress, or -1. Held as an index rather than
+  // re-matched every tick: a pot holding six ingredients would otherwise re-run the
+  // whole match on every frame of a ten-second cook.
+  int recipe = -1;
 };
 
 BlockEntity makeForge();
 BlockEntity makeChest();
+BlockEntity makeCutting();
+BlockEntity makeStove();
+BlockEntity makePot();
+
+// Advances one kitchen station by dt seconds. Like tickForge, a pure state machine
+// over its own slots that runs whether or not anyone is looking at it.
+void tickKitchen(BlockEntity& station, float dt);
 
 // Which block keys carry which block entity.
 BlockEntityKind entityKindFor(std::string_view blockKey);

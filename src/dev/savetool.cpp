@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <ctime>
+#include <map>
 #include <vector>
 
 #include "platform/paths.h"
@@ -206,6 +207,86 @@ int dungeonInfo(std::uint32_t seed) {
     }
     std::printf("  y%3d %s\n", wy, row.c_str());
   }
+  return 0;
+}
+
+int cropInfo(std::uint32_t seed) {
+  // The same shape as dungeonInfo above: generate the chunks, then read back what
+  // actually landed in the voxels. A wild crop stand is far too sparse to find by
+  // flying around and looking, which made "are the stands generating, and are they
+  // coherent rather than confetti?" a question nothing could answer.
+  const world::NoiseSet noise(seed);
+  constexpr int kChunkReach = 6;  // +/- 96 blocks
+
+  struct Found {
+    int x, y, z;
+    world::BlockId id;
+  };
+  std::vector<Found> found;
+  std::map<std::string, int> tally;
+
+  for (int cx = -kChunkReach; cx <= kChunkReach; ++cx) {
+    for (int cz = -kChunkReach; cz <= kChunkReach; ++cz) {
+      world::Chunk c;
+      c.cx = cx;
+      c.cz = cz;
+      c.data = std::make_shared<world::ChunkData>();
+      world::generate(c, noise, world::kGenVersion);
+      for (int x = 0; x < world::CX; ++x) {
+        for (int z = 0; z < world::CZ; ++z) {
+          for (int y = 1; y < world::WH; ++y) {
+            const world::BlockId id = c.data->voxels.get(world::localIdx(x, y, z));
+            if (id == world::kAir) continue;
+            const world::BlockDef& d = world::blocks().def(id);
+            if (d.cropStages <= 0) continue;
+            found.push_back({cx * world::CX + x, y, cz * world::CZ + z, id});
+            ++tally[d.key];
+          }
+        }
+      }
+    }
+  }
+
+  if (found.empty()) {
+    std::printf("no wild crops within %d chunks of the origin for seed %u\n", kChunkReach,
+                seed);
+    return 1;
+  }
+
+  std::printf("seed %u: %zu wild crop cells within %d chunks of the origin\n", seed,
+              found.size(), kChunkReach);
+  for (const auto& [key, n] : tally) std::printf("  %-18s %4d\n", key.c_str(), n);
+
+  // The DENSEST 16x16 region, not the nearest cell. The nearest cell is usually a
+  // lone straggler on the edge of something, which frames a screenshot on one plant
+  // and a lot of grass; the densest region is the stand you actually wanted to look
+  // at, and whether stands form at all is the thing worth checking.
+  std::map<std::pair<int, int>, int> byRegion;
+  for (const Found& f : found) {
+    ++byRegion[{f.x >> 4, f.z >> 4}];
+  }
+  std::pair<int, int> bestRegion = byRegion.begin()->first;
+  int bestCount = 0;
+  for (const auto& [region, n] : byRegion) {
+    if (n > bestCount) {
+      bestCount = n;
+      bestRegion = region;
+    }
+  }
+  const int rx = bestRegion.first * 16 + 8, rz = bestRegion.second * 16 + 8;
+
+  // A representative cell inside that region, for the height and the name.
+  const Found* best = &found.front();
+  for (const Found& f : found) {
+    if ((f.x >> 4) == bestRegion.first && (f.z >> 4) == bestRegion.second) {
+      best = &f;
+      break;
+    }
+  }
+  std::printf("\ndensest stand: %d cells around %d,%d (%s)\n", bestCount, rx, rz,
+              world::blocks().def(best->id).key.c_str());
+  std::printf("  --at %d,%d,%d,0,-0.55       (standing in it)\n", rx, best->y + 2, rz - 7);
+  std::printf("  --at %d,%d,%d,0,-1.50       (looking down on it)\n", rx, best->y + 22, rz);
   return 0;
 }
 

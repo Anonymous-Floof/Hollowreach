@@ -450,6 +450,15 @@ void Player::survival(float dt, const world::World& world, const PlayerOptions& 
   }
 
   if (hungerOn_) {
+    // The diet decays with hunger and not without it. "Hunger disabled" means food
+    // upkeep is off, and a diet that drained anyway would leave a player who cannot
+    // eat at full health watching their hearts quietly disappear.
+    for (float& level : diet_.level) {
+      level = std::max(0.0f, level - dietConst::kDecayPerSecond * dt);
+    }
+    // Losing a group can take max health below current health.
+    health_ = std::min(health_, maxHealth());
+
     float rate = kHungerBase;
     if (sprinting_) rate += kHungerSprint;
     if (swimming_) rate += kHungerSwim;
@@ -473,7 +482,7 @@ void Player::survival(float dt, const world::World& world, const PlayerOptions& 
 
   if (regenDelay_ > 0.0f) regenDelay_ -= dt;
   const bool wellFed = !hungerOn_ || hunger_ >= kWellFed;
-  if (regenDelay_ <= 0.0f && wellFed && health_ > 0.0f && health_ < kMaxHealth) {
+  if (regenDelay_ <= 0.0f && wellFed && health_ > 0.0f && health_ < maxHealth()) {
     regenTimer_ += dt;
     if (regenTimer_ >= kRegenInterval) {
       regenTimer_ = 0.0f;
@@ -504,7 +513,7 @@ void Player::damage(float amount, const PlayerOptions& options, bool ignoreArmor
 }
 
 void Player::heal(float amount) {
-  health_ = std::min(survivalConst::kMaxHealth, health_ + amount);
+  health_ = std::min(maxHealth(), health_ + amount);
 }
 
 void Player::addFood(float food, float saturation) {
@@ -512,14 +521,27 @@ void Player::addFood(float food, float saturation) {
   saturation_ = std::min(hunger_, saturation_ + saturation);
 }
 
+void Player::feedDiet(NutritionGroup group) {
+  const int i = nutritionIndex(group);
+  if (i < 0) return;  // rotten flesh and anything else that feeds no group
+  // One meal fills its group outright. The interesting resource is not how much of
+  // one group you have but how many groups you are keeping up at once, so making a
+  // single group expensive to fill would only add grinding to the wrong axis.
+  diet_.level[i] = dietConst::kMax;
+}
+
 bool Player::eat(const FoodEffect& food) {
   if (!hungerOn_) {
     // Hunger disabled: food just heals a bit, and a full bar refuses so the stack is
     // not wasted.
-    if (health_ >= survivalConst::kMaxHealth) return false;
+    if (health_ >= maxHealth()) return false;
     const float amount =
         food.risky ? (randomUnit() < 0.5 ? 1.0f : 0.0f) : std::ceil(food.food / 2.0f);
     heal(amount);
+    // Still feeds the diet. With hunger off the bonus hearts are the only thing
+    // cooking is still for, so taking that away too would leave the whole kitchen
+    // pointless on the easier difficulty.
+    if (!food.risky) feedDiet(food.group);
     return true;
   }
   if (food.risky) {
@@ -533,7 +555,10 @@ bool Player::eat(const FoodEffect& food) {
     return true;
   }
   if (hunger_ >= survivalConst::kMaxHunger) return false;
-  addFood(food.food, food.food * 0.6f);
+  // The authored saturation, not a fixed multiple of `food`. This one line is the
+  // difference between a meal and a large snack.
+  addFood(food.food, food.sat);
+  feedDiet(food.group);
   return true;
 }
 
@@ -551,7 +576,10 @@ void Player::teleport(const Vec3& p) {
 }
 
 void Player::reviveFull() {
-  health_ = survivalConst::kMaxHealth;
+  // The diet survives death. Losing three days of careful eating to one bad fall
+  // would make the whole system feel like a punishment rather than a reward, and
+  // hunger and saturation already carry the cost of dying.
+  health_ = maxHealth();
   hunger_ = survivalConst::kMaxHunger;
   saturation_ = 5.0f;
   exhaustion_ = 0.0f;
@@ -560,7 +588,7 @@ void Player::reviveFull() {
 }
 
 void Player::setHealth(float v) {
-  health_ = std::min(survivalConst::kMaxHealth, std::max(0.0f, v));
+  health_ = std::min(maxHealth(), std::max(0.0f, v));
 }
 
 PlayerState Player::state() const {
@@ -572,6 +600,7 @@ PlayerState Player::state() const {
   s.hunger = hunger_;
   s.saturation = saturation_;
   s.flying = flying_;
+  s.diet = diet_;
   return s;
 }
 
@@ -588,9 +617,14 @@ void Player::loadState(const PlayerState& s) {
                sane(s.pos.z, 3.0e7f, 0.0f)};
   yaw_ = sane(s.yaw, 1.0e4f, 0.0f);
   pitch_ = sane(s.pitch, kPi, 0.0f);
-  health_ = (s.health > 0.0f && s.health <= survivalConst::kMaxHealth)
-                ? s.health
-                : survivalConst::kMaxHealth;
+  // The diet has to land BEFORE health, because it is what decides the ceiling
+  // health is checked against. Loading them the other way round would silently rob a
+  // well-fed player of their bonus hearts on every single load.
+  for (int i = 0; i < kNutritionGroups; ++i) {
+    const float v = s.diet.level[i];
+    diet_.level[i] = (v >= 0.0f && v <= dietConst::kMax) ? v : 0.0f;
+  }
+  health_ = (s.health > 0.0f && s.health <= maxHealth()) ? s.health : maxHealth();
   hunger_ = (s.hunger >= 0.0f && s.hunger <= survivalConst::kMaxHunger)
                 ? s.hunger
                 : survivalConst::kMaxHunger;

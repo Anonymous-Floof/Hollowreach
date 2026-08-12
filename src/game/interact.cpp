@@ -109,6 +109,21 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
              target->render == RenderKind::Painting || (includeAnchor && target->anchor);
     };
 
+    // ---- using an item on a block: tilling, sowing ----
+    //
+    // THIS RUNS BEFORE EATING, and the order is the whole design. Crop produce is
+    // both the food and the seed — a carrot is what you eat and what you plant — so
+    // if eating went first, pointing at your own farmland with a carrot in hand
+    // would swallow it instead of sowing it, and there would be no way to plant at
+    // all. Pointing at something means acting on that thing.
+    if (hit && !blockHandles(true) && hooks.onUseOn) {
+      const UseResult used = hooks.onUseOn(*held, hit.x, hit.y, hit.z);
+      if (used != UseResult::Ignored) {
+        if (used == UseResult::UsedAndConsume) inventory.consumeSelected();
+        swung_ = true;
+        return;
+      }
+    }
     // ---- eating: works even when aiming at the sky ----
     if (held->type == ItemType::Food && !blockHandles(false)) {
       if (hooks.onEat && hooks.onEat(*held)) {

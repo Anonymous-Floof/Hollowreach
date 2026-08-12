@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "game/nutrition.h"
 #include "resource/identifier.h"
 #include "resource/image.h"
 #include "resource/packstack.h"
@@ -47,7 +48,9 @@ enum class ItemType : std::uint8_t {
 
 // Tool families. Distinct from world::ToolType because a sword mines nothing —
 // it is a weapon that happens to share the tier and durability machinery.
-enum class ToolKind : std::uint8_t { None = 0, Pick, Axe, Shovel, Sword };
+// A hoe mines nothing, exactly as a sword does: it is a tool that borrows the tier
+// and durability machinery to do something else entirely — in its case, tilling.
+enum class ToolKind : std::uint8_t { None = 0, Pick, Axe, Shovel, Sword, Hoe };
 
 // Which sprite painter draws an item. `Block` means "no sprite": the icon is an
 // isometric projection of the block's display shape instead.
@@ -68,6 +71,18 @@ enum class IconKind : std::uint8_t {
   Meat,
   Steak,
   Flesh,
+  // Produce and meals. Nine families cover every crop and every dish, because each
+  // shades from ItemDef::color — a new crop is a table row, not a hand-drawn sprite.
+  Grain,    // a tied bundle: wheat, barley, rice, maize
+  Root,     // tapered, leafy-topped: carrot, potato, onion, beetroot, garlic
+  Produce,  // round with a stem: pumpkin, melon, tomato
+  Pod,      // long and curved: chili, soybean
+  Berry,    // a small cluster: strawberry, blueberry, grapes
+  Leafy,    // a veined head: cabbage
+  Seed,     // the wild bootstrap
+  Hoe,      // tills soil; mines nothing
+  Bowl,     // soups and stews; contents take the colour, the bowl never does
+  Plate,    // roasts and pies
   Pick,
   Axe,
   Shovel,
@@ -80,7 +95,12 @@ enum class IconKind : std::uint8_t {
 };
 
 struct ItemDef {
-  int index = 0;  // registration order; the icon atlas cell and the wire id
+  // Registration order, and the icon atlas cell. NOT the wire id, whatever this
+  // comment used to say: WireSlot carries a `std::string key` (protocol.h) and
+  // ItemStack stores a key too, so nothing on disk or on the wire remembers an
+  // index. Inserting an item mid-list therefore costs a re-ordered icon sheet and
+  // nothing else — unlike a block id, which every save contains.
+  int index = 0;
   std::string key;
   std::string name;
 
@@ -96,6 +116,22 @@ struct ItemDef {
   // Food.
   int food = 0;      // hunger POINTS on the 20-point bar (1 pip = 2 points)
   bool risky = false;  // eating gambles: feeds or sickens
+  // Saturation: the hidden buffer that drains before the visible bar does, and so
+  // the real measure of how long a food lasts. This used to be derived as
+  // `food * 0.6` for every item alike (player.cpp), which is exactly why a raw
+  // carrot and a cooked meal could not be told apart by anything but size — a meal
+  // that fills the same bar twice as fast is not a meal, it is a bigger carrot.
+  // Authoring it per item is what lets a stew be *worth cooking*.
+  float sat = 0.0f;
+  // Which diet group eating this feeds. None for everything that is not food, and
+  // also for the ones that genuinely feed nothing: rotten flesh is calories, not
+  // nutrition.
+  NutritionGroup group = NutritionGroup::None;
+  // What this contributes as a cooking INGREDIENT, which is not the same question as
+  // what it is worth to eat. Bread feeds you well and improves a stew barely at all;
+  // a chili is the reverse. Summed over a pot's contents to pick which tier of a
+  // recipe's output comes out.
+  int quality = 0;
 
   // Bucket.
   std::string holds;            // "water" | "milk"; empty = the empty bucket

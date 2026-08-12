@@ -597,6 +597,66 @@ is worth remembering only because it is the palette whose accent sits *furthest*
 from health red and hunger amber, so it is the one to reach for if the pip
 readability problem above ever proves unfixable rather than merely awkward.
 
+## Farming, and the two indexes that cost no save format
+
+Three decisions here are worth keeping, because each one replaced something that
+looked obvious and was wrong.
+
+**Growth stage lives in cell metadata, not in a block per stage.** Eighteen crops at
+four stages is seventy-two block ids, and because every block automatically becomes
+a placeable item it would also have been seventy-two items. `shapes.h` documents
+Cross metadata as 0 standing / 1-4 wall-mounted, read as `meta & 7`, and a plant is
+always 0 — so the upper five bits were already free on exactly the blocks a crop is.
+`World::setMeta` writes metadata into the persisted edit map, so growth survives a
+save, a chunk unload and a regeneration **without one byte of new save format**.
+
+**The planted-crop index is derived, not saved.** `CropSim` needs to know where the
+crops are, and `blockupdate.h` is right that walking the world to find them is dead
+on arrival. But the set does not need storing either: a crop is always a player
+edit, and every player edit is in `edits_` — so `World::indexCrops()` rebuilds the
+index from the edit map on load, and `setEdits` calls it rather than trusting five
+call sites to remember. A derived index cannot go stale against the thing it is
+derived from, which is the same argument that made dungeon chests re-derived.
+
+The corollary is the good half of the design: **wild stands are not in the index**,
+because they are generator output rather than edits. So the sweep never spends a
+roll on scenery — and that is precisely why worldgen has to stamp a wild stand at
+its ripe stage. A stand that generated unripe would stay unripe for the life of the
+world, because nothing would ever visit it.
+
+**Growth has no timer anywhere.** Each sweep, each crop rolls against a chance.
+Minecraft's model, and it means nothing is stored per crop, nothing drifts while the
+game is paused, and no save has to describe a half-grown plant.
+
+### Three bugs this shook out, all of them the same shape
+
+Each was a case of a new branch being placed after an existing early return, and
+none of them would have failed a compile or a test — they simply made content
+unreachable.
+
+- The crop roll in `pickFoliage` originally sat **after** the `sand` and `snowturf`
+  branches, both of which `return` outright. The desert list (melon, chili, maize)
+  and the snow list were painted, registered, and could not be found by anybody.
+- Then it keyed on the ground being sand rather than the biome being Desert, so
+  every beach on the map sprouted grapes and tomatoes.
+- `--find-crop` exists because of these. A wild stand is far too sparse to find by
+  flying around and looking, so "is this generating at all" had no answer. It
+  mirrors `--find-dungeon` and reports the densest 16x16 region rather than the
+  nearest cell, because the nearest cell is always a lone straggler and frames a
+  screenshot on one plant.
+
+### A note on fuzzy completion, and content pressure
+
+`/give sto` no longer offers `greystone`. Nothing broke: `fuzzyScore` pays +14 for a
+match on a word boundary and +2 for one buried mid-word, so every `<tool>_stone`
+outranks `greystone` outright, and the six hoes pushed it past the ten-row cap. The
+crowding was always there and one more tool tipped it over.
+
+Worth knowing because it will happen again: **every tool family added is ten more
+rows competing for a ten-row list**, and the base material always loses. If it
+becomes a real annoyance the fix is in the scorer — prefer a candidate with fewer
+underscores when the query has none — not in the content.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

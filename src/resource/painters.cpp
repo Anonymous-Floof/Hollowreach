@@ -440,6 +440,215 @@ void papyrusStemPx(Image& img, int ox, int oy, Mulberry32& rng, int sx, int y) {
   if (rng.next() < 0.2) px(img, ox, oy, sx + 1, y, 88, g + 12, 54);
 }
 
+// --- crops --------------------------------------------------------------------
+//
+// Eighteen crops at four growth stages is seventy-two tiles. Drawn one at a time
+// that is days of pixel-pushing that would still come out less consistent than this;
+// drawn as five FAMILIES that take their colours and a stage, a new crop is a table
+// row and every crop in a family grows the same way.
+//
+// `stage` runs 0..kCropStages-1. Two rules the families all obey, because both are
+// things a player reads at a glance from standing height:
+//
+//   * Stage 0 must say "something is planted here" and nothing more, or an empty
+//     field and a sown one look identical and nobody can tell what they have done.
+//   * Only the LAST stage looks harvestable. If stage 2 and stage 3 read alike,
+//     players harvest early, lose the yield, and never find out why.
+
+// Vertical stalks that head out at the top: wheat, barley, rice, maize.
+PainterFn cropStalkTex(int stage, std::uint32_t lo, std::uint32_t hi, std::uint32_t head) {
+  const Rgb3 a = hex(lo), b = hex(hi), h = hex(head);
+  return [a, b, h, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const int n = 4 + stage;             // fills in as it grows
+    const int height = 4 + stage * 3;    // 4, 7, 10, 13 of the 16 rows
+    for (int i = 0; i < n; ++i) {
+      const int x = 1 + static_cast<int>(rng.next() * (T - 2));
+      const int bh = height - static_cast<int>(rng.next() * 2);
+      for (int k = 0; k < bh; ++k) {
+        const int y = T - 1 - k;
+        if (y < 1) break;
+        const Rgb3 c = rng.next() < 0.5 ? a : b;
+        const double j = (rng.next() * 2 - 1) * 14;
+        px(img, ox, oy, wrapT(x), y, c.r + j, c.g + j, c.b + j);
+      }
+      if (stage == kCropStages - 1) {
+        // The grain head. This is the entire "ready to cut" signal.
+        const int top = T - 1 - bh;
+        for (int k = 0; k < 3; ++k) {
+          const int y = top - k;
+          if (y < 0) break;
+          const double j = (rng.next() * 2 - 1) * 12;
+          px(img, ox, oy, wrapT(x), y, h.r + j, h.g + j, h.b + j);
+          if (rng.next() < 0.6) px(img, ox, oy, wrapT(x + 1), y, h.r, h.g, h.b);
+        }
+      }
+    }
+  };
+}
+
+// A leafy tuft over a buried root: carrot, potato, onion, beetroot, garlic. The root
+// is underground, so ripeness shows as the crown shouldering out of the soil.
+PainterFn cropLeafyTex(int stage, std::uint32_t leafLo, std::uint32_t leafHi,
+                       std::uint32_t root) {
+  const Rgb3 a = hex(leafLo), b = hex(leafHi), r = hex(root);
+  return [a, b, r, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const int n = 3 + stage * 2;
+    const int height = 3 + stage * 2;  // 3, 5, 7, 9
+    for (int i = 0; i < n; ++i) {
+      int x = 2 + static_cast<int>(rng.next() * (T - 4));
+      const int bh = height - static_cast<int>(rng.next() * 2);
+      for (int k = 0; k < bh; ++k) {
+        const int y = T - 1 - k;
+        if (y < 1) break;
+        if (k > 1 && rng.next() < 0.35) x += rng.next() < 0.5 ? -1 : 1;  // splay out
+        const Rgb3 c = rng.next() < 0.5 ? a : b;
+        const double j = (rng.next() * 2 - 1) * 16;
+        px(img, ox, oy, wrapT(x), y, c.r + j, c.g + j, c.b + j);
+      }
+    }
+    if (stage == kCropStages - 1) {
+      // The crown of the root breaking the surface.
+      for (int x = 6; x <= 9; ++x) {
+        const double j = (rng.next() * 2 - 1) * 10;
+        px(img, ox, oy, x, T - 1, r.r + j, r.g + j, r.b + j);
+        if (x >= 7 && x <= 8) px(img, ox, oy, x, T - 2, r.r, r.g, r.b);
+      }
+    }
+  };
+}
+
+// A trailing vine that sets fruit on the ground: pumpkin, melon, tomato, chili.
+PainterFn cropVineTex(int stage, std::uint32_t vine, std::uint32_t fruit) {
+  const Rgb3 v = hex(vine), f = hex(fruit);
+  return [v, f, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const int spread = 3 + stage * 2;
+    for (int i = 0; i < 3 + stage; ++i) {
+      int x = 8 + static_cast<int>((rng.next() * 2 - 1) * spread);
+      int y = T - 1;
+      const int len = 3 + stage + static_cast<int>(rng.next() * 3);
+      for (int k = 0; k < len; ++k) {
+        if (y < 4) break;
+        const double j = (rng.next() * 2 - 1) * 14;
+        px(img, ox, oy, wrapT(x), y, v.r + j, v.g + j, v.b + j);
+        if (rng.next() < 0.4) px(img, ox, oy, wrapT(x + 1), y, v.r - 12, v.g - 12, v.b - 12);
+        --y;
+        if (rng.next() < 0.5) x += rng.next() < 0.5 ? -1 : 1;
+      }
+    }
+    // The fruit swells over the last two stages rather than appearing from nothing,
+    // so "nearly ready" is legible as well as "ready".
+    if (stage >= kCropStages - 2) {
+      const int rad = stage == kCropStages - 1 ? 3 : 2;
+      const int cx = 8, cy = T - 1 - rad;
+      for (int yy = cy - rad; yy <= cy + rad; ++yy) {
+        for (int xx = cx - rad; xx <= cx + rad; ++xx) {
+          if (yy < 0 || yy >= T) continue;
+          const double d = std::hypot(xx - cx, yy - cy);
+          if (d > rad) continue;
+          const double j = (rng.next() * 2 - 1) * 12 - (d > rad - 1 ? 18 : 0);
+          px(img, ox, oy, wrapT(xx), yy, f.r + j, f.g + j, f.b + j);
+        }
+      }
+    }
+  };
+}
+
+// A low bush that berries up: strawberry, blueberry, grapes.
+PainterFn cropBerryTex(int stage, std::uint32_t leaf, std::uint32_t berry) {
+  const Rgb3 l = hex(leaf), b = hex(berry);
+  return [l, b, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const double rad = 2.5 + stage * 1.6;
+    const double cy = T - 1.5;
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        if (std::hypot(x - 8.0, y - cy) > rad) continue;
+        if (rng.next() < 0.18) continue;  // cutout gaps, as the shrub does
+        const double j = (rng.next() * 2 - 1) * 18;
+        px(img, ox, oy, x, y, l.r + j, l.g + j, l.b + j);
+      }
+    }
+    if (stage >= kCropStages - 2) {
+      const int berries = stage == kCropStages - 1 ? 6 : 2;
+      for (int i = 0; i < berries; ++i) {
+        const int bx = 4 + static_cast<int>(rng.next() * 9);
+        const int by = static_cast<int>(cy - rng.next() * rad);
+        if (by < 0 || by >= T) continue;
+        px(img, ox, oy, bx, by, b.r, b.g, b.b);
+        if (rng.next() < 0.5 && bx + 1 < T) {
+          px(img, ox, oy, bx + 1, by, b.r - 16, b.g - 16, b.b - 16);
+        }
+      }
+    }
+  };
+}
+
+// An upright plant hung with pods: chili, soybean.
+//
+// This exists because both of them used to borrow another family and came out
+// unreadable: a chili drawn as round red fruit on a vine was indistinguishable from
+// a tomato, and a soybean drawn as a leafy head was indistinguishable from a
+// cabbage. Two crops a player cannot tell apart are, in practice, one crop.
+PainterFn cropPodTex(int stage, std::uint32_t leaf, std::uint32_t pod) {
+  const Rgb3 l = hex(leaf), p = hex(pod);
+  return [l, p, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const int height = 5 + stage * 3;
+    for (int i = 0; i < 3 + stage; ++i) {
+      const int x = 3 + static_cast<int>(rng.next() * (T - 6));
+      const int bh = height - static_cast<int>(rng.next() * 3);
+      for (int k = 0; k < bh; ++k) {
+        const int y = T - 1 - k;
+        if (y < 1) break;
+        const double j = (rng.next() * 2 - 1) * 15;
+        px(img, ox, oy, wrapT(x), y, l.r + j, l.g + j, l.b + j);
+        if (rng.next() < 0.3) px(img, ox, oy, wrapT(x + 1), y, l.r - 14, l.g - 14, l.b - 14);
+      }
+    }
+    // Pods hang vertically, which is the whole point: a tall thin mark reads as a
+    // pod at a glance where a round one reads as fruit.
+    if (stage >= kCropStages - 2) {
+      const int pods = stage == kCropStages - 1 ? 4 : 2;
+      for (int i = 0; i < pods; ++i) {
+        const int x = 3 + static_cast<int>(rng.next() * (T - 6));
+        const int top = T - 2 - static_cast<int>(rng.next() * (height - 3));
+        for (int k = 0; k < 4; ++k) {
+          const int y = top + k;
+          if (y < 0 || y >= T) continue;
+          const double j = (rng.next() * 2 - 1) * 10;
+          px(img, ox, oy, wrapT(x), y, p.r + j, p.g + j, p.b + j);
+          if (k > 0 && k < 3) {
+            px(img, ox, oy, wrapT(x + 1), y, p.r - 22, p.g - 22, p.b - 22);
+          }
+        }
+      }
+    }
+  };
+}
+
+// A tight head: cabbage.
+PainterFn cropHeadTex(int stage, std::uint32_t outer, std::uint32_t inner) {
+  const Rgb3 o = hex(outer), n = hex(inner);
+  return [o, n, stage](Image& img, int ox, int oy, Mulberry32& rng) {
+    const double rad = 2.0 + stage * 1.7;
+    const double cy = T - 1.0 - rad * 0.7;
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double d = std::hypot(x - 8.0, y - cy);
+        if (d > rad) continue;
+        // The heart of the head lightens as it firms up, which is what separates a
+        // loose stage-2 rosette from a solid stage-3 one.
+        const bool heart = d < rad * 0.45 && stage == kCropStages - 1;
+        const Rgb3 c = heart ? n : o;
+        const double j = (rng.next() * 2 - 1) * 16;
+        px(img, ox, oy, x, y, c.r + j, c.g + j, c.b + j);
+      }
+    }
+    for (int y = static_cast<int>(cy + rad); y < T; ++y) {
+      px(img, ox, oy, 7, y, 86, 104, 52);  // the stem down to the soil
+      px(img, ox, oy, 8, y, 74, 92, 44);
+    }
+  };
+}
+
 // --- registry ----------------------------------------------------------------
 
 std::vector<PainterEntry> buildPainters() {
@@ -1100,6 +1309,139 @@ std::vector<PainterEntry> buildPainters() {
   add("flower_cornflower", flowerTex(0x3f7a32, 0x4a6fe0, 0x2a3f8a));
   add("flower_dandelion", flowerTex(0x3f7a32, 0xf2c53a, 0xc99a24));
   add("flower_violet", flowerTex(0x3f7a32, 0x9a5ac2, 0xf2c53a));
+
+  // ---- crops: eighteen, four stages each, from the five families above ----
+  //
+  // The colours live here and the block properties live in blocks.cpp, joined by
+  // the key — which is how the flowers and plants above already work, and is why
+  // there is no shared crop table: painters are in resource/ and blocks are in
+  // world/, so one table read by both would point a lower layer at a higher one.
+  //
+  // The cost of the split is that the two lists can drift. testCropArt() in the
+  // self-test walks every crop block and demands a painter for every stage, which
+  // is a cheaper guard than the layering violation would have been.
+  {
+    enum Family { Stalk, Leafy, Vine, Berry, Head, Pod };
+    struct CropTex {
+      const char* key;
+      Family family;
+      std::uint32_t c1, c2, c3;  // family-dependent; c3 unused by Vine/Berry/Head
+    };
+    static constexpr CropTex kCrops[] = {
+        // grains: stalk colour, highlight, ripe head
+        {"wheat", Stalk, 0x9caf46, 0xb4c455, 0xe0c65a},
+        {"barley", Stalk, 0x8fa055, 0xa8b566, 0xd9c78a},
+        {"rice", Stalk, 0x7fae5a, 0x93c06a, 0xe8e4c8},
+        {"maize", Stalk, 0x5f9440, 0x74a851, 0xf0c433},
+        // roots: leaf, leaf highlight, the crown that shows when ripe
+        {"carrot", Leafy, 0x3f8a3a, 0x4f9e46, 0xe07a28},
+        {"potato", Leafy, 0x4a8a44, 0x5a9c52, 0xc9a468},
+        {"onion", Leafy, 0x6a9c50, 0x7cae60, 0xd8c9a2},
+        {"beetroot", Leafy, 0x7a4a52, 0x8f5a60, 0xa0243c},
+        {"garlic", Leafy, 0x6f9a58, 0x82ac68, 0xeae2d2},
+        // ground fruit: vine, fruit
+        {"pumpkin", Vine, 0x4a8a3a, 0xe0821e, 0},
+        // The melon's rind is a PALE yellow-green on purpose. At 0x6fae3a it was
+        // within a shade of its own vine and the fruit simply could not be seen.
+        {"melon", Vine, 0x4f9440, 0xc2d95e, 0},
+        {"tomato", Vine, 0x4a8a44, 0xd8392c, 0},
+        {"chili", Pod, 0x53923f, 0xd42f24, 0},
+        // bushes: leaf, berry
+        {"strawberry", Berry, 0x3f8a3a, 0xd8323c, 0},
+        {"blueberry", Berry, 0x4a7a4a, 0x4a5ac2, 0},
+        {"grapes", Berry, 0x5a8a3f, 0x7a4ab0, 0},
+        // heads: outer leaf, firm heart
+        {"cabbage", Head, 0x6faa5a, 0xc6dca0, 0},
+        // Podded, not a head: as a Head it was a green ball beside the cabbage's
+        // green ball, and the two were the same crop as far as anyone could tell.
+        {"soybean", Pod, 0x8aa84a, 0xd8cf7a, 0},
+    };
+    for (const CropTex& c : kCrops) {
+      for (int s = 0; s < kCropStages; ++s) {
+        std::string name = std::string("crop_") + c.key + "_" + std::to_string(s);
+        switch (c.family) {
+          case Stalk: add(std::move(name), cropStalkTex(s, c.c1, c.c2, c.c3)); break;
+          case Leafy: add(std::move(name), cropLeafyTex(s, c.c1, c.c2, c.c3)); break;
+          case Vine: add(std::move(name), cropVineTex(s, c.c1, c.c2)); break;
+          case Berry: add(std::move(name), cropBerryTex(s, c.c1, c.c2)); break;
+          case Head: add(std::move(name), cropHeadTex(s, c.c1, c.c2)); break;
+          case Pod: add(std::move(name), cropPodTex(s, c.c1, c.c2)); break;
+        }
+      }
+    }
+  }
+
+  // ---- the kitchen ----
+  add("cutting_board_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    plankTexInto(img, ox, oy, rng, hex(0xc2a068), hex(0x9c7c46));
+    for (int i = 0; i < 7; ++i) {  // knife scars across the grain
+      const int x = 2 + static_cast<int>(rng.next() * 12);
+      const int y = 3 + static_cast<int>(rng.next() * 10);
+      px(img, ox, oy, x, y, 226, 214, 186);
+      if (rng.next() < 0.6) px(img, ox, oy, x + 1, y, 214, 200, 172);
+    }
+  });
+  add("cutting_board_side", plankTex(0xa8874e, 0x86682f));
+
+  add("stove_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x4a4a52), 12, rng);
+    for (int i = 0; i < 2; ++i) {  // two hotplates
+      const int cx = 4 + i * 7, cy = 8;
+      for (int y = -3; y <= 3; ++y) {
+        for (int x = -3; x <= 3; ++x) {
+          if (x * x + y * y > 9) continue;
+          px(img, ox, oy, cx + x, cy + y, 32, 30, 34);
+        }
+      }
+    }
+  });
+  add("stove_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x54545c), 12, rng);
+    for (int y = 9; y <= 13; ++y) {  // the firebox, glowing
+      for (int x = 4; x <= 11; ++x) {
+        const double f = rng.next();
+        px(img, ox, oy, x, y, 200 + f * 40, 90 + f * 60, 30 + f * 30);
+      }
+    }
+  });
+
+  add("cooking_pot_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x3a3a42), 10, rng);
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        if (std::hypot(x - 7.5, y - 7.5) > 5.5) continue;
+        const double f = rng.next();
+        px(img, ox, oy, x, y, 150 + f * 30, 96 + f * 24, 46 + f * 18);  // stew
+      }
+    }
+  });
+  add("cooking_pot_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x3a3a42), 10, rng);
+    for (int x = 1; x < T - 1; ++x) px(img, ox, oy, x, 3, 88, 88, 96);       // rim
+    for (int x = 3; x < T - 3; ++x) px(img, ox, oy, x, T - 2, 70, 70, 78);   // foot
+  });
+
+  // Tilled soil. Two tiles: dry, and the darker damp one within reach of water.
+  add("farmland", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x6b4f33), 16, rng);
+    for (int i = 0; i < 3; ++i) {  // furrows
+      const int y = 3 + i * 5;
+      for (int x = 0; x < T; ++x) {
+        const double j = (rng.next() * 2 - 1) * 8;
+        px(img, ox, oy, x, y, 88 + j, 66 + j, 44 + j);
+      }
+    }
+  });
+  add("farmland_wet", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x452f1d), 14, rng);
+    for (int i = 0; i < 3; ++i) {
+      const int y = 3 + i * 5;
+      for (int x = 0; x < T; ++x) {
+        const double j = (rng.next() * 2 - 1) * 7;
+        px(img, ox, oy, x, y, 60 + j, 42 + j, 26 + j);
+      }
+    }
+  });
 
   return out;
 }

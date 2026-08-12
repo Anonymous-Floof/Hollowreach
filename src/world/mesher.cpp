@@ -158,6 +158,9 @@ void BlockTileTable::build(const resource::Atlas& atlas) {
   foot_.assign(n, {});
   stem_.assign(n, {});
   hasStem_.assign(n, 0);
+  stages_.clear();
+  stageBase_.assign(n, 0);
+  stageCount_.assign(n, 0);
 
   for (const BlockDef& def : reg.all()) {
     for (int face = 0; face < 6; ++face) {
@@ -167,6 +170,11 @@ void BlockTileTable::build(const resource::Atlas& atlas) {
     if (!def.stemTexture.empty()) {
       stem_[def.id] = atlas.tile(def.stemTexture);
       hasStem_[def.id] = 1;
+    }
+    if (!def.stageTextures.empty()) {
+      stageBase_[def.id] = stages_.size();
+      stageCount_[def.id] = static_cast<int>(def.stageTextures.size());
+      for (const ResourceId& tex : def.stageTextures) stages_.push_back(atlas.tile(tex));
     }
   }
 }
@@ -258,6 +266,12 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
                 centre->voxels.get(localIdx(x, y + 1, z)) == id) {
               tile = &tiles.stem(id);
             }
+            // A crop draws the tile for the stage its metadata says it has reached.
+            // This is the same "one id, several tiles" trick the papyrus stem above
+            // uses, which is why it sits here rather than becoming a block per stage.
+            if (tiles.stageCount(id) > 0) {
+              tile = &tiles.stage(id, cropStageOf(centre->meta.get(localIdx(x, y, z))));
+            }
             const double H = def.plantHeight > 0 ? def.plantHeight : 0.9;
             const double r = def.plantRadius > 0 ? def.plantRadius : 0.45;
 
@@ -265,13 +279,18 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
             // vanilla behaviour: Minecraft offsets some plants and never rotates
             // them, so a future model loader must be able to opt out of this.
             //
+            // Crops DO opt out. The jitter is what makes wild grass look like a
+            // meadow, and it is exactly what makes a sown field look like a mess —
+            // a row the player laid out by hand should come up in a row.
+            //
             // Computed in double and narrowed once at the corner, matching how the
             // JS evaluated these expressions before storing into a Float32Array.
             // Doing the arithmetic in float instead rounds twice, and the resulting
             // one-ULP drift is enough to fail the mesh golden-vector diff.
-            const double ang = hash2i(0x91b7u, worldX, worldZ) * 1.5707963;
-            const double ox = (hash2i(0x33a1u, worldX, worldZ) - 0.5) * 0.22;
-            const double oz = (hash2i(0x77c5u, worldX, worldZ) - 0.5) * 0.22;
+            const bool jitter = !def.alignedPlant;
+            const double ang = jitter ? hash2i(0x91b7u, worldX, worldZ) * 1.5707963 : 0.0;
+            const double ox = jitter ? (hash2i(0x33a1u, worldX, worldZ) - 0.5) * 0.22 : 0.0;
+            const double oz = jitter ? (hash2i(0x77c5u, worldX, worldZ) - 0.5) * 0.22 : 0.0;
             const double cxp = wx + 0.5 + ox;
             const double czp = wz + 0.5 + oz;
             const double y0 = wy, y1 = wy + H;

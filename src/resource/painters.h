@@ -29,6 +29,15 @@ namespace hr::resource {
 // The resolution painters are written against.
 inline constexpr int kPainterTile = 16;
 
+// How many tiles a crop is drawn at, from seedling to harvestable.
+//
+// It lives here rather than in world/blocks.h because world/ may depend on
+// resource/ and not the other way round, and both ends need the number: the
+// painters emit `crop_<key>_0` .. `_3`, and the block table declares that many
+// stage slots. Four is enough that growth reads as progress and few enough that
+// every stage can look meaningfully different from its neighbours.
+inline constexpr int kCropStages = 4;
+
 // Draws one tile at (ox, oy) into `into`, consuming `rng` in a fixed order.
 using PainterFn = std::function<void(Image& into, int ox, int oy, Mulberry32& rng)>;
 

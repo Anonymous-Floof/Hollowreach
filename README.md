@@ -129,7 +129,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1111 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1204 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -460,6 +460,15 @@ show is the one you get — so cycle to the tier or the wood you want first.
 6. Gather papyrus and leather for an **Atlas**, mine every ore for a **Soul
    Anchor** to move your spawn, and keep a **Wayshard** in your pocket for the
    trip back up.
+7. **Eat properly.** Find wild crops, till soil with a **hoe** and plant the crop
+   itself — there are no seed items, so a carrot both feeds you and sows the next
+   one. Farmland within four blocks of water grows about twice as fast.
+8. Build a **Cutting Board**, a **Stove** and a **Cooking Pot**, and cook. A single
+   cooked chop is what you eat when you have failed to make a meal; a stew is worth
+   several of them and lasts far longer. Better ingredients turn the same pot recipe
+   into a better dish.
+9. Keep a **varied diet** — grain, vegetable, fruit, protein, dairy — for up to
+   three extra hearts. Living on one crop earns none of them.
 
 Worlds are saved as `.hrw` files in **`data/worlds/`** beside the executable —
 a compact binary format: a checksummed header over a list of tag-dispatched

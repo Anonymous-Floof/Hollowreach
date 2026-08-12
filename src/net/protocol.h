@@ -100,7 +100,13 @@ namespace hr::net {
 // level, so its own completion popup would offer it every command in the game and
 // the host would refuse each one with a message the guest cannot receive either.
 // Silence that looks like a bug in the host.
-inline constexpr std::uint16_t kNetVersion = 11;
+// 12: the Farming update. BeStateMsg carries a `kind` byte that matches
+// game::BlockEntityKind, and this build added three values to that enum — so a
+// version-11 guest opening a cooking pot would read it as whatever kind now sits at
+// its number and show a chest's worth of nonsense. The wire LAYOUT is unchanged,
+// which is exactly why this has to be refused rather than tolerated: the same bytes
+// now mean something different. Same reasoning as versions 3, 7 and 10.
+inline constexpr std::uint16_t kNetVersion = 12;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

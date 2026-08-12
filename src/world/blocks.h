@@ -55,6 +55,22 @@ inline constexpr int kSunbrass = 4;
 inline constexpr int kAetherite = 5;
 }  // namespace tier
 
+// --- crop growth stage, packed into cell metadata ----------------------------
+//
+// shapes.h documents Cross metadata as 0 standing on the floor and 1-4 mounted on a
+// wall, read as `meta & 7` — and a plant is always 0, because a billboard does not
+// lean. That leaves the upper five bits of the byte unused on exactly the blocks a
+// crop is, so the growth stage goes there and costs nothing: World::setMeta already
+// writes metadata into the persisted edit map, so growth survives a save, a chunk
+// unload and a regeneration without one byte of new save format.
+//
+// Kept here rather than in shapes.h because the mesher, the growth sweep and the
+// harvest path all need it, and only one of those knows what a shape is.
+inline constexpr int kCropStageShift = 3;
+inline constexpr int kCropStageMask = 0x1F;  // five bits, 32 stages
+inline int cropStageOf(int meta) { return (meta >> kCropStageShift) & kCropStageMask; }
+inline int cropMetaFor(int stage) { return (stage & kCropStageMask) << kCropStageShift; }
+
 enum class RenderKind : std::uint8_t {
   None = 0,  // air
   Cube,
@@ -76,7 +92,8 @@ enum class RenderKind : std::uint8_t {
 
 enum class ToolType : std::uint8_t { None = 0, Pick, Axe, Shovel };
 
-enum class Station : std::uint8_t { None = 0, Workbench, Forge, Chest };
+// APPEND ONLY: the value rides in BlockDef and is switched on in four places.
+enum class Station : std::uint8_t { None = 0, Workbench, Forge, Chest, Cutting, Stove, Pot };
 
 struct Rgb {
   float r = 1.0f, g = 1.0f, b = 1.0f;
@@ -165,6 +182,32 @@ struct BlockDef {
 
   float plantHeight = 0.0f;  // billboard height in blocks
   float plantRadius = 0.0f;
+  // A plant whose billboard is picked at random per cell looks like a meadow, which
+  // is right for wild grass and wrong for a field: a planted row wants to read as a
+  // row. Crops set this so the mesher skips the jitter and stands them square.
+  bool alignedPlant = false;
+
+  // --- crops ----------------------------------------------------------------
+  //
+  // A crop is ONE block whose growth stage lives in its cell metadata, not one block
+  // per stage. Eighteen crops at four stages would otherwise be seventy-two block
+  // ids, and — because every block automatically becomes a placeable item — seventy-
+  // two items cluttering the creative list and the icon atlas for no gain.
+  //
+  // Metadata has room for it. shapes.h documents Cross meta as 0 standing / 1-4 wall
+  // mounted, masked with `meta & 7`, and a plant is always 0 — so the upper bits are
+  // free and World::setMeta already persists them through the edit map. Growth
+  // therefore costs no save format at all.
+  int cropStages = 0;  // 0 = not a crop
+  // One tile per stage, resolved at registry-build time like faceTextures. Empty for
+  // everything that is not a crop, so this costs the other blocks a vector header.
+  std::vector<ResourceId> stageTextures;
+  // What a RIPE crop yields, on top of the `drop` it always gives. An unripe one
+  // gives back only its seed, which is what makes harvesting early a mistake rather
+  // than a free reset.
+  std::string ripeDrop;
+  int ripeDropMin = 1;
+  int ripeDropMax = 1;
 
   // Resource-pack forward: which biome colormap tints this block, or -1 for none.
   // Always -1 today because the procedural textures are painted pre-coloured.
@@ -203,6 +246,11 @@ class BlockRegistry {
   BlockId idOf(std::string_view key) const;
   bool has(std::string_view key) const;
 
+  // The crop a produce item plants, or kAir for anything that is not a seed. Keyed
+  // by the produce key because the produce IS the seed — a carrot in hand is what
+  // sows a carrot crop, so there is no separate seed item to look up.
+  BlockId cropForProduce(std::string_view produceKey) const;
+
   // Flat property tables for the per-voxel hot paths: the lighting flood, mesher
   // face culling and collision. The JS used Uint8Arrays here for the same reason.
   bool opaque(BlockId id) const { return id < opaque_.size() && opaque_[id] != 0; }
@@ -233,6 +281,7 @@ class BlockRegistry {
 
   std::vector<BlockDef> blocks_;
   std::unordered_map<std::string, BlockId> byKey_;
+  std::unordered_map<std::string, BlockId> cropByProduce_;
   std::vector<std::uint8_t> opaque_, solid_, emit_;
   std::unordered_map<std::string, std::vector<std::string>> tags_;
   std::vector<std::string> buildMaterialKeys_;
@@ -255,6 +304,19 @@ struct WellKnownBlocks {
 
   // The five flowers, in the order worldgen indexes them.
   std::array<BlockId, 5> flowers {};
+
+  BlockId farmland = 0;
+  BlockId cropRice = 0;  // keyed off wetness, not biome; see wk() in blocks.cpp
+
+  // Wild crops, grouped by the biome that favours them. Worldgen picks a patch's
+  // dominant crop out of one of these lists, so a meadow reads as arable and a
+  // desert does not — and so travelling somewhere else is how you widen a diet.
+  //
+  // Held as lists rather than eighteen named fields because every consumer wants
+  // "a crop suited to here", never "the beetroot" specifically.
+  std::vector<BlockId> cropsMeadow, cropsForest, cropsBirch, cropsDesert, cropsSnow;
+  // Everything above, for the code that only needs to ask "is this a crop at all".
+  std::vector<BlockId> cropsAll;
 };
 
 const WellKnownBlocks& wk();

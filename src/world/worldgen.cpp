@@ -362,9 +362,76 @@ void stampTrees(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) {
 // A light dusting of cross-billboard plants so the world reads as lived-in. Purely
 // per-column and inside the chunk, so it needs no margin scan. Runs after trees so
 // it never grows inside a trunk and fills the gaps between them instead.
-BlockId pickFoliage(const NoiseSet& n, std::uint32_t seed, int wx, int wz, BlockId ground) {
+// Which wild crops suit a biome. Snow and desert lists are short by design: a
+// player who wants a full diet has to go somewhere, and a biome that grew
+// everything would make travelling pointless.
+const std::vector<BlockId>& cropsForBiome(const WellKnownBlocks& w, Biome b) {
+  switch (b) {
+    case Biome::Forest: return w.cropsForest;
+    case Biome::Birch: return w.cropsBirch;
+    case Biome::Desert: return w.cropsDesert;
+    case Biome::Snow: return w.cropsSnow;
+    case Biome::Meadow: break;
+  }
+  return w.cropsMeadow;
+}
+
+BlockId pickFoliage(const NoiseSet& n, std::uint32_t seed, int wx, int wz, BlockId ground,
+                    Biome biome, int ver) {
   const WellKnownBlocks& w = wk();
   const double r = hash2i(seed ^ 0x0f0au, wx, wz);  // per-cell presence roll
+  const double lush = 0.5 + n.flora.fbm2(wx * 0.012, wz * 0.012, 3) * 0.5;  // 0 dry .. 1 wet
+
+  // Secondary rolls MUST offset their coordinates, not just the seed. hash2i
+  // barely avalanches a single flipped seed bit, so hash2i(seed^A, wx, wz) and
+  // hash2i(seed^B, wx, wz) come out correlated — without the coordinate shifts
+  // the sub-type picks below would track `r` and their tails would never fire.
+
+  // Wild crop stands (v6).
+  //
+  // THIS RUNS BEFORE THE GROUND BRANCHES BELOW, and that placement is the whole
+  // point rather than a tidiness choice. Sand and snowturf each return outright, so
+  // a crop roll written after them could only ever fire on turf — which quietly made
+  // the desert list (melon, chili, maize) and the snow list unreachable in the entire
+  // game. Three crops existed, were painted, were registered, and could not be found
+  // by anybody.
+  //
+  // Sand only counts when the BIOME is Desert, never merely because the ground is
+  // sand. Every lake and coastline in the world is sand too, and without that test
+  // the first build of this grew grapes and tomatoes along every beach on the map.
+  const bool arable = ground == w.turf || (ground == w.sand && biome == Biome::Desert) ||
+                      (ground == w.snowturf && biome == Biome::Snow);
+  if (ver >= 6 && arable) {
+    // Rice answers to wet ground rather than to biome, so it is asked first and
+    // separately, and only on soil.
+    if (ground == w.turf && lush > 0.66 && r < 0.055 &&
+        hash2i(seed ^ 0x0f12u, wx + 77, wz + 313) < 0.5 && w.cropRice != kAir) {
+      return w.cropRice;
+    }
+    // A coarse field decides WHERE a stand can be and a ~10-block region picks its
+    // one dominant crop, so a patch reads as a stand of something. Desert and snow
+    // stands are rarer: they are the reward for going somewhere unpleasant, and a
+    // snowfield thick with cabbages would look absurd.
+    const bool harsh = (ground != w.turf);
+    const double field = n.flora.fbm2(wx * 0.045 - 130, wz * 0.045 + 88, 2);
+    if (field > (harsh ? 0.14 : 0.06) && r < (harsh ? 0.055 : 0.075)) {
+      const std::vector<BlockId>& list = cropsForBiome(w, biome);
+      if (!list.empty()) {
+        // floorDiv, not `/`, for the same reason the flower grid below uses it: C++
+        // truncation would shift the whole grid across the negative half of a world.
+        const int gx = static_cast<int>(floorDiv(wx, 10));
+        const int gz = static_cast<int>(floorDiv(wz, 10));
+        const double rk = hash2i(seed ^ 0x0f11u, gx + 401, gz + 617);
+        int pick = truncToInt(rk * static_cast<double>(list.size()));
+        // hash2i is [0, 1), so this cannot fire — but the flower code below indexes a
+        // fixed five where this indexes a list edited by hand, and an out-of-range
+        // read here would be a crash inside chunk generation.
+        if (pick < 0) pick = 0;
+        if (pick >= static_cast<int>(list.size())) pick = static_cast<int>(list.size()) - 1;
+        return list[static_cast<std::size_t>(pick)];
+      }
+    }
+  }
 
   if (ground == w.sand) {
     if (r < 0.010) return w.dead_shrub;  // sparse desert and beach twigs
@@ -377,13 +444,6 @@ BlockId pickFoliage(const NoiseSet& n, std::uint32_t seed, int wx, int wz, Block
     return kAir;
   }
   if (ground != w.turf) return kAir;  // only grass grows plants
-
-  const double lush = 0.5 + n.flora.fbm2(wx * 0.012, wz * 0.012, 3) * 0.5;  // 0 dry .. 1 wet
-
-  // Secondary rolls MUST offset their coordinates, not just the seed. hash2i
-  // barely avalanches a single flipped seed bit, so hash2i(seed^A, wx, wz) and
-  // hash2i(seed^B, wx, wz) come out correlated — without the coordinate shifts
-  // the sub-type picks below would track `r` and their tails would never fire.
 
   // Rare shade mushrooms in the wettest hollows.
   if (lush > 0.62 && r < 0.006) {
@@ -423,13 +483,23 @@ void stampFoliage(Chunk& chunk, const NoiseSet& n, std::uint32_t seed, int ver) 
   for (int z = 0; z < CZ; ++z) {
     for (int x = 0; x < CX; ++x) {
       const int wx = baseX + x, wz = baseZ + z;
-      const int h = columnInfo(n, wx, wz, ver).h;
+      const ColumnInfo col = columnInfo(n, wx, wz, ver);
+      const int h = col.h;
       if (h + 1 >= WH) continue;
       // Occupied by a trunk, leaf or water.
       if (d.voxels.get(localIdx(x, h + 1, z)) != kAir) continue;
       const BlockId ground = d.voxels.get(localIdx(x, h, z));
-      const BlockId plant = pickFoliage(n, seed, wx, wz, ground);
-      if (plant != kAir) d.voxels.set(localIdx(x, h + 1, z), plant);
+      const BlockId plant = pickFoliage(n, seed, wx, wz, ground, col.biome, ver);
+      if (plant == kAir) continue;
+      d.voxels.set(localIdx(x, h + 1, z), plant);
+      // A wild crop generates RIPE. Nothing in the world tends it — the growth
+      // sweep only ever visits crops the player planted — so a stand that came up
+      // as seedlings would stay seedlings for the life of the world.
+      const BlockDef& pd = blocks().def(plant);
+      if (pd.cropStages > 0) {
+        d.meta.set(localIdx(x, h + 1, z),
+                   static_cast<std::uint8_t>(cropMetaFor(pd.cropStages - 1)));
+      }
     }
   }
 }

@@ -50,6 +50,21 @@ constexpr std::uint32_t kTagWorldSettings = makeTag('W', 'S', 'E', 'T');
 // the honest answer to "we do not know" and the right one for every world that
 // already exists.
 constexpr std::uint32_t kTagWorldMode = makeTag('W', 'M', 'O', 'D');
+// The kitchen stations, in a section of their own rather than alongside the forges
+// and chests in BENT.
+//
+// THE REASON IS A REAL TRAP, not tidiness. decodeBlockEntities below hits a `kind`
+// it does not recognise and calls fail(), because entity payloads carry no length
+// and there is no way to step over one. Putting a cooking pot in that section would
+// therefore be a LAYOUT change: an older build would lose every entity sorted after
+// the first pot — chests included — rather than merely not seeing the pot.
+//
+// So: a new tag, which an older build skips whole, AND a length prefix on every
+// entry from the start. The length is what makes this section permanent — every
+// future block-entity kind can live here without a version bump, because a reader
+// that does not know a kind can seek past it and carry on. BENT could not do that
+// and now never has to.
+constexpr std::uint32_t kTagStations = makeTag('S', 'T', 'A', 'T');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -293,7 +308,12 @@ void encodeBlockEntities(
   std::vector<game::BlockEntityKey> keys;
   keys.reserve(map.size());
   for (const auto& [key, be] : map) {
-    if (be.kind != game::BlockEntityKind::None) keys.push_back(key);
+    // Kitchens are deliberately NOT written here. This section cannot describe a
+    // kind an older reader does not know — see kTagStations above — so letting one
+    // through would corrupt every entity after it for anyone on an older build.
+    if (be.kind != game::BlockEntityKind::None && !game::isKitchen(be.kind)) {
+      keys.push_back(key);
+    }
   }
   std::sort(keys.begin(), keys.end());
 
@@ -317,6 +337,81 @@ void encodeBlockEntities(
       w.u16(static_cast<std::uint16_t>(be.slots.size()));
       for (const game::ItemStack& s : be.slots) writeStack(w, s);
     }
+  }
+}
+
+// The kitchen stations. Every entry carries its own byte length, which is the whole
+// reason this section exists and the one thing BENT cannot do.
+void encodeStations(
+    ByteWriter& w, const std::unordered_map<game::BlockEntityKey, game::BlockEntity>& map) {
+  std::vector<game::BlockEntityKey> keys;
+  for (const auto& [key, be] : map) {
+    if (game::isKitchen(be.kind)) keys.push_back(key);
+  }
+  // Sorted for the same reason BENT sorts: two saves of the same world have to come
+  // out byte-identical, and an unordered_map promises no order between runs.
+  std::sort(keys.begin(), keys.end());
+
+  w.u32(static_cast<std::uint32_t>(keys.size()));
+  for (const game::BlockEntityKey key : keys) {
+    const game::BlockEntity& be = map.at(key);
+    int x = 0, y = 0, z = 0;
+    game::unpackBlockEntityKey(key, x, y, z);
+
+    ByteWriter body;
+    body.u8(static_cast<std::uint8_t>(be.kind));
+    writeStack(body, be.input);
+    writeStack(body, be.fuel);
+    writeStack(body, be.output);
+    writeStack(body, be.container);
+    body.f32(be.fuelLeft);
+    body.f32(be.fuelMax);
+    body.f32(be.progress);
+    body.u16(static_cast<std::uint16_t>(be.slots.size()));
+    for (const game::ItemStack& s : be.slots) writeStack(body, s);
+
+    w.i32(x);
+    w.i32(y);
+    w.i32(z);
+    w.u32(static_cast<std::uint32_t>(body.size()));
+    w.bytes(body.data().data(), body.size());
+  }
+}
+
+void decodeStations(ByteReader& r,
+                    std::unordered_map<game::BlockEntityKey, game::BlockEntity>& into) {
+  const std::uint32_t count = r.u32();
+  if (!r.ok() || count > 65536u) {
+    r.fail();
+    return;
+  }
+  for (std::uint32_t i = 0; i < count && r.ok(); ++i) {
+    const std::int32_t x = r.i32(), y = r.i32(), z = r.i32();
+    const std::uint32_t length = r.u32();
+    if (!r.ok()) return;
+    const std::size_t end = r.position() + length;
+
+    game::BlockEntity be;
+    be.kind = static_cast<game::BlockEntityKind>(r.u8());
+    if (game::isKitchen(be.kind)) {
+      be.input = readStack(r);
+      be.fuel = readStack(r);
+      be.output = readStack(r);
+      be.container = readStack(r);
+      be.fuelLeft = r.f32();
+      be.fuelMax = r.f32();
+      be.progress = r.f32();
+      const std::uint16_t n = r.u16();
+      if (n <= game::kPotSlots) {
+        be.slots.resize(n);
+        for (game::ItemStack& s : be.slots) s = readStack(r);
+      }
+      if (r.ok()) into[game::blockEntityKey(x, y, z)] = std::move(be);
+    }
+    // Known or not, land exactly on the end of this entry. THIS is the line that
+    // makes the section future-proof: a kind this build has never heard of costs a
+    // seek rather than the rest of the world's stations.
+    if (r.position() < end) r.skip(end - r.position());
   }
 }
 
@@ -592,6 +687,8 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   encodeInventory(inventory, save.inventory);
   ByteWriter blockEntities;
   encodeBlockEntities(blockEntities, save.blockEntities);
+  ByteWriter stations;
+  encodeStations(stations, save.blockEntities);
   ByteWriter paintings;
   encodePaintings(paintings, save.paintings);
   ByteWriter entities;
@@ -621,6 +718,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagPalette, paletteBody);
   appendSection(payload, kTagEdits, edits);
   appendSection(payload, kTagBlockEntities, blockEntities);
+  appendSection(payload, kTagStations, stations);
   appendSection(payload, kTagEntities, entities);
   appendSection(payload, kTagExplored, explored);
   appendSection(payload, kTagWaypoints, waypoints);
@@ -685,6 +783,9 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
         decodeEdits(body, palette, out.edits);
         break;
       case kTagBlockEntities: decodeBlockEntities(body, out.blockEntities); break;
+      // Same map: the stations rejoin the forges and chests once both sections are
+      // read, so nothing downstream has to know they were stored apart.
+      case kTagStations: decodeStations(body, out.blockEntities); break;
       case kTagPaintings: decodePaintings(body, out.paintings); break;
       case kTagEntities: decodeEntities(body, out.entities); break;
       case kTagExplored: decodeExplored(body, out.explored); break;

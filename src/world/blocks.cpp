@@ -1,8 +1,10 @@
 #include "world/blocks.h"
 
 #include <cmath>
+#include <string>
 
 #include "core/log.h"
+#include "resource/painters.h"  // kCropStages: how many tiles a crop is drawn at
 
 namespace hr::world {
 namespace {
@@ -35,6 +37,35 @@ class Builder {
     def_.render = RenderKind::Cross;
     def_.needsGround = true;
     def_.washesAway = true;
+    return *this;
+  }
+
+  // A crop: a Cross plant that stands square instead of jittering, and that names
+  // one texture per growth stage. The stage tiles are `crop_<key>_0` .. `_N-1` by
+  // convention rather than by declaration, so a crop cannot half-declare its art.
+  Builder& crop(std::string_view texKey, int stages = resource::kCropStages) {
+    cross();
+    def_.isPlant = true;
+    def_.alignedPlant = true;
+    def_.cropStages = stages;
+    def_.plantHeight = 0.94f;
+    def_.plantRadius = 0.45f;
+    for (int s = 0; s < stages; ++s) {
+      def_.textures.set("stage" + std::to_string(s),
+                        "block/crop_" + std::string(texKey) + "_" + std::to_string(s));
+    }
+    // The last stage doubles as the plain `all` slot, so anything that has not been
+    // taught about stages (the icon atlas, a resource pack's fallback) shows the
+    // crop as the ripe thing a player would recognise it by.
+    def_.textures.set("all", "block/crop_" + std::string(texKey) + "_" +
+                                 std::to_string(stages - 1));
+    return *this;
+  }
+  // What a ripe crop yields on top of its seed drop.
+  Builder& ripe(std::string_view key, int lo, int hi) {
+    def_.ripeDrop = std::string(key);
+    def_.ripeDropMin = lo;
+    def_.ripeDropMax = hi;
     return *this;
   }
 
@@ -423,6 +454,73 @@ BlockRegistry::BlockRegistry() {
       .pick(tier::kStone).dropsNothing();
 
   // ---------------------------------------------------------------------------
+  // Farmland and the crops. Appended, like everything above, because ids are
+  // registration order and the golden vectors hash raw voxel ids.
+  //
+  // THE PRODUCE IS THE SEED. Planting a carrot yields carrots, so there are no
+  // eighteen separate seed items shadowing eighteen separate crops in the recipe
+  // book and the creative list. `wild_seeds` from tall grass is the one exception,
+  // and it exists only to bootstrap a player who has not found a wild patch yet.
+  //
+  // Crop blocks are deliberately NOT given block items (see items.cpp): the only way
+  // to plant one is to use its produce on farmland, so a crop cannot be stacked in a
+  // hotbar slot as a decorative block or placed mid-air on a wall.
+  // ---------------------------------------------------------------------------
+  Builder(B, "farmland", "Farmland").cube().solidOpaque()
+      .tex3("farmland", "loam", "loam").hard(0.6f).shovel().drops("loam");
+
+  {
+    struct CropSpec {
+      const char* key;      // block key; its tiles are crop_<produce>_N
+      const char* name;
+      const char* produce;  // the item it yields, and the item that plants it
+      int ripeLo, ripeHi;
+    };
+    // Yields are tuned so a harvest more than repays the seed it cost — a crop that
+    // gave back exactly one would make farming a way to lose time politely.
+    const CropSpec kCrops[] = {
+        {"crop_wheat", "Wheat", "wheat", 1, 3},
+        {"crop_barley", "Barley", "barley", 1, 3},
+        {"crop_rice", "Rice", "rice", 1, 3},
+        {"crop_maize", "Maize", "maize", 1, 2},
+        {"crop_carrot", "Carrots", "carrot", 2, 4},
+        {"crop_potato", "Potatoes", "potato", 2, 4},
+        {"crop_onion", "Onions", "onion", 2, 3},
+        {"crop_beetroot", "Beetroots", "beetroot", 1, 3},
+        {"crop_garlic", "Garlic", "garlic", 1, 2},
+        {"crop_pumpkin", "Pumpkin", "pumpkin", 1, 2},
+        {"crop_melon", "Melon", "melon", 1, 2},
+        {"crop_tomato", "Tomatoes", "tomato", 2, 4},
+        {"crop_chili", "Chilis", "chili", 1, 2},
+        {"crop_strawberry", "Strawberries", "strawberry", 2, 3},
+        {"crop_blueberry", "Blueberries", "blueberry", 2, 3},
+        {"crop_grapes", "Grapes", "grapes", 1, 3},
+        {"crop_cabbage", "Cabbage", "cabbage", 1, 2},
+        {"crop_soybean", "Soybeans", "soybean", 2, 3},
+    };
+    for (const CropSpec& c : kCrops) {
+      Builder(B, c.key, c.name).crop(c.produce).hard(0.0f)
+          .drops(c.produce, 1).ripe(c.produce, c.ripeLo, c.ripeHi);
+    }
+  }
+
+  // The kitchen: three stations, all craftable at a workbench. Cooking is something
+  // you set up once you have a base, not something you trip over.
+  Builder(B, "cutting_board", "Cutting Board").cube().solidOpaque()
+      .tex3("cutting_board_top", "cutting_board_side", "planks").hard(1.4f).axe()
+      .drops("cutting_board").station(Station::Cutting);
+
+  // The stove throws light, the way the forge does — it is the one station you want
+  // to be able to find in a dark kitchen.
+  Builder(B, "stove", "Stove").cube().solidOpaque()
+      .tex3("stove_top", "stove_side", "greystone").hard(3.0f).pick(tier::kWood)
+      .drops("stove").station(Station::Stove).emits(8, 1.0f, 0.72f, 0.36f);
+
+  Builder(B, "cooking_pot", "Cooking Pot").cube().solidOpaque()
+      .tex3("cooking_pot_top", "cooking_pot_side", "greystone").hard(2.2f)
+      .pick(tier::kWood).drops("cooking_pot").station(Station::Pot);
+
+  // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
   //
   // The order mirrors the web build's texForFace: an `all` slot wins outright,
@@ -451,6 +549,20 @@ BlockRegistry::BlockRegistry() {
 
     if (const ResourceId* foot = slot("foot")) d.footTexture = *foot;
     if (const ResourceId* stem = slot("stem")) d.stemTexture = *stem;
+
+    // Produce -> crop, so sowing is a map lookup rather than a scan of the table.
+    if (d.cropStages > 0 && !d.drop.empty()) cropByProduce_.emplace(d.drop, d.id);
+
+    // Growth stages, resolved the same way and for the same reason: the mesher
+    // indexes this array once per crop cell and must never be doing string work.
+    if (d.cropStages > 0) {
+      d.stageTextures.reserve(static_cast<std::size_t>(d.cropStages));
+      for (int s = 0; s < d.cropStages; ++s) {
+        const std::string name = "stage" + std::to_string(s);
+        const ResourceId* tile = slot(name.c_str());
+        d.stageTextures.push_back(tile ? *tile : d.faceTextures[0]);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -479,6 +591,11 @@ BlockRegistry::BlockRegistry() {
 const BlockRegistry& BlockRegistry::get() {
   static const BlockRegistry instance;
   return instance;
+}
+
+BlockId BlockRegistry::cropForProduce(std::string_view produceKey) const {
+  const auto it = cropByProduce_.find(std::string(produceKey));
+  return it == cropByProduce_.end() ? kAir : it->second;
 }
 
 BlockId BlockRegistry::idOf(std::string_view key) const {
@@ -560,6 +677,34 @@ const WellKnownBlocks& wk() {
     // Order is load-bearing: worldgen indexes this array with a hash roll.
     w.flowers = {id("flower_poppy"), id("flower_daisy"), id("flower_cornflower"),
                  id("flower_dandelion"), id("flower_violet")};
+
+    w.farmland = id("farmland");
+
+    // Wild crop lists, per biome. Order is load-bearing here too — worldgen indexes
+    // these with a hash roll, so REORDERING ONE CHANGES EVERY WORLD that has already
+    // generated a patch from it. Append within a list; do not shuffle.
+    //
+    // The overlaps are deliberate. A crop in two biomes is a crop you can find
+    // without crossing the map, and every biome keeps at least one it alone grows,
+    // so travel is rewarded without being demanded.
+    w.cropsMeadow = {id("crop_wheat"), id("crop_barley"), id("crop_carrot"),
+                     id("crop_onion"), id("crop_tomato"), id("crop_grapes")};
+    w.cropsForest = {id("crop_potato"), id("crop_garlic"), id("crop_pumpkin"),
+                     id("crop_soybean"), id("crop_blueberry"), id("crop_cabbage")};
+    w.cropsBirch = {id("crop_beetroot"), id("crop_strawberry"), id("crop_barley"),
+                    id("crop_cabbage")};
+    w.cropsDesert = {id("crop_melon"), id("crop_chili"), id("crop_maize")};
+    w.cropsSnow = {id("crop_cabbage"), id("crop_beetroot"), id("crop_potato")};
+
+    // Rice is in no biome list on purpose. It answers to WETNESS rather than to
+    // biome, so worldgen reaches for it directly in the boggiest cells of anywhere,
+    // which is both truer to the crop and one fewer list to keep in step.
+    w.cropRice = id("crop_rice");
+
+    w.cropsAll.clear();
+    for (const BlockDef& d : r.all()) {
+      if (d.cropStages > 0) w.cropsAll.push_back(d.id);
+    }
     return w;
   }();
   return resolved;

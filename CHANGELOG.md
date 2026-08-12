@@ -41,6 +41,59 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+### Added
+- **Farming.** Eighteen crops grow wild across the world — wheat, barley, rice and
+  maize; carrots, potatoes, onions, beetroot, garlic and cabbage; pumpkins, melons,
+  tomatoes and chilis; strawberries, blueberries, grapes and soybeans. Which ones
+  you find depends on where you are: melons and chilis want desert, cabbage and
+  beetroot want the cold, and rice grows in the wettest ground anywhere.
+
+  Till soil with a **hoe** and plant with the crop itself — there are no separate
+  seed items, so a carrot is both the thing you eat and the thing you sow. Crops
+  grow through four visible stages and pay out only when ripe, and **farmland near
+  water grows them about twice as fast**. Shake **Wild Seeds** out of tall grass if
+  you have not found a patch yet.
+
+- **A kitchen, and a reason to use it.** Three new stations, all crafted at a
+  workbench:
+  - the **Cutting Board** mills grain into flour and butchers meat — one raw chop
+    becomes *two* strips, so meat goes further when you work it;
+  - the **Stove** cooks single things: bread, roast vegetables, baked potatoes,
+    cheese, pies. **Meat is cooked here now rather than at the forge.**
+  - the **Cooking Pot** takes up to six ingredients, a bowl and fuel, and makes the
+    real meals.
+
+  **Better ingredients make a better meal from the same recipe.** Three plain
+  vegetables make Vegetable Soup; put a chili or some garlic in with them and the
+  same pot makes Hearty Stew. Bowls come back when you eat what was in them.
+
+- **Food works differently, and single foods are now the fallback.** Every food has
+  its own **saturation** — how long it actually holds you, shown on the tooltip —
+  instead of the flat value every food used to share. A cooked meal is worth several
+  times a cooked chop, and raw produce is worth almost nothing.
+
+  Meat came down to match: **cooked meat now restores 5 rather than 8**, and raw
+  meat 2 rather than 3. It is the best thing you can eat without cooking, and well
+  short of anything you can eat with it.
+
+- **A varied diet is worth extra hearts.** Food belongs to one of five groups —
+  grain, vegetable, fruit, protein, dairy — and keeping several of them up earns up
+  to **three extra hearts**. Living on one crop does not, however much of it you
+  grow. The levels drain over about a day and show on the inventory screen. (Rotten
+  flesh feeds no group at all.)
+
+- **Milk finally does something.** Cook it on a stove for cheese, which is the only
+  dairy in the game and so the only way to fill that part of a diet.
+
+- **`--find-crop`** prints the wild crops near a seed's spawn and points at the
+  densest patch, the way `--find-dungeon` does for dungeons.
+
+### Changed
+- Worlds generate at **generator version 6**, which adds wild crop stands and
+  changes nothing else. Existing worlds keep their terrain exactly as it was;
+  moving one forward grows crops in the ground you have not explored yet.
+- Multiplayer needs both ends on this version: the network version moved to 12.
+
 ## [2.13.0] - 2026-08-12
 
 ### Added

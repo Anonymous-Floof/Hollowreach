@@ -47,7 +47,19 @@ struct TabDef {
 constexpr TabDef kTabs[] = {
     {"all", "All"},         {"building", "Building"}, {"tools", "Tools"},
     {"armour", "Armour"},   {"materials", "Materials"}, {"smelting", "Smelting"},
+    {"cooking", "Cooking"},
 };
+
+// A tag has no icon of its own, so a row showing "#vegetable" would draw the missing
+// texture. Pick the first real item in the group instead — a carrot standing in for
+// "any vegetable" reads immediately, where a magenta square does not.
+std::string tagExample(const std::string& key) {
+  if (key.empty() || key[0] != '#') return key;
+  for (const game::ItemDef& d : game::items().all()) {
+    if (game::cookTagMatches(key, d.key)) return d.key;
+  }
+  return key;
+}
 
 const char* familyDisplayName(const std::string& key) {
   for (const FamilyName& f : kFamilyNames) {
@@ -230,6 +242,30 @@ void RecipeBook::buildData() {
     e.outCount = 1;
     e.name = displayName(s.out);
     addEntry("smelt:" + s.out, "smelting", std::move(e));
+  }
+
+  // The kitchen. THIS LOOP IS NOT OPTIONAL: this file's header promises that "a new
+  // recipe appears here with no edit", and that is true only of the two tables it
+  // already walks. Cooking recipes live in a third, so without this every meal in
+  // the game would be uncraftable-by-discovery — the player would have to be told
+  // the ingredients by somebody who read the source.
+  for (const game::CookingRecipe& r : game::recipeBook().cooking()) {
+    // One row per TIER, not one per recipe. The whole point of tiering is that the
+    // same ingredients make a better meal when they are better ingredients, and a
+    // book that only listed the base result would hide the interesting half.
+    for (const game::CookingRecipe::Tier& t : r.tiers) {
+      Entry e;
+      for (const auto& [key, count] : r.ingredients) {
+        // A "#tag" is not an item and has no icon, so show a representative of the
+        // group instead — the same trick the crafting rows use for #planks.
+        e.chips.push_back({tagExample(key), count});
+      }
+      if (!r.container.empty()) e.chips.push_back({r.container, 1});
+      e.outKey = t.out;
+      e.outCount = t.count;
+      e.name = displayName(t.out);
+      addEntry("cook:" + t.out, "cooking", std::move(e));
+    }
   }
 }
 

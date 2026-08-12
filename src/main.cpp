@@ -36,6 +36,7 @@ void printUsage() {
       "  --dump-theme <file>   write the resolved interface theme and exit; the\n"
       "                        output is a valid theme.json to start a UI pack from\n"
       "  --find-dungeon        print the nearest dungeon to spawn and exit\n"
+      "  --find-crop           print the wild crops near spawn and exit\n"
       "  --dump-audio <event> <path>  render one sound event to a wav and exit\n"
       "                        (\"all\" writes every event into a directory;\n"
       "                         \"list\" prints the event names)\n"
@@ -113,6 +114,7 @@ int main(int argc, char** argv) {
   std::string lootPath;
   std::string themePath;
   bool findDungeon = false;
+  bool findCrop = false;
   int listPacksMode = 0;  // 0 off, 1 replacements only, 2 every event
   bool examplePack = false;
   std::string examplePackDir;
@@ -169,6 +171,8 @@ int main(int argc, char** argv) {
       if (!takeValue(argc, argv, i, arg, themePath)) return 2;
     } else if (std::strcmp(arg, "--find-dungeon") == 0) {
       findDungeon = true;
+    } else if (std::strcmp(arg, "--find-crop") == 0) {
+      findCrop = true;
     } else if (std::strcmp(arg, "--list-packs") == 0) {
       // A bare --list-packs shows only what the packs replace; "all" adds the
       // events still being synthesised, which is the list you fill a pack from.
@@ -402,6 +406,9 @@ int main(int argc, char** argv) {
     // Uses --seed, so a specific world can be asked about. Headless like the dumps
     // above: it is arithmetic on the seed and generation, and needs no window.
     return hr::dev::dungeonInfo(options.seed);
+  }
+  if (findCrop) {
+    return hr::dev::cropInfo(options.seed);
   }
   // Both need paths::init for data/resourcepacks, and nothing else — no window,
   // no world, no audio device. Reading a pack is a directory walk and a decode.

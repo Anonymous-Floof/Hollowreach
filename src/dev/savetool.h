@@ -36,5 +36,10 @@ int importWorld(const std::string& sourcePath);
 // the room is genuinely sealed. It is also the fastest way to see a layout change,
 // which is worth having the next time somebody touches the generator.
 int dungeonInfo(std::uint32_t seed);
+// Counts the wild crop stands near the origin and points at the nearest. A stand is
+// too sparse to find by flying around, so without this there is no way to check that
+// v6 is placing them at all, let alone that a patch reads as one crop rather than as
+// one cell each of six.
+int cropInfo(std::uint32_t seed);
 
 }  // namespace hr::dev

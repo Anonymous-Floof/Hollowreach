@@ -24,6 +24,15 @@
 
 namespace hr::game {
 
+// What using an item on a block did. Three outcomes rather than a bool, because a
+// hoe tilling soil is not consumed and a seed being sown is, and the caller cannot
+// tell which from the item alone.
+enum class UseResult : std::uint8_t {
+  Ignored,          // nothing happened; the click falls through to eating, placing
+  Used,             // it worked and the stack stays
+  UsedAndConsume,   // it worked and one is taken off the stack
+};
+
 struct InteractHooks {
   // A transient line of text, for refusals like "needs a stone+ tier pickaxe".
   std::function<void(const std::string&)> notify;
@@ -42,6 +51,15 @@ struct InteractHooks {
   std::function<bool(const ItemDef&)> onEat;
   // Used a wayshard; returns false when there is no open sky to warp to.
   std::function<bool()> onWarp;
+  // Used the held item ON a block: a hoe tilling soil, a crop being sown.
+  //
+  // Right-clicking a Tool did nothing whatsoever before this existed — Food, Bucket
+  // and Warp were the only item types with a right-click verb at all. It is written
+  // generically (the item, the block, and where) rather than as onTill and onSow,
+  // because this is the seam every future "use this on that" wants, and two hooks
+  // that differ only in which item they accept would be the wrong shape to add a
+  // third to.
+  std::function<UseResult(const ItemDef&, int x, int y, int z)> onUseOn;
   // Placed a boat. Returns false when it could not be created, which leaves the
   // item in hand. A hook rather than a direct spawn because a guest's boat is the
   // host's to create — the same division relayEntity draws for hitting a mob.

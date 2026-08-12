@@ -59,10 +59,27 @@ struct BlockTileTable {
   const resource::TileRef& stem(BlockId id) const { return stem_[id]; }
   bool hasStem(BlockId id) const { return hasStem_[id] != 0; }
 
+  // Growth stages. `stageCount` is 0 for everything that is not a crop, and the
+  // index is clamped rather than asserted: metadata comes off disk and off the wire,
+  // so a stage of 200 is a thing a hostile or merely old save can contain and must
+  // draw as something rather than read past the end of the table.
+  int stageCount(BlockId id) const { return stageCount_[id]; }
+  const resource::TileRef& stage(BlockId id, int s) const {
+    const int n = stageCount_[id];
+    const int i = s < 0 ? 0 : (s >= n ? n - 1 : s);
+    return stages_[stageBase_[id] + static_cast<std::size_t>(i)];
+  }
+
  private:
   std::vector<resource::TileRef> faces_;  // 6 per block
   std::vector<resource::TileRef> foot_, stem_;
   std::vector<std::uint8_t> hasStem_;
+  // Stage tiles are packed end to end with a per-block base, rather than a fixed
+  // stride: only eighteen of a hundred and forty-odd blocks have any, and a fixed
+  // four-wide row for every block would be mostly empty.
+  std::vector<resource::TileRef> stages_;
+  std::vector<std::size_t> stageBase_;
+  std::vector<int> stageCount_;
 };
 
 // The 3x3 chunk neighbourhood the mesher reads. Reach is exactly one cell outside

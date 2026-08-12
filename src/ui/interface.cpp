@@ -115,6 +115,9 @@ void Interface::openStation(world::Station station) {
       break;
     case world::Station::Forge: inventoryUI_.open(InventoryMode::Forge, be); break;
     case world::Station::Chest: inventoryUI_.open(InventoryMode::Chest, be); break;
+    case world::Station::Cutting: inventoryUI_.open(InventoryMode::Cutting, be); break;
+    case world::Station::Stove: inventoryUI_.open(InventoryMode::Stove, be); break;
+    case world::Station::Pot: inventoryUI_.open(InventoryMode::Pot, be); break;
     case world::Station::None: inventoryUI_.open(InventoryMode::Inventory, nullptr); break;
   }
 }

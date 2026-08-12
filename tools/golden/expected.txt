@@ -5,3 +5,103 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
+
+# --- The Farming update -------------------------------------------------------
+#
+# Everything below is a NEW label. Nothing here is a CHANGED one, and that is the
+# claim worth checking rather than waving through: gen v6 adds wild crop stands
+# behind an `if (ver >= 6)`, so v1-v5 chunks must hash exactly as they always did.
+# If a v1-v5 line ever appears in the diff, the gate is doing its job and the
+# version gate has leaked.
+
+chunk(*, v6, *)       # gen v6: wild crop stands. v1-v5 must stay untouched.
+chunkFull(*, v6, *)   # same, full-column variant
+# These three dump once per generator version, so a new version adds a row to each.
+# Their v6 values are IDENTICAL to their v5 values by construction — v6 touches only
+# pickFoliage, and none of these three sample foliage — but they are new labels and
+# a new label still has to be declared.
+heightAt(*, v6)
+biomeAt(*, v6)
+surfacePreview(*, v6)
+
+# Eighteen crops at four growth stages, plus tilled soil dry and damp.
+tile(block/crop_*)    # 72 stage tiles from six parametric painter families
+tile(block/farmland*) # farmland and farmland_wet
+
+# The produce sprites. Listed one by one rather than as tile(item/*), because the
+# broad pattern would also hide a change to an EXISTING item's art, and the whole
+# point of the atlas group is to notice exactly that.
+tile(item/wheat)
+tile(item/barley)
+tile(item/rice)
+tile(item/maize)
+tile(item/carrot)
+tile(item/potato)
+tile(item/onion)
+tile(item/beetroot)
+tile(item/garlic)
+tile(item/chili)
+tile(item/pumpkin)
+tile(item/melon)
+tile(item/tomato)
+tile(item/strawberry)
+tile(item/blueberry)
+tile(item/grapes)
+tile(item/cabbage)
+tile(item/soybean)
+tile(item/wild_seeds)
+tile(item/bowl)
+tile(item/flour)
+
+# The kitchen: three station blocks and the six hoes.
+tile(block/cooking_pot*)
+tile(block/cutting_board*)
+tile(block/stove*)
+tile(item/hoe_*)
+
+# The meals. Listed one by one for the same reason the produce is: tile(item/*)
+# would also hide a change to an EXISTING item's art, which is the one thing the
+# atlas group exists to notice.
+tile(item/meat_strips)
+tile(item/cooked_strips)
+tile(item/bread)
+tile(item/baked_potato)
+tile(item/roast_vegetables)
+tile(item/grilled_maize)
+tile(item/cheese)
+tile(item/vegetable_soup)
+tile(item/hearty_stew)
+tile(item/pumpkin_soup)
+tile(item/tomato_soup)
+tile(item/bean_stew)
+tile(item/rice_bowl)
+tile(item/porridge)
+tile(item/fruit_salad)
+tile(item/berry_compote)
+tile(item/garden_salad)
+tile(item/stuffed_pumpkin)
+tile(item/cheese_toastie)
+tile(item/garlic_bread)
+tile(item/meat_pie)
+tile(item/veg_pie)
+
+# --- recipes ------------------------------------------------------------------
+#
+# GONE, and deliberately: the stove took food off the forge, so raw pork and raw
+# beef no longer smelt. They were the LAST two entries in the smelting list, which
+# is why removing them renumbers nothing above — had they been in the middle, this
+# diff would have been every smelt line in the file.
+smelt(06)
+smelt(07)
+
+# Appended at the end of the crafting table: six hoes, bowls, and the three
+# stations. Appending is what keeps this to ten new lines instead of renumbering a
+# hundred and forty that did not change.
+recipe(14*)
+recipe(15*)
+
+# Three new wooden items, so three new derived burn times. Listed rather than
+# fuel(*), because an existing fuel value changing is exactly what this group is for.
+fuel(bowl)
+fuel(cutting_board)
+fuel(hoe_wood)

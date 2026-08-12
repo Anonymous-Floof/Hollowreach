@@ -20,6 +20,7 @@
 #include "core/log.h"
 #include "core/prng.h"
 #include "game/entities/types.h"
+#include "game/farming.h"
 #include "game/loot.h"
 #include "platform/paths.h"
 #include "resource/image.h"
@@ -614,10 +615,46 @@ game::InteractHooks App::makeInteractHooks() {
   };
   hooks.onEat = [this](const game::ItemDef& item) {
     if (!player_) return false;
-    const bool ok = player_->eat({static_cast<float>(item.food), item.risky});
+    const bool ok =
+        player_->eat({static_cast<float>(item.food), item.risky, item.sat, item.group});
     if (ok) audio::sfx::eat();
     return ok;
   };
+  // Tilling and sowing. Both are "use the held item on that block", which is why
+  // they share one hook rather than having one each — see InteractHooks::onUseOn.
+  hooks.onUseOn = [this](const game::ItemDef& item, int x, int y, int z) {
+    if (!world_) return game::UseResult::Ignored;
+    const world::BlockRegistry& reg = world::blocks();
+    const world::WellKnownBlocks& w = world::wk();
+
+    // The decision is a pure function so it can be tested without a window; App
+    // keeps only the parts that need a world, a speaker and a screen.
+    const game::FarmPlan plan =
+        game::planFarmUse(item, world_->getBlock(x, y, z),
+                          world_->getBlock(x, y + 1, z) == world::kAir, std::rand());
+
+    switch (plan.action) {
+      case game::FarmAction::Till:
+        world_->setBlock(x, y, z, w.farmland, 0);
+        audio::sfx::blockPlace(
+            reg.def(w.farmland),
+            Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
+        return game::UseResult::Used;  // a hoe is not consumed by using it
+      case game::FarmAction::Sow:
+        world_->setBlock(x, y + 1, z, plan.crop, world::cropMetaFor(0));
+        audio::sfx::blockPlace(
+            reg.def(plan.crop),
+            Vec3{static_cast<float>(x), static_cast<float>(y + 1), static_cast<float>(z)});
+        return game::UseResult::UsedAndConsume;
+      case game::FarmAction::NeedsTilling:
+        interface_.notify().push("Till the soil first \xE2\x80\x94 you need a hoe");
+        return game::UseResult::Ignored;
+      case game::FarmAction::None:
+        break;
+    }
+    return game::UseResult::Ignored;
+  };
+
   // The wayshard: one use, straight up to the open sky. js/main.js:785.
   hooks.onWarp = [this] {
     if (!world_ || !player_) return false;
@@ -2646,6 +2683,10 @@ void App::stepWorld(double dt) {
     // Support and falling blocks, on the same host-only rule and for the same
     // reason: a guest is told what changed, it does not decide.
     world_->tickBlockUpdates(fdt);
+    // Crops, on that same rule. A guest that grew its own would watch a field
+    // ripen that the host's world had not, and the next edit from the host would
+    // snap it back.
+    world_->tickCrops(fdt);
   }
 
   refreshEntityContext();
@@ -3075,6 +3116,9 @@ bool App::applyStartScreen(const std::string& name) {
       {"workbench", AppState::Inventory, ui::MenuPage::Main, world::Station::Workbench, true},
       {"forge", AppState::Inventory, ui::MenuPage::Main, world::Station::Forge, true},
       {"chest", AppState::Inventory, ui::MenuPage::Main, world::Station::Chest, true},
+      {"cutting", AppState::Inventory, ui::MenuPage::Main, world::Station::Cutting, true},
+      {"stove", AppState::Inventory, ui::MenuPage::Main, world::Station::Stove, true},
+      {"pot", AppState::Inventory, ui::MenuPage::Main, world::Station::Pot, true},
       {"recipes", AppState::RecipeBook, ui::MenuPage::Main, world::Station::None, false},
       {"map", AppState::Map, ui::MenuPage::Main, world::Station::None, false},
       {"gallery", AppState::Gallery, ui::MenuPage::Main, world::Station::None, false},
@@ -3116,14 +3160,39 @@ bool App::applyStartScreen(const std::string& name) {
     syncScreen();
     if (e.state == AppState::Menu) interface_.menu().setPage(e.page);
     if (e.isStation) {
-      // The forge and chest screens need a block entity to show. A scratch one lives
-      // here rather than in the world, because the point is to capture the layout, not
-      // to place a block.
-      if (e.station == world::Station::Forge || e.station == world::Station::Chest) {
-        scratchStation_ = e.station == world::Station::Forge ? game::makeForge()
-                                                            : game::makeChest();
-        interface_.callbacks.currentStation = [this] { return &scratchStation_; };
+      // Every station screen needs a block entity to show. A scratch one lives here
+      // rather than in the world, because the point is to capture the layout, not to
+      // place a block.
+      //
+      // The kitchens are SEEDED with plausible contents. The forge and chest
+      // captures show bare grids, which is why nobody can tell from them what those
+      // screens are for — a pot with vegetables and a bowl in it explains itself.
+      bool scratch = true;
+      switch (e.station) {
+        case world::Station::Forge: scratchStation_ = game::makeForge(); break;
+        case world::Station::Chest: scratchStation_ = game::makeChest(); break;
+        case world::Station::Cutting:
+          scratchStation_ = game::makeCutting();
+          scratchStation_.input = game::ItemStack {"beef_raw", 1, -1};
+          break;
+        case world::Station::Stove:
+          scratchStation_ = game::makeStove();
+          scratchStation_.input = game::ItemStack {"flour", 3, -1};
+          scratchStation_.fuel = game::ItemStack {"embercoal", 8, -1};
+          scratchStation_.output = game::ItemStack {"bread", 2, -1};
+          break;
+        case world::Station::Pot:
+          scratchStation_ = game::makePot();
+          scratchStation_.slots[0] = game::ItemStack {"carrot", 2, -1};
+          scratchStation_.slots[1] = game::ItemStack {"onion", 1, -1};
+          scratchStation_.slots[2] = game::ItemStack {"tomato", 1, -1};
+          scratchStation_.slots[3] = game::ItemStack {"garlic", 1, -1};
+          scratchStation_.container = game::ItemStack {"bowl", 4, -1};
+          scratchStation_.fuel = game::ItemStack {"embercoal", 8, -1};
+          break;
+        default: scratch = false; break;
       }
+      if (scratch) interface_.callbacks.currentStation = [this] { return &scratchStation_; };
       interface_.openStation(e.station);
     }
     window_.setPointerCaptured(false);

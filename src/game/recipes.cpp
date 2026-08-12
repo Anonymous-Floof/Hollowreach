@@ -199,7 +199,30 @@ RecipeBook::RecipeBook() {
   shaped({"PPP", "PWP", "PAP"}, {{'P', "#planks"}, {'W', "wool"}, {'A', "azurite"}}, "canvas", 1,
          kBench);
 
+  // --- The Farming update, all appended -----------------------------------
+  //
+  // The hoes deliberately do NOT join kToolPatterns above. Adding a fifth pattern
+  // to that loop would interleave six hoes through the tool matrix and renumber
+  // roughly a hundred recipes that had not changed — the exact accident the canvas
+  // comment above records. A separate loop at the end costs one loop and keeps the
+  // golden diff to six new lines.
+  for (const ToolMaterial& m : toolMaterials()) {
+    shaped({"XX", "S ", "S "}, {{'X', m.item}, {'S', "stick"}}, "hoe_" + std::string(m.id), 1,
+           kBench);
+  }
+
+  // The three kitchen stations, and the bowls every pot meal is served into.
+  shaped({"P P", "PPP"}, {{'P', "#planks"}}, "bowl", 4, kBench);
+  shaped({"PPP", "L L"}, {{'P', "#planks"}, {'L', "log"}}, "cutting_board", 1, kBench);
+  shaped({"CCC", "C C", "CCC"}, {{'C', "cobbled"}}, "stove", 1, kBench);
+  shaped({"I I", "I I", "III"}, {{'I', "ferralite_ingot"}}, "cooking_pot", 1, kBench);
+
   // --- smelting (forge) ---
+  //
+  // MEAT IS GONE FROM HERE. Cooking food at a forge was the whole of the kitchen
+  // before this update, and leaving it would mean the stove had to compete with a
+  // block every player already owns. They were the last two entries, so removing
+  // them renumbers nothing.
   smelting_ = {
       {"#logs", "charcoal", 8},
       {"raw_copper", "copper_ingot", 6},
@@ -207,9 +230,94 @@ RecipeBook::RecipeBook() {
       {"raw_sunbrass", "sunbrass_ingot", 8},
       {"sand", "glass", 5},
       {"cobbled", "greystone", 6},
-      {"pork_raw", "pork_cooked", 6},
-      {"beef_raw", "beef_cooked", 6},
   };
+
+  // --- the kitchen ----------------------------------------------------------
+  //
+  // Three stations and a deliberate progression: the board needs no fuel and turns
+  // raw things into better raw things, the stove cooks one item at a time, and the
+  // pot is where several ingredients become a meal worth having grown them for.
+  //
+  // Tiers are authored BEST FIRST — tierFor returns the first tier whose minScore is
+  // met — so a better tier added later can never silently downgrade one already here.
+  {
+    auto cut = [this](std::vector<std::pair<std::string, int>> in, std::string out,
+                      int count, float secs) {
+      CookingRecipe r;
+      r.station = Kitchen::Cutting;
+      r.ingredients = std::move(in);
+      r.seconds = secs;
+      r.tiers.push_back({0, std::move(out), count});
+      cooking_.push_back(std::move(r));
+    };
+    auto stove = [this](std::vector<std::pair<std::string, int>> in, std::string out,
+                        int count, float secs) {
+      CookingRecipe r;
+      r.station = Kitchen::Stove;
+      r.ingredients = std::move(in);
+      r.seconds = secs;
+      r.tiers.push_back({0, std::move(out), count});
+      cooking_.push_back(std::move(r));
+    };
+    auto pot = [this](std::vector<std::pair<std::string, int>> in,
+                      std::vector<CookingRecipe::Tier> tiers, float secs) {
+      CookingRecipe r;
+      r.station = Kitchen::Pot;
+      r.ingredients = std::move(in);
+      r.container = "bowl";
+      r.seconds = secs;
+      r.tiers = std::move(tiers);
+      cooking_.push_back(std::move(r));
+    };
+
+    // Prep. Butchering is the important one: one raw chop becomes two strips, so
+    // meat goes further when it is worked rather than eaten.
+    cut({{"wheat", 2}}, "flour", 1, 2.0f);
+    cut({{"barley", 2}}, "flour", 1, 2.0f);
+    cut({{"beef_raw", 1}}, "meat_strips", 2, 2.5f);
+    cut({{"pork_raw", 1}}, "meat_strips", 2, 2.5f);
+
+    // The stove. This is where meat cooking lives now that the forge does not do it.
+    stove({{"pork_raw", 1}}, "pork_cooked", 1, 6.0f);
+    stove({{"beef_raw", 1}}, "beef_cooked", 1, 6.0f);
+    stove({{"meat_strips", 1}}, "cooked_strips", 1, 4.0f);
+    stove({{"flour", 1}}, "bread", 1, 8.0f);
+    stove({{"potato", 1}}, "baked_potato", 1, 6.0f);
+    stove({{"maize", 1}}, "grilled_maize", 1, 5.0f);
+    stove({{"milk_bucket", 1}}, "cheese", 2, 10.0f);
+    stove({{"bread", 1}, {"garlic", 1}}, "garlic_bread", 1, 5.0f);
+    stove({{"bread", 1}, {"cheese", 1}}, "cheese_toastie", 1, 6.0f);
+    stove({{"#vegetable", 2}}, "roast_vegetables", 1, 8.0f);
+    stove({{"flour", 2}, {"#vegetable", 2}}, "veg_pie", 1, 12.0f);
+    stove({{"flour", 2}, {"meat_strips", 2}}, "meat_pie", 1, 12.0f);
+    stove({{"pumpkin", 1}, {"#grain", 1}, {"#vegetable", 1}}, "stuffed_pumpkin", 1, 14.0f);
+
+    // The pot. Every one of these takes a bowl, and the bowl comes back when the
+    // meal is eaten rather than being consumed outright.
+    //
+    // The tiered pair is the whole "better ingredients, better meal" claim: the same
+    // three-vegetable soup becomes a hearty stew once the score clears the
+    // threshold, which in practice means meat or a seasoning went in with them.
+    // The thresholds are worked out from the actual ingredient qualities rather
+    // than guessed, because a tier nobody can reach is indistinguishable from a
+    // tier that does not exist. Plain vegetables are 3 each (9 for three); the
+    // seasonings are 5 and tomato is 4, so 12 is "you put something interesting in".
+    // The first pass used 14 here and 16 below — and 16 is ABOVE the maximum this
+    // recipe can score, so that tier could never once have fired.
+    pot({{"#vegetable", 3}}, {{12, "hearty_stew", 1}, {0, "vegetable_soup", 1}}, 10.0f);
+    // Anything with real protein in it is hearty by definition, so this one only has
+    // to clear the plain-vegetable floor.
+    pot({{"#vegetable", 2}, {"#protein", 1}},
+        {{10, "hearty_stew", 1}, {0, "vegetable_soup", 1}}, 12.0f);
+    pot({{"pumpkin", 2}, {"garlic", 1}}, {{0, "pumpkin_soup", 1}}, 10.0f);
+    pot({{"tomato", 3}}, {{0, "tomato_soup", 1}}, 10.0f);
+    pot({{"soybean", 3}}, {{0, "bean_stew", 1}}, 11.0f);
+    pot({{"rice", 2}, {"#vegetable", 1}}, {{0, "rice_bowl", 1}}, 9.0f);
+    pot({{"#grain", 2}, {"#dairy", 1}}, {{0, "porridge", 1}}, 9.0f);
+    pot({{"#fruit", 3}}, {{0, "fruit_salad", 1}}, 6.0f);
+    pot({{"#fruit", 2}, {"#grain", 1}}, {{0, "berry_compote", 1}}, 7.0f);
+    pot({{"cabbage", 1}, {"tomato", 1}, {"onion", 1}}, {{0, "garden_salad", 1}}, 6.0f);
+  }
 
   // Base burn time in seconds for the *raw* fuels only. Everything else made
   // from these — wooden tools, chests, boats, wooden stairs and doors, torches

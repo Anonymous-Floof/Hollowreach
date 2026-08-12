@@ -17,9 +17,31 @@ BlockEntity makeChest() {
   return be;
 }
 
+BlockEntity makeCutting() {
+  BlockEntity be;
+  be.kind = BlockEntityKind::Cutting;
+  return be;
+}
+
+BlockEntity makeStove() {
+  BlockEntity be;
+  be.kind = BlockEntityKind::Stove;
+  return be;
+}
+
+BlockEntity makePot() {
+  BlockEntity be;
+  be.kind = BlockEntityKind::Pot;
+  be.slots.resize(kPotSlots);
+  return be;
+}
+
 BlockEntityKind entityKindFor(std::string_view blockKey) {
   if (blockKey == "forge") return BlockEntityKind::Forge;
   if (blockKey == "chest") return BlockEntityKind::Chest;
+  if (blockKey == "cutting_board") return BlockEntityKind::Cutting;
+  if (blockKey == "stove") return BlockEntityKind::Stove;
+  if (blockKey == "cooking_pot") return BlockEntityKind::Pot;
   return BlockEntityKind::None;
 }
 
@@ -27,6 +49,9 @@ BlockEntity makeEntity(BlockEntityKind kind) {
   switch (kind) {
     case BlockEntityKind::Forge: return makeForge();
     case BlockEntityKind::Chest: return makeChest();
+    case BlockEntityKind::Cutting: return makeCutting();
+    case BlockEntityKind::Stove: return makeStove();
+    case BlockEntityKind::Pot: return makePot();
     case BlockEntityKind::None: break;
   }
   return {};
@@ -70,6 +95,83 @@ void tickForge(BlockEntity& f, float dt) {
   }
 }
 
+namespace {
+
+Kitchen kitchenFor(BlockEntityKind kind) {
+  switch (kind) {
+    case BlockEntityKind::Cutting: return Kitchen::Cutting;
+    case BlockEntityKind::Stove: return Kitchen::Stove;
+    default: break;
+  }
+  return Kitchen::Pot;
+}
+
+}  // namespace
+
+void tickKitchen(BlockEntity& s, float dt) {
+  // The pot cooks out of `slots`; the board and the stove out of `input`. Building
+  // one ingredient view here rather than branching three ways below is what lets the
+  // state machine itself be identical for all three — which is the point of them
+  // sharing a struct at all.
+  std::vector<ItemStack> offered;
+  if (s.kind == BlockEntityKind::Pot) {
+    offered = s.slots;
+  } else {
+    offered.push_back(s.input);
+  }
+
+  const CookMatch m = matchCooking(kitchenFor(s.kind), offered, s.container);
+  const bool canOut =
+      m.recipe >= 0 &&
+      (s.output.empty() || (s.output.key == m.out && s.output.count + m.outCount <= 64));
+  if (!canOut) {
+    s.progress = 0;
+    s.recipe = -1;
+    if (s.fuelLeft <= 0) s.fuelMax = 0;
+    return;
+  }
+  s.recipe = m.recipe;
+
+  // The cutting board burns nothing. It is prep rather than cooking, and needing
+  // fuel to slice a cabbage would make the first station in the chain the most
+  // tedious one.
+  if (s.kind != BlockEntityKind::Cutting) {
+    if (s.fuelLeft <= 0 && !s.fuel.empty()) {
+      const float v = fuelValue(s.fuel.key);
+      if (v > 0) {
+        s.fuelLeft += v;
+        s.fuelMax = v;
+        s.fuel.count--;
+        if (s.fuel.count <= 0) s.fuel.clear();
+      }
+    }
+    if (s.fuelLeft <= 0) {
+      s.progress = 0;
+      return;
+    }
+    s.fuelLeft -= dt;
+  }
+
+  s.progress += dt;
+  if (s.progress < m.seconds) return;
+  s.progress = 0;
+
+  const CookingRecipe& r = recipeBook().cooking()[static_cast<std::size_t>(m.recipe)];
+  if (s.kind == BlockEntityKind::Pot) {
+    consumeCooking(r, s.slots, s.container);
+  } else {
+    std::vector<ItemStack> one {s.input};
+    consumeCooking(r, one, s.container);
+    s.input = one[0];
+  }
+
+  if (s.output.empty()) {
+    s.output = ItemStack {m.out, m.outCount, -1};
+  } else {
+    s.output.count += m.outCount;
+  }
+}
+
 std::vector<ItemStack> entityContents(const BlockEntity& be) {
   std::vector<ItemStack> out;
   if (be.kind == BlockEntityKind::Forge) {
@@ -77,6 +179,17 @@ std::vector<ItemStack> entityContents(const BlockEntity& be) {
       if (!s->empty()) out.push_back(*s);
     }
   } else if (be.kind == BlockEntityKind::Chest) {
+    for (const ItemStack& s : be.slots) {
+      if (!s.empty()) out.push_back(s);
+    }
+  } else if (isKitchen(be.kind)) {
+    // The pot keeps its ingredients in `slots` and everything keeps its container,
+    // so a station broken mid-cook gives back everything that went into it. Losing a
+    // bowl and six vegetables to a misplaced pickaxe would be a bad way to learn
+    // where the station was.
+    for (const ItemStack* s : {&be.input, &be.fuel, &be.output, &be.container}) {
+      if (!s->empty()) out.push_back(*s);
+    }
     for (const ItemStack& s : be.slots) {
       if (!s.empty()) out.push_back(s);
     }

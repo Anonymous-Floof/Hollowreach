@@ -15,6 +15,7 @@
 
 #include "core/input.h"
 #include "core/mat4.h"
+#include "game/nutrition.h"
 #include "game/physics.h"
 #include "world/world.h"
 
@@ -109,6 +110,10 @@ struct PlayerOptions {
 struct FoodEffect {
   float food = 0;
   bool risky = false;  // rotten flesh: a symmetric gamble around `food`
+  // Authored per item rather than derived from `food`. See ItemDef::sat for why
+  // deriving it made every food the same food.
+  float sat = 0.0f;
+  NutritionGroup group = NutritionGroup::None;
 };
 
 // Everything about the player that survives a save, and nothing else — the same
@@ -122,6 +127,11 @@ struct PlayerState {
   float hunger = survivalConst::kMaxHunger;
   float saturation = 5.0f;
   bool flying = false;
+  // The diet does NOT ride in the player's save section, because adding a field
+  // there would change that section's layout and cost a kSaveVersion bump plus a
+  // migration. It travels in a section of its own (kTagNutrition) and is carried
+  // here only so App has one struct to hand around. See save/format.h.
+  Diet diet;
 };
 
 class Player {
@@ -214,13 +224,21 @@ class Player {
   // before the visible bar, and regeneration waits out a delay after every hit.
   // Called from update(), so a sub-stepped frame drains at the same rate.
   float health() const { return health_; }
-  float maxHealth() const { return survivalConst::kMaxHealth; }
+  // Not a constant any more: a varied diet adds hearts. It was already an accessor
+  // rather than kMaxHealth read directly, which is the only reason this is a
+  // one-line change instead of a sweep — worth remembering next time the choice
+  // between a constant and a getter looks like a formality.
+  float maxHealth() const { return survivalConst::kMaxHealth + diet_.healthBonus(); }
   float hunger() const { return hunger_; }
   float maxHunger() const { return survivalConst::kMaxHunger; }
   float breath() const { return breath_; }
   float maxBreath() const { return survivalConst::kMaxBreath; }
   bool hungerOn() const { return hungerOn_; }
   bool dead() const { return health_ <= 0.0f; }
+
+  // The five diet levels, for the inventory screen's bars and for the save.
+  const Diet& diet() const { return diet_; }
+  void setDiet(const Diet& d) { diet_ = d; }
 
   void damage(float amount, const PlayerOptions& options, bool ignoreArmor = false);
   void heal(float amount);
@@ -242,6 +260,8 @@ class Player {
  private:
   void survival(float dt, const world::World& world, const PlayerOptions& options);
   void addFood(float food, float saturation);
+  // Tops up one group and lets the rest decay. Called only from eat().
+  void feedDiet(NutritionGroup group);
 
   // Horizontal move with auto-step. Swimming climbs a full block so you can haul
   // yourself onto a shore, but only when the head would surface into air.
@@ -294,6 +314,7 @@ class Player {
   float hunger_ = survivalConst::kMaxHunger;
   float saturation_ = 5.0f;   // hidden buffer, drains before the visible bar
   float exhaustion_ = 0.0f;   // every 4 points costs one saturation or food point
+  Diet diet_;                 // five group levels; decays in survival(), fed by eat()
   float breath_ = survivalConst::kMaxBreath;
   float starveTimer_ = 0.0f;
   float drownTimer_ = 0.0f;

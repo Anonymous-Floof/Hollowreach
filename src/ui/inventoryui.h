@@ -83,7 +83,7 @@ game::ItemStack takeFromStack(game::ItemStack& stack, bool whole);
 float bagPanelWidth();
 
 // Which panel set is showing. Matches js/ui/inventoryui.js's `mode`.
-enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest };
+enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest, Cutting, Stove, Pot };
 
 // The containers a slot can belong to.
 enum class Container {
@@ -96,6 +96,14 @@ enum class Container {
   ForgeIn,
   ForgeFuel,
   ForgeOut,
+  // The kitchen. ONE set shared by all three stations rather than three sets:
+  // slotAt() is a single switch and every gesture in this screen routes through it,
+  // so three near-identical families would be three chances to get one wrong.
+  CookIn,         // the board's and the stove's single input; the pot uses CookSlots
+  CookSlots,      // the pot's six ingredient slots
+  CookContainer,  // the bowl
+  CookFuel,
+  CookOut,
 };
 
 class InventoryUI {
@@ -192,6 +200,10 @@ class InventoryUI {
   void armorPanel(const UiEvent& event);
   void forgePanel(const UiEvent& event);
   void chestPanel(const UiEvent& event);
+  // One panel for all three kitchens. The pot shows six ingredient slots and a bowl,
+  // the other two show a single input; everything else about the layout is the same,
+  // so writing it three times would only be three places to fix a spacing bug.
+  void kitchenPanel(const UiEvent& event);
   widget::StackVisual visualFor(const game::ItemStack& stack) const;
 
   game::Inventory* inv_ = nullptr;

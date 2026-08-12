@@ -187,6 +187,19 @@ game::ItemStack* InventoryUI::slotAt(SlotId id) {
       return station_ ? &station_->fuel : nullptr;
     case Container::ForgeOut:
       return station_ ? &station_->output : nullptr;
+    case Container::CookIn:
+      return station_ ? &station_->input : nullptr;
+    case Container::CookSlots:
+      if (!station_ || id.index < 0 || id.index >= static_cast<int>(station_->slots.size())) {
+        return nullptr;
+      }
+      return &station_->slots[static_cast<std::size_t>(id.index)];
+    case Container::CookContainer:
+      return station_ ? &station_->container : nullptr;
+    case Container::CookFuel:
+      return station_ ? &station_->fuel : nullptr;
+    case Container::CookOut:
+      return station_ ? &station_->output : nullptr;
     case Container::Result:
     case Container::None:
       return nullptr;
@@ -339,6 +352,26 @@ bool InventoryUI::invSourceTargets(const game::ItemStack& stack, int index,
       return true;
     }
     return false;
+  }
+  // The kitchens. Without this a shift-click lands in whichever slot happens to be
+  // empty first, which for a station with four different KINDS of slot is close to
+  // useless: bowls end up as ingredients and fuel ends up in the pot.
+  if (mode_ == InventoryMode::Cutting || mode_ == InventoryMode::Stove ||
+      mode_ == InventoryMode::Pot) {
+    if (stack.key == "bowl" && mode_ == InventoryMode::Pot) {
+      out = {{Container::CookContainer, {0}}};
+      return true;
+    }
+    if (mode_ != InventoryMode::Cutting && game::fuelValue(stack.key) > 0.0f) {
+      out = {{Container::CookFuel, {0}}};
+      return true;
+    }
+    if (mode_ == InventoryMode::Pot) {
+      out = {{Container::CookSlots, range(0, game::kPotSlots)}};
+    } else {
+      out = {{Container::CookIn, {0}}};
+    }
+    return true;
   }
   if (mode_ == InventoryMode::Inventory && item && item->type == game::ItemType::Armor &&
       inv_ && inv_->armor()[static_cast<std::size_t>(item->armorSlot)].empty()) {
@@ -806,6 +839,80 @@ void InventoryUI::forgePanel(const UiEvent& event) {
   (void)event;
 }
 
+void InventoryUI::kitchenPanel(const UiEvent& event) {
+  const bool isPot = mode_ == InventoryMode::Pot;
+  const char* title = isPot      ? "Cooking Pot"
+                      : mode_ == InventoryMode::Stove ? "Stove"
+                                                      : "Cutting Board";
+
+  doc_.begin(widget::invPanel());
+  doc_.label(title, widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 10, 0);
+    return s;
+  }());
+  doc_.begin(Doc::row(8, Justify::Start, Align::Center));
+
+  // Ingredients. The pot takes six in two rows of three; the board and the stove
+  // take one.
+  if (isPot) {
+    Style grid;
+    grid.display = Display::Grid;
+    grid.gridCols = 3;
+    grid.gridColWidth = px(Scalar::InvSlot);
+    grid.gap = 6;
+    doc_.begin(grid);
+    for (int i = 0; i < game::kPotSlots; ++i) {
+      const SlotId id {Container::CookSlots, i};
+      slotNode(id, slotAt(id), widget::SlotKind::Normal, haveHover_ && hovered_ == id);
+    }
+    doc_.end();
+  } else {
+    const SlotId in {Container::CookIn, 0};
+    slotNode(in, slotAt(in), widget::SlotKind::Normal, haveHover_ && hovered_ == in);
+  }
+
+  // The bowl and the fuel, stacked. The bowl sits apart from the ingredients on
+  // purpose: it is not one, and a player who drops a bowl in among the vegetables
+  // should be able to see straight away that it went somewhere else.
+  //
+  // The cutting board shows neither — it serves nothing and burns nothing — so its
+  // window is honestly two slots and a bar rather than four slots, two of which
+  // silently do nothing.
+  if (isPot || mode_ == InventoryMode::Stove) {
+    doc_.begin(Doc::column(8, Align::Center));
+    if (isPot) {
+      const SlotId bowl {Container::CookContainer, 0};
+      slotNode(bowl, slotAt(bowl), widget::SlotKind::Normal, haveHover_ && hovered_ == bowl);
+    }
+    const SlotId fuel {Container::CookFuel, 0};
+    slotNode(fuel, slotAt(fuel), widget::SlotKind::Normal, haveHover_ && hovered_ == fuel);
+    doc_.end();
+  }
+
+  // The same two gauges the forge draws: cook progress on top, burn below.
+  doc_.begin(Doc::column(10, Align::Center));
+  Style bar;
+  bar.width = 80;
+  bar.height = 8;
+  bar.radius = 4;
+  bar.bg = kBlack;
+  doc_.custom(bar, 2001, 0);
+  TextStyle arrow;
+  arrow.size = 26;
+  arrow.color = col(Role::Muted);
+  doc_.label("\xE2\x9E\xA4", arrow);
+  if (mode_ != InventoryMode::Cutting) doc_.custom(bar, 2001, 1);
+  doc_.end();
+
+  const SlotId out {Container::CookOut, 0};
+  slotNode(out, slotAt(out), widget::SlotKind::Normal, haveHover_ && hovered_ == out);
+
+  doc_.end();
+  doc_.end();
+  (void)event;
+}
+
 void InventoryUI::chestPanel(const UiEvent& event) {
   doc_.begin(widget::invPanel());
   doc_.label("Chest", widget::invTitle(), [] {
@@ -875,6 +982,11 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
     case InventoryMode::Chest:
       if (station_) chestPanel(event);
       break;
+    case InventoryMode::Cutting:
+    case InventoryMode::Stove:
+    case InventoryMode::Pot:
+      if (station_) kitchenPanel(event);
+      break;
     case InventoryMode::Closed: break;
   }
   doc_.end();
@@ -904,7 +1016,10 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   // The forge's block entity is refreshed by the caller every frame; if it vanished
   // (the block was mined while the screen was open) fall back to the plain bag rather
   // than writing through a dangling pointer.
-  if ((mode_ == InventoryMode::Forge || mode_ == InventoryMode::Chest) && !station_) {
+  if ((mode_ == InventoryMode::Forge || mode_ == InventoryMode::Chest ||
+       mode_ == InventoryMode::Cutting || mode_ == InventoryMode::Stove ||
+       mode_ == InventoryMode::Pot) &&
+      !station_) {
     mode_ = InventoryMode::Inventory;
     craftSize_ = 2;
     craft_.assign(4, game::ItemStack {});
@@ -1031,6 +1146,29 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
         station_->input.empty() ? nullptr : game::smeltingFor(station_->input.key);
     forgeProgress_ = smelt ? std::min(1.0f, station_->progress / smelt->seconds) : 0.0f;
   }
+
+  // The kitchens feed the same two gauges. Asking the matcher for the cook time
+  // rather than storing it means the bar is right the instant the ingredients
+  // change, including when they change to something that no longer cooks at all.
+  if ((mode_ == InventoryMode::Cutting || mode_ == InventoryMode::Stove ||
+       mode_ == InventoryMode::Pot) &&
+      station_) {
+    forgeFuel_ = station_->fuelMax > 0.0f
+                     ? std::max(0.0f, station_->fuelLeft / station_->fuelMax)
+                     : 0.0f;
+    std::vector<game::ItemStack> offered;
+    if (mode_ == InventoryMode::Pot) {
+      offered = station_->slots;
+    } else {
+      offered.push_back(station_->input);
+    }
+    const game::Kitchen kitchen = mode_ == InventoryMode::Pot     ? game::Kitchen::Pot
+                                  : mode_ == InventoryMode::Stove ? game::Kitchen::Stove
+                                                                  : game::Kitchen::Cutting;
+    const game::CookMatch m = game::matchCooking(kitchen, offered, station_->container);
+    forgeProgress_ =
+        m.seconds > 0.0f ? std::min(1.0f, station_->progress / m.seconds) : 0.0f;
+  }
 }
 
 void InventoryUI::draw(Ui2D& ui, Text& text) {
@@ -1060,8 +1198,11 @@ void InventoryUI::draw(Ui2D& ui, Text& text) {
     widget::drawStack(ui, text, n.rect, v);
   }
 
-  // The two forge gauges, which are custom nodes the layout only reserved space for.
-  if (mode_ == InventoryMode::Forge) {
+  // The two gauges, which are custom nodes the layout only reserved space for. The
+  // kitchens reuse them unchanged: a cook and a smelt are the same two questions,
+  // "how far through" and "how much fuel is left".
+  if (mode_ == InventoryMode::Forge || mode_ == InventoryMode::Cutting ||
+      mode_ == InventoryMode::Stove || mode_ == InventoryMode::Pot) {
     const int progressNode = doc_.findTag(2001, 0);
     const int fuelNode = doc_.findTag(2001, 1);
     if (progressNode >= 0) {

@@ -636,6 +636,7 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
   const BlockId previous = d.voxels.get(index);
   d.voxels.set(index, id);
   d.meta.set(index, static_cast<std::uint8_t>(meta & 0xFF));
+  noteCropEdit(wx, wy, wz, previous, id);
 
   edits_[chunkKey(cx, cz)][index] =
       static_cast<std::uint32_t>(id) | (static_cast<std::uint32_t>(meta & 0xFF) << 16);
@@ -722,6 +723,61 @@ void World::setWaterCell(int wx, int wy, int wz, BlockId id, int meta) {
 
   water_.onEdit(wx, wy, wz);
   if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, id, m);
+}
+
+void World::noteCropEdit(int wx, int wy, int wz, BlockId before, BlockId after) {
+  const BlockRegistry& reg = blocks();
+  const bool wasCrop = reg.def(before).cropStages > 0;
+  const bool isCrop = reg.def(after).cropStages > 0;
+  if (wasCrop == isCrop) return;
+
+  const game::BlockEntityKey key = game::blockEntityKey(wx, wy, wz);
+  if (isCrop) {
+    if (cropSet_.insert(key).second) cropCells_.push_back(key);
+    return;
+  }
+  cropSet_.erase(key);
+  // Compact only when the vector is mostly dead entries. Erasing on every harvest
+  // would be O(n) per crop pulled, which on a large farm is the one operation a
+  // player does thousands of times.
+  if (cropCells_.size() > 64 && cropSet_.size() * 2 < cropCells_.size()) {
+    cropCells_.assign(cropSet_.begin(), cropSet_.end());
+  }
+}
+
+void World::indexCrops() {
+  cropCells_.clear();
+  cropSet_.clear();
+  const BlockRegistry& reg = blocks();
+  // Straight off the edit map, which is the whole reason this index needs no save
+  // format: every planted crop is a player edit, and every player edit is here.
+  for (const auto& [chunk, cells] : edits_) {
+    const int baseX = keyCx(chunk) * CX;
+    const int baseZ = keyCz(chunk) * CZ;
+    for (const auto& [index, packed] : cells) {
+      const BlockId id = static_cast<BlockId>(packed & 0xFFFF);
+      if (reg.def(id).cropStages <= 0) continue;
+      const game::BlockEntityKey key =
+          game::blockEntityKey(baseX + idxX(index), idxY(index), baseZ + idxZ(index));
+      if (cropSet_.insert(key).second) cropCells_.push_back(key);
+    }
+  }
+}
+
+bool World::moistFarmland(int wx, int wy, int wz) const {
+  // Four cells in each horizontal direction and one above, which is the reach a
+  // player can see and reason about. Checked on demand: a stored moisture value
+  // would have to be invalidated by every bucket, every flood and every chunk load.
+  constexpr int kReach = 4;
+  const BlockId water = wk().water;
+  for (int dy = 0; dy <= 1; ++dy) {
+    for (int dz = -kReach; dz <= kReach; ++dz) {
+      for (int dx = -kReach; dx <= kReach; ++dx) {
+        if (getBlock(wx + dx, wy + dy, wz + dz) == water) return true;
+      }
+    }
+  }
+  return false;
 }
 
 void World::setMeta(int wx, int wy, int wz, int meta) {
@@ -863,6 +919,8 @@ void World::removePainting(int wx, int wy, int wz) {
 void World::tickBlockEntities(float dt) {
   for (auto& [key, be] : blockEntities_) {
     if (be.kind == game::BlockEntityKind::Forge) game::tickForge(be, dt);
+    // Kitchens keep cooking with their window shut, exactly as forges keep smelting.
+    else if (game::isKitchen(be.kind)) game::tickKitchen(be, dt);
   }
 }
 
@@ -875,9 +933,24 @@ void World::breakBlockInto(int wx, int wy, int wz) {
   const BlockId id = getBlock(wx, wy, wz);
   if (id == kAir) return;
   const BlockDef& def = blocks().def(id);
+  const int meta = getMeta(wx, wy, wz);
   // setBlock before the drop, so the drop lands in air rather than inside the
   // block it came from and gets shoved out by the collision resolver.
   setBlock(wx, wy, wz, kAir, 0);
+
+  // A ripe crop pays; an unripe one gives back the seed and nothing else. Without
+  // that difference there would be no cost to harvesting the moment you planted,
+  // and therefore no reason for growth stages to exist at all.
+  if (def.cropStages > 0 && !def.ripeDrop.empty() &&
+      cropStageOf(meta) >= def.cropStages - 1) {
+    int n = def.ripeDropMin;
+    if (def.ripeDropMax > def.ripeDropMin) {
+      n += static_cast<int>(cropDropRng_() % static_cast<std::uint32_t>(
+                                def.ripeDropMax - def.ripeDropMin + 1));
+    }
+    spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, def.ripeDrop, n);
+    return;
+  }
   if (!def.drop.empty()) {
     spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, def.drop, def.dropCount);
   }

@@ -438,8 +438,180 @@ void paintArmorBoots(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
 
 using PainterFn = void (*)(SpriteGrid&, std::uint32_t, const ItemDef&);
 
+// --- produce and meals -------------------------------------------------------
+//
+// Nine painters cover eighteen crops and two dozen meals, because every one of them
+// shades from ItemDef::color the way paintMeat already does. A new crop is a table
+// row and a hex value; it does not need a new sprite drawn by hand, which is the
+// only reason a content target this size is affordable at all.
+
+// A tied bundle of stalks: wheat, barley, rice, maize.
+void paintGrain(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.74), M = shade(col, 1.25);
+  for (int i = 0; i < 5; ++i) {
+    const int x = 4 + i * 2;
+    for (int y = 3; y <= 13; ++y) pset(g, x, y, (i % 2) ? m : M);
+    pset(g, x, 2, M);  // the ear
+    pset(g, x - 1, 3, d);
+    pset(g, x + 1, 4, d);
+  }
+  prow(g, 3, 12, 11, shade(0x8a6a3a, 1.0));  // the binding twine
+  prow(g, 3, 12, 12, shade(0x6f5430, 1.0));
+}
+
+// A tapered root with a leafy crown: carrot, potato, onion, beetroot, garlic.
+void paintRoot(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.22);
+  const Rgba leaf = shade(0x4f9e46, 1.0), leafD = shade(0x3f8a3a, 1.0);
+  for (int y = 5; y <= 14; ++y) {
+    const int half = (14 - y) / 2 + 1;  // widest at the shoulder, pointed at the tip
+    for (int x = 8 - half; x <= 8 + half; ++x) {
+      pset(g, x, y, x <= 8 - half + 1 ? M : (x >= 8 + half ? d : m));
+    }
+  }
+  pset(g, 7, 4, leaf);
+  pset(g, 9, 4, leaf);
+  pset(g, 8, 3, leafD);
+  pset(g, 6, 3, leafD);
+  pset(g, 10, 3, leaf);
+  pset(g, 8, 2, leaf);
+}
+
+// A round fruit with a stem: pumpkin, melon, tomato.
+void paintProduce(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.70), M = shade(col, 1.24);
+  for (int y = 4; y <= 14; ++y) {
+    for (int x = 3; x <= 13; ++x) {
+      const double a = (x - 8.0) / 5.2, b = (y - 9.0) / 5.2;
+      const double v = a * a + b * b;
+      if (v > 1.0) continue;
+      pset(g, x, y, v < 0.25 && x < 8 ? M : (v > 0.62 && (x > 8 || y > 10) ? d : m));
+    }
+  }
+  pset(g, 8, 3, shade(0x4a7a32, 1.0));  // stem
+  pset(g, 8, 2, shade(0x3f6a2a, 1.0));
+  pset(g, 9, 3, shade(0x5a8a3f, 1.0));
+}
+
+// A long pod: chili, soybean.
+void paintPod(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.26);
+  for (int y = 4; y <= 13; ++y) {
+    const int x = 6 + (y - 4) / 3;  // a gentle curve
+    pset(g, x, y, M);
+    pset(g, x + 1, y, m);
+    pset(g, x + 2, y, d);
+  }
+  pset(g, 6, 3, shade(0x4a7a32, 1.0));
+  pset(g, 7, 2, shade(0x3f6a2a, 1.0));
+}
+
+// A small cluster: strawberry, blueberry, grapes.
+void paintBerry(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.70), M = shade(col, 1.28);
+  static constexpr int kBerries[][2] = {{6, 7}, {10, 7}, {8, 10}, {5, 11}, {11, 11}};
+  for (const auto& b : kBerries) {
+    for (int y = b[1] - 1; y <= b[1] + 1; ++y) {
+      for (int x = b[0] - 1; x <= b[0] + 1; ++x) {
+        if (x == b[0] - 1 && y == b[1] - 1) continue;  // round the corners off
+        if (x == b[0] + 1 && y == b[1] + 1) continue;
+        pset(g, x, y, (x == b[0] - 1 || y == b[1] - 1) ? M : (y == b[1] + 1 ? d : m));
+      }
+    }
+  }
+  pset(g, 8, 4, shade(0x4a7a32, 1.0));  // a sprig on top
+  pset(g, 7, 5, shade(0x3f6a2a, 1.0));
+  pset(g, 9, 5, shade(0x5a8a3f, 1.0));
+}
+
+// A leafy head: cabbage.
+void paintLeafy(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.30);
+  for (int y = 3; y <= 14; ++y) {
+    for (int x = 3; x <= 13; ++x) {
+      const double a = (x - 8.0) / 5.4, b = (y - 8.5) / 5.8;
+      if (a * a + b * b > 1.0) continue;
+      pset(g, x, y, m);
+    }
+  }
+  // Veins, which is what stops it reading as a plain green ball.
+  for (int y = 5; y <= 12; ++y) pset(g, 8, y, M);
+  pset(g, 6, 7, M);
+  pset(g, 10, 7, M);
+  pset(g, 5, 10, d);
+  pset(g, 11, 10, d);
+  prow(g, 6, 10, 14, d);
+}
+
+// A scatter of seed: the wild bootstrap.
+void paintSeed(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.74);
+  static constexpr int kSeeds[][2] = {{5, 6}, {9, 5}, {7, 9}, {11, 8}, {4, 10},
+                                      {9, 11}, {6, 12}, {12, 11}};
+  for (const auto& s : kSeeds) {
+    pset(g, s[0], s[1], m);
+    pset(g, s[0] + 1, s[1], d);
+    pset(g, s[0], s[1] + 1, d);
+  }
+}
+
+// A filled bowl: soups and stews. The contents take the item's colour, the bowl is
+// always the same fired clay, so twenty meals read as one family at a glance.
+void paintBowl(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), M = shade(col, 1.22);
+  const Rgba clay = shade(0xa8703f, 1.0), clayD = shade(0x83562f, 1.0);
+  const Rgba clayM = shade(0xc08a55, 1.0);
+  prow(g, 4, 11, 7, M);  // the surface of the food
+  prow(g, 3, 12, 8, m);
+  pset(g, 5, 6, M);
+  pset(g, 9, 6, m);
+  prow(g, 2, 13, 9, clayM);  // rim
+  prow(g, 2, 13, 10, clay);
+  prow(g, 3, 12, 11, clay);
+  prow(g, 4, 11, 12, clayD);
+  prow(g, 6, 9, 13, clayD);
+}
+
+// A plated meal: roasts, pies, anything not swimming in stock.
+void paintPlate(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), M = shade(col, 1.24), d = shade(col, 0.74);
+  const Rgba plate = shade(0xd8cfc0, 1.0), plateD = shade(0xa89f92, 1.0);
+  prow(g, 2, 13, 11, plate);
+  prow(g, 3, 12, 12, plateD);
+  for (int y = 5; y <= 10; ++y) {
+    for (int x = 4; x <= 11; ++x) {
+      const double a = (x - 7.5) / 4.0, b = (y - 8.0) / 3.4;
+      if (a * a + b * b > 1.0) continue;
+      pset(g, x, y, y <= 6 ? M : (y >= 10 ? d : m));
+    }
+  }
+}
+
+// A haft with a flat blade turned down at the head.
+void paintHoe(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.74), M = shade(col, 1.25);
+  const Rgba haft = shade(0x9c7748, 1.0), haftD = shade(0x7c5c34, 1.0);
+  for (int i = 0; i < 9; ++i) {  // haft, butt low-right to head high-left
+    pset(g, 12 - i, 4 + i, haft);
+    pset(g, 13 - i, 4 + i, haftD);
+  }
+  prow(g, 3, 8, 3, M);  // the blade, flat and turned down
+  prow(g, 3, 8, 4, m);
+  prow(g, 4, 7, 5, d);
+}
+
 PainterFn painterFor(IconKind kind) {
   switch (kind) {
+    case IconKind::Hoe: return paintHoe;
+    case IconKind::Grain: return paintGrain;
+    case IconKind::Root: return paintRoot;
+    case IconKind::Produce: return paintProduce;
+    case IconKind::Pod: return paintPod;
+    case IconKind::Berry: return paintBerry;
+    case IconKind::Leafy: return paintLeafy;
+    case IconKind::Seed: return paintSeed;
+    case IconKind::Bowl: return paintBowl;
+    case IconKind::Plate: return paintPlate;
     case IconKind::Stick: return paintStick;
     case IconKind::Pick: return paintPick;
     case IconKind::Axe: return paintAxe;
@@ -496,6 +668,16 @@ constexpr MaterialSpec kMaterials[] = {
     {"verdanite", "Verdanite", 0x46b558u, IconKind::Shard},
     {"leather", "Leather", 0x9a6a3cu, IconKind::Leather},
     {"paper", "Paper", 0xece7d4u, IconKind::Paper},
+    // Shaken out of tall grass and ferns. It exists so a player who has not yet
+    // stumbled on a wild crop patch still has a way into farming at all; planting it
+    // gives one of the common crops rather than a chosen one, which keeps finding
+    // the real thing worth doing.
+    {"wild_seeds", "Wild Seeds", 0xbfa96au, IconKind::Seed},
+    // Every pot meal is served into one of these and gives it back when eaten, so a
+    // handful of bowls is a one-off cost rather than a running one.
+    {"bowl", "Bowl", 0xa8703fu, IconKind::Bowl},
+    // Milled at the cutting board; the one thing the stove bakes into bread.
+    {"flour", "Flour", 0xe8dcc0u, IconKind::Seed},
 };
 
 struct FoodSpec {
@@ -505,16 +687,135 @@ struct FoodSpec {
   IconKind icon;
   int food;
   bool risky;
+  float sat;
+  NutritionGroup group;
+  int quality;  // worth as a cooking INGREDIENT, not as a meal
 };
 
-// js/game/items.js:44-50. `food` is in hunger POINTS on the 20-point bar, so a
-// cooked meal visibly fills pips; the values echo Minecraft's.
+// `food` is in hunger POINTS on the 20-point bar, and `sat` is the hidden buffer
+// that decides how long it lasts.
+//
+// THE MEAT NUMBERS CAME DOWN ON PURPOSE. Cooked meat used to be 8 points — the best
+// food in the game, off one punch of a cow and one forge slot. Nothing a kitchen
+// could produce was going to beat that, so nobody would ever have cooked. It is 5
+// now, with a saturation of 3, which still makes it the best thing you can eat
+// *without* cooking and comfortably worse than anything you can eat with. Raw meat
+// dropped 3 -> 2 for the same reason: it is an ingredient that you may eat in an
+// emergency, not a meal.
+//
+// Rotten flesh feeds no group. It is calories, not nutrition, and a diet built on it
+// should stay stuck at zero bonus health no matter how much you choke down.
 constexpr FoodSpec kFoods[] = {
-    {"pork_raw", "Raw Porkchop", 0xe08a90u, IconKind::Meat, 3, false},
-    {"pork_cooked", "Cooked Porkchop", 0xb06a3cu, IconKind::Meat, 8, false},
-    {"beef_raw", "Raw Beef", 0xc4525au, IconKind::Steak, 3, false},
-    {"beef_cooked", "Steak", 0x8a4a2cu, IconKind::Steak, 8, false},
-    {"rotten_flesh", "Rotten Flesh", 0x7a8c4eu, IconKind::Flesh, 2, true},
+    {"pork_raw", "Raw Porkchop", 0xe08a90u, IconKind::Meat, 2, false, 0.5f,
+     NutritionGroup::Protein, 3},
+    {"pork_cooked", "Cooked Porkchop", 0xb06a3cu, IconKind::Meat, 5, false, 3.0f,
+     NutritionGroup::Protein, 4},
+    {"beef_raw", "Raw Beef", 0xc4525au, IconKind::Steak, 2, false, 0.5f,
+     NutritionGroup::Protein, 3},
+    {"beef_cooked", "Steak", 0x8a4a2cu, IconKind::Steak, 5, false, 3.0f,
+     NutritionGroup::Protein, 4},
+    {"rotten_flesh", "Rotten Flesh", 0x7a8c4eu, IconKind::Flesh, 2, true, 0.0f,
+     NutritionGroup::None, 0},
+
+    // --- crop produce --------------------------------------------------------
+    //
+    // Every one of these is edible and none of them is worth eating: one or two
+    // points and almost no saturation, which is the "last option" the whole update
+    // is built around. Their real value is `quality`, the number the cooking pot
+    // sums to decide which tier of a dish comes out.
+    //
+    // The produce is also the SEED — using one on farmland plants it — so these are
+    // the only crop items that exist. See blocks.cpp.
+    {"wheat", "Wheat", 0xe0c65au, IconKind::Grain, 1, false, 0.5f, NutritionGroup::Grain, 2},
+    {"barley", "Barley", 0xd9c78au, IconKind::Grain, 1, false, 0.5f, NutritionGroup::Grain, 2},
+    {"rice", "Rice", 0xe8e4c8u, IconKind::Grain, 1, false, 0.5f, NutritionGroup::Grain, 2},
+    {"maize", "Maize", 0xf0c433u, IconKind::Grain, 2, false, 1.0f, NutritionGroup::Grain, 3},
+    {"carrot", "Carrot", 0xe07a28u, IconKind::Root, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 3},
+    {"potato", "Potato", 0xc9a468u, IconKind::Root, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 3},
+    {"onion", "Onion", 0xd8c9a2u, IconKind::Root, 1, false, 0.5f,
+     NutritionGroup::Vegetable, 3},
+    {"beetroot", "Beetroot", 0xa0243cu, IconKind::Root, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 2},
+    // Garlic and chili are seasonings: barely worth eating, disproportionately worth
+    // cooking with. That gap is the clearest statement the numbers can make that
+    // some things are ingredients and not food.
+    {"garlic", "Garlic", 0xeae2d2u, IconKind::Root, 1, false, 0.0f,
+     NutritionGroup::Vegetable, 5},
+    {"chili", "Chili", 0xd42f24u, IconKind::Pod, 1, false, 0.0f, NutritionGroup::Vegetable, 5},
+    {"pumpkin", "Pumpkin", 0xe0821eu, IconKind::Produce, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 3},
+    {"melon", "Melon", 0x6fae3au, IconKind::Produce, 2, false, 1.0f, NutritionGroup::Fruit, 3},
+    {"tomato", "Tomato", 0xd8392cu, IconKind::Produce, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 4},
+    {"strawberry", "Strawberry", 0xd8323cu, IconKind::Berry, 2, false, 1.0f,
+     NutritionGroup::Fruit, 3},
+    {"blueberry", "Blueberry", 0x4a5ac2u, IconKind::Berry, 2, false, 1.0f,
+     NutritionGroup::Fruit, 3},
+    {"grapes", "Grapes", 0x7a4ab0u, IconKind::Berry, 2, false, 1.0f, NutritionGroup::Fruit, 3},
+    {"cabbage", "Cabbage", 0x8fc46au, IconKind::Leafy, 2, false, 1.0f,
+     NutritionGroup::Vegetable, 3},
+    {"soybean", "Soybeans", 0xd8cf7au, IconKind::Pod, 1, false, 0.5f,
+     NutritionGroup::Protein, 4},
+
+    // --- prepared at the cutting board ---------------------------------------
+    //
+    // Butchered meat is the point of the first two: one raw chop becomes two strips,
+    // so processing meat makes it go FURTHER. With animal husbandry still to come,
+    // that is the difference between meat being scarce and meat being a dead end.
+    {"meat_strips", "Meat Strips", 0xc4707au, IconKind::Meat, 1, false, 0.5f,
+     NutritionGroup::Protein, 4},
+    {"cooked_strips", "Seared Strips", 0x9a5a34u, IconKind::Meat, 3, false, 2.0f,
+     NutritionGroup::Protein, 5},
+
+    // --- from the stove -------------------------------------------------------
+    {"bread", "Bread", 0xd8a860u, IconKind::Plate, 5, false, 4.0f, NutritionGroup::Grain, 4},
+    {"baked_potato", "Baked Potato", 0xd2a86au, IconKind::Plate, 4, false, 3.0f,
+     NutritionGroup::Vegetable, 3},
+    {"roast_vegetables", "Roast Vegetables", 0xc98a3cu, IconKind::Plate, 5, false, 4.0f,
+     NutritionGroup::Vegetable, 4},
+    {"grilled_maize", "Grilled Maize", 0xefc24au, IconKind::Plate, 4, false, 3.0f,
+     NutritionGroup::Grain, 3},
+    {"cheese", "Cheese", 0xf0cc5au, IconKind::Plate, 4, false, 4.0f, NutritionGroup::Dairy, 5},
+
+    // --- meals from the pot ---------------------------------------------------
+    //
+    // These are the reason the whole update exists, so their numbers are meant to
+    // look unreasonable next to a cooked chop: a full meal is most of a hunger bar
+    // AND a saturation buffer that lasts, where the best uncooked thing in the game
+    // is five points and three. Cooking is not a small optimisation, it is the way
+    // you are supposed to eat.
+    {"vegetable_soup", "Vegetable Soup", 0xc07a3au, IconKind::Bowl, 8, false, 8.0f,
+     NutritionGroup::Vegetable, 4},
+    {"hearty_stew", "Hearty Stew", 0x8a4a26u, IconKind::Bowl, 14, false, 18.0f,
+     NutritionGroup::Protein, 6},
+    {"pumpkin_soup", "Pumpkin Soup", 0xe0821eu, IconKind::Bowl, 9, false, 10.0f,
+     NutritionGroup::Vegetable, 4},
+    {"tomato_soup", "Tomato Soup", 0xc8342au, IconKind::Bowl, 9, false, 10.0f,
+     NutritionGroup::Vegetable, 4},
+    {"bean_stew", "Bean Stew", 0xa8894au, IconKind::Bowl, 11, false, 13.0f,
+     NutritionGroup::Protein, 5},
+    {"rice_bowl", "Rice Bowl", 0xe4dfc4u, IconKind::Bowl, 10, false, 11.0f,
+     NutritionGroup::Grain, 4},
+    {"porridge", "Porridge", 0xe0d2a4u, IconKind::Bowl, 10, false, 12.0f,
+     NutritionGroup::Grain, 4},
+    {"fruit_salad", "Fruit Salad", 0xd85a72u, IconKind::Bowl, 8, false, 9.0f,
+     NutritionGroup::Fruit, 4},
+    {"berry_compote", "Berry Compote", 0x8a3a92u, IconKind::Bowl, 7, false, 8.0f,
+     NutritionGroup::Fruit, 4},
+    {"garden_salad", "Garden Salad", 0x7ab04au, IconKind::Bowl, 7, false, 7.0f,
+     NutritionGroup::Vegetable, 3},
+    {"stuffed_pumpkin", "Stuffed Pumpkin", 0xd8801eu, IconKind::Plate, 13, false, 16.0f,
+     NutritionGroup::Vegetable, 6},
+    {"cheese_toastie", "Cheese Toastie", 0xe8b85au, IconKind::Plate, 9, false, 9.0f,
+     NutritionGroup::Dairy, 4},
+    {"garlic_bread", "Garlic Bread", 0xdcb46eu, IconKind::Plate, 7, false, 6.0f,
+     NutritionGroup::Grain, 4},
+    {"meat_pie", "Meat Pie", 0xb07a3au, IconKind::Plate, 15, false, 19.0f,
+     NutritionGroup::Protein, 6},
+    {"veg_pie", "Vegetable Pie", 0xc9a05au, IconKind::Plate, 12, false, 15.0f,
+     NutritionGroup::Vegetable, 5},
 };
 
 struct ToolTypeSpec {
@@ -528,6 +829,10 @@ constexpr ToolTypeSpec kToolTypes[] = {
     {"axe", "Axe", ToolKind::Axe, IconKind::Axe},
     {"shovel", "Shovel", ToolKind::Shovel, IconKind::Shovel},
     {"sword", "Sword", ToolKind::Sword, IconKind::Sword},
+    // Appended, so the six hoes land at the end of the tool matrix. Item order only
+    // decides icon-atlas cells (see ItemDef::index), but keeping additions at the
+    // end is the habit that makes a golden diff readable.
+    {"hoe", "Hoe", ToolKind::Hoe, IconKind::Hoe},
 };
 
 constexpr IconKind kArmorIcons[] = {IconKind::ArmorHelmet, IconKind::ArmorChest,
@@ -539,6 +844,7 @@ const char* toolTypeName(ToolKind k) {
     case ToolKind::Axe: return "axe";
     case ToolKind::Shovel: return "shovel";
     case ToolKind::Sword: return "sword";
+    case ToolKind::Hoe: return "hoe";
     case ToolKind::None: break;
   }
   return "tool";
@@ -601,6 +907,10 @@ ItemRegistry::ItemRegistry() {
   byBlock_.assign(reg.count(), -1);
   for (const world::BlockDef& b : reg.all()) {
     if (b.key == "air" || b.key == "water" || b.key == "bedrock") continue;
+    // Crops get no block item. Their produce is what plants them (used on farmland),
+    // so a `crop_wheat` item would be a second, worse way to do the same thing —
+    // placeable on any wall, at any growth stage, with a name nobody asked for.
+    if (b.cropStages > 0) continue;
     ItemDef def;
     def.key = b.key;
     def.name = b.name;
@@ -632,6 +942,9 @@ ItemRegistry::ItemRegistry() {
     def.color = f.color;
     def.food = f.food;
     def.risky = f.risky;
+    def.sat = f.sat;
+    def.group = f.group;
+    def.quality = f.quality;
     add(std::move(def));
   }
 
@@ -816,10 +1129,20 @@ Tooltip itemTooltip(std::string_view key, int durabilityOverride, float fuelSeco
     if (it->risky) {
       std::snprintf(buf, sizeof buf, "food: a gamble (+%d or \xE2\x88\x92%d hunger)", it->food,
                     it->food);
+      out.lines.emplace_back(buf);
     } else {
       std::snprintf(buf, sizeof buf, "food: +%d hunger (%g pips)", it->food, it->food / 2.0);
+      out.lines.emplace_back(buf);
+      // Saturation is the number that actually answers "how long will this hold
+      // me", and it was invisible before there was anything to compare. Showing it
+      // is most of what teaches a player that the stew is not merely bigger.
+      std::snprintf(buf, sizeof buf, "saturation: %g", static_cast<double>(it->sat));
+      out.lines.emplace_back(buf);
     }
-    out.lines.emplace_back(buf);
+    if (it->group != NutritionGroup::None) {
+      std::snprintf(buf, sizeof buf, "diet: %s", nutritionName(it->group));
+      out.lines.emplace_back(buf);
+    }
   }
   if (it->type == ItemType::Warp) out.lines.emplace_back("use: warp to the surface above you");
   if (it->type == ItemType::Atlas) {

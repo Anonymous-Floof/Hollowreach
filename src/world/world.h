@@ -35,6 +35,7 @@
 #include "world/mesher.h"
 #include "world/shapes.h"
 #include "world/blockupdate.h"
+#include "world/cropsim.h"
 #include "world/water.h"
 #include "world/worldgen.h"
 
@@ -140,6 +141,21 @@ class World {
   const WaterSim& water() const { return water_; }
 
   void tickBlockUpdates(float dt) { blockUpdates_.tick(dt); }
+  void tickCrops(float dt) { crops_.tick(dt); }
+  CropSim& crops() { return crops_; }
+
+  // The cells the player has planted. See cropsim.h for why this is a derived index
+  // and not a saved one. May hold stale entries — a harvested crop is dropped from
+  // the membership set but left in the vector until the next compaction, and the
+  // sweep skips anything that is no longer a crop.
+  const std::vector<game::BlockEntityKey>& cropCells() const { return cropCells_; }
+  // Rebuilds the index from the edit map. Must run after setEdits and before the
+  // first sweep; without it a farm stops growing the moment its world is reloaded.
+  void indexCrops();
+  // Is this farmland within reach of water? Derived on demand rather than stored,
+  // exactly as the `.shore()` placement rule does it — a moisture field kept in a
+  // block entity would have to be invalidated every time anyone moved a bucket.
+  bool moistFarmland(int wx, int wy, int wz) const;
   BlockUpdateSim& blockUpdates() { return blockUpdates_; }
   const BlockUpdateSim& blockUpdates() const { return blockUpdates_; }
 
@@ -212,7 +228,14 @@ class World {
   // Installs a loaded set. Must happen before chunks stream in: generateChunk
   // replays whatever is here on top of fresh terrain, which is what makes
   // regenerating a world from its seed safe.
-  void setEdits(EditMap edits) { edits_ = std::move(edits); }
+  // Rebuilds the crop index too, rather than leaving that to the caller. There are
+  // five call sites and a forgotten one would not fail loudly — it would just mean
+  // that world's farms silently stopped growing, which is the kind of bug that gets
+  // reported months later as "I think crops are broken sometimes".
+  void setEdits(EditMap edits) {
+    edits_ = std::move(edits);
+    indexCrops();
+  }
   // Restores the fog of war. Chunks generated later add themselves as usual.
   void setExplored(const std::vector<ChunkKey>& keys) {
     explored_.insert(keys.begin(), keys.end());
@@ -407,6 +430,24 @@ class World {
   // it reaches through and must not outlive it.
   WaterSim water_{*this};
   BlockUpdateSim blockUpdates_{*this};
+  CropSim crops_{*this};
+
+  // The planted-crop index. A vector for a stable sweep cursor, plus a set for
+  // membership; removals leave the vector alone and compact later, because a
+  // harvested crop is common and an O(n) erase per harvest is not worth paying.
+  std::vector<game::BlockEntityKey> cropCells_;
+  std::unordered_set<game::BlockEntityKey> cropSet_;
+  void noteCropEdit(int wx, int wy, int wz, BlockId before, BlockId after);
+  // Harvest yield only. Deliberately NOT a coordinate hash: re-deriving it would
+  // mean the same cell always paid the same, so a player could learn which squares
+  // were generous. A plain sequence is the right shape for a one-off roll.
+  std::uint32_t cropDropSeed_ = 0x1b873593u;
+  std::uint32_t cropDropRng_() {
+    cropDropSeed_ ^= cropDropSeed_ << 13;
+    cropDropSeed_ ^= cropDropSeed_ >> 17;
+    cropDropSeed_ ^= cropDropSeed_ << 5;
+    return cropDropSeed_;
+  }
 
   // --- job results ------------------------------------------------------------
   // Workers push here and the main thread drains it in installResults(). This

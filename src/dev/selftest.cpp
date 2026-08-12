@@ -25,6 +25,7 @@
 #include "game/entities/senses.h"
 #include "game/crafting.h"
 #include "game/interact.h"
+#include "game/farming.h"
 #include "game/inventory.h"
 #include "game/items.h"
 #include "game/player.h"
@@ -1240,6 +1241,749 @@ void testSurvival() {
     saved.reviveFull();
     for (int i = 0; i < 200; ++i, t += kStep) saved.update(kStep, idle, *ground, cliff, t);
     check(saved.health() == 20.0f, "a teleport out of a fall is not charged on landing");
+  }
+}
+
+// --- nutrition ---------------------------------------------------------------
+//
+// Every food check above this point builds its own FoodEffect literal, so before
+// this function existed NOT ONE assertion read a real item's numbers. Cooked meat
+// could be changed from 8 points to 5 and the whole suite still passed — which it
+// did, and is why these are written against the registry rather than against
+// constants.
+//
+// The balance checks assert ORDERING, never values. "A meal beats the best thing
+// you can eat without cooking" is the design promise and stays true through tuning;
+// "a stew is 14" is a number that will change the first time anyone plays it, and a
+// test that pins it would only ever be an obstacle.
+
+void testNutrition() {
+  std::printf("nutrition\n");
+
+  const game::ItemDef* cookedBeef = game::getItem("beef_cooked");
+  const game::ItemDef* rawBeef = game::getItem("beef_raw");
+  const game::ItemDef* rotten = game::getItem("rotten_flesh");
+  check(cookedBeef != nullptr && rawBeef != nullptr && rotten != nullptr,
+        "the rebalanced foods are all still registered");
+  if (!cookedBeef || !rawBeef || !rotten) return;
+
+  // Saturation is authored per item now. The old rule gave EVERY food the same
+  // sat-to-food ratio of 0.6, so the thing to prove is that the ratios now differ
+  // between items — not that one particular item's number changed.
+  //
+  // Asserting one item against `food * 0.6` was the first attempt and it failed on a
+  // coincidence: cooked beef is 5 food and 3 saturation, and 5 * 0.6 is exactly 3.
+  // A ratio comparison across two items cannot collide that way, whatever anyone
+  // later tunes the numbers to.
+  const double cookedRatio =
+      static_cast<double>(cookedBeef->sat) / static_cast<double>(cookedBeef->food);
+  const double rawRatio =
+      static_cast<double>(rawBeef->sat) / static_cast<double>(rawBeef->food);
+  checkf(cookedRatio != rawRatio,
+         "saturation is authored per item, not one fixed ratio (cooked %.2f, raw %.2f)",
+         cookedRatio, rawRatio);
+
+  checkf(cookedBeef->food > rawBeef->food && cookedBeef->sat > rawBeef->sat,
+         "cooking meat still beats eating it raw (%d/%g vs %d/%g)", cookedBeef->food,
+         static_cast<double>(cookedBeef->sat), rawBeef->food,
+         static_cast<double>(rawBeef->sat));
+
+  check(cookedBeef->group == game::NutritionGroup::Protein, "cooked meat feeds Protein");
+  check(rotten->group == game::NutritionGroup::None,
+        "rotten flesh feeds no group: it is calories, not nutrition");
+
+  // --- the diet ------------------------------------------------------------
+  game::Diet diet;
+  check(diet.groupsFed() == 0 && diet.healthBonus() == 0.0f,
+        "an empty diet is worth no bonus health");
+  for (int i = 0; i < game::kNutritionGroups; ++i) diet.level[i] = 1.0f;
+  check(diet.groupsFed() == game::kNutritionGroups, "a full diet counts every group");
+  checkf(diet.healthBonus() == game::dietConst::kBonusMax,
+         "and is capped at +%g rather than paying out per group forever",
+         static_cast<double>(game::dietConst::kBonusMax));
+
+  // Exactly at the threshold does not count — the comparison is strictly greater,
+  // and a group sitting on the line reading as "fed" would make the bonus flicker
+  // as it decayed through it.
+  game::Diet edge;
+  edge.level[0] = game::dietConst::kCountsAbove;
+  check(edge.groupsFed() == 0, "a group exactly on the threshold does not count yet");
+
+  // --- eating feeds the group it says it does ------------------------------
+  auto world = makeWorld();
+  game::PlayerOptions options;
+  options.hungerEnabled = true;
+  Input idle;
+
+  // A FRESH PLAYER HAS A FULL HUNGER BAR, AND eat() REFUSES AT FULL. The first
+  // version of this test ate without draining first, so every call was silently
+  // refused and three assertions passed while measuring nothing at all — including
+  // one that "proved" rotten flesh does not raise the diet, which it did only
+  // because nothing was ever eaten. Draining first is what makes these checks real,
+  // and asserting the return value of eat() is what stops them going quiet again.
+  const auto drainHunger = [&](game::Player& p) {
+    double t = 0.0;
+    for (int i = 0; i < 600 && p.hunger() >= p.maxHunger(); ++i, t += 1.0) {
+      p.update(1.0f, idle, *world, options, t);
+    }
+  };
+  const auto eatOne = [&](game::Player& p, game::NutritionGroup g) {
+    drainHunger(p);
+    return p.eat({6.0f, false, 4.0f, g});
+  };
+
+  game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+  player.update(0.001f, idle, *world, options, 0.0);
+  check(player.hungerOn(), "the hunger flag arrives through PlayerOptions");
+  check(player.maxHealth() == 20.0f, "max health starts at the plain twenty");
+
+  // Authoring the field is worth nothing if eat() still derives it, and the ratio
+  // check above reads the item table without ever going near the player. So eat a
+  // food whose saturation could not possibly be food * 0.6 and read the buffer back.
+  {
+    game::Player taster(kOriginX, static_cast<float>(kY), kOriginZ);
+    taster.update(0.001f, idle, *world, options, 0.0);
+    drainHunger(taster);
+    check(taster.eat({4.0f, false, 9.0f, game::NutritionGroup::Grain}),
+          "the saturation subject ate something");
+    // The old rule would have given 4 * 0.6 = 2.4. addFood caps saturation at the
+    // hunger bar, so this asserts "much closer to 9 than to 2.4" rather than exactly
+    // 9 — the cap is correct behaviour and pinning the exact value would make this
+    // fail for the wrong reason the first time the drain rate is tuned.
+    const float sat = taster.state().saturation;
+    checkf(sat > 6.0f, "eating applies the authored saturation, not food * 0.6 (%g)",
+           static_cast<double>(sat));
+  }
+
+  bool allEaten = true;
+  for (int i = 0; i < game::kNutritionGroups; ++i) {
+    allEaten = eatOne(player, static_cast<game::NutritionGroup>(i + 1)) && allEaten;
+  }
+  check(allEaten, "each of the five foods was actually eaten, not refused at a full bar");
+  checkf(player.diet().groupsFed() == game::kNutritionGroups,
+         "eating one of each group feeds all five (%d fed)", player.diet().groupsFed());
+  checkf(player.maxHealth() == 20.0f + game::dietConst::kBonusMax,
+         "and a varied diet is worth the full bonus (max health %g)",
+         static_cast<double>(player.maxHealth()));
+
+  // Rotten flesh must not count toward variety however much of it is eaten.
+  game::Player scav(kOriginX, static_cast<float>(kY), kOriginZ);
+  scav.update(0.001f, idle, *world, options, 0.0);
+  bool scavAte = false;
+  for (int i = 0; i < 4; ++i) {
+    scavAte = eatOne(scav, game::NutritionGroup::None) || scavAte;
+  }
+  check(scavAte, "the group-less food was eaten (otherwise the next check proves nothing)");
+  check(scav.diet().groupsFed() == 0 && scav.maxHealth() == 20.0f,
+        "a group-less food never raises the diet no matter how much is eaten");
+
+  // --- decay, and the health that has to come down with it -----------------
+  game::Player fading(kOriginX, static_cast<float>(kY), kOriginZ);
+  fading.update(0.001f, idle, *world, options, 0.0);
+  for (int i = 0; i < game::kNutritionGroups; ++i) {
+    eatOne(fading, static_cast<game::NutritionGroup>(i + 1));
+  }
+  const float peak = fading.maxHealth();
+  fading.setHealth(peak);
+  checkf(fading.health() == peak, "bonus hearts can actually be filled (%g)",
+         static_cast<double>(peak));
+
+  // Long enough for every group to decay past the threshold, while hunger is kept
+  // topped up with a food that feeds no group. Without that top-up the player simply
+  // starves to death partway through and every assertion after this is about a
+  // corpse — which is exactly what the first version of this measured.
+  double t = 0.0;
+  for (int i = 0; i < 1400; ++i, t += 1.0) {
+    fading.update(1.0f, idle, *world, options, t);
+    if (fading.hunger() < 12.0f) {
+      fading.eat({8.0f, false, 6.0f, game::NutritionGroup::None});
+    }
+  }
+  check(!fading.dead(), "the subject survived the decay run, so this measures decay");
+  check(fading.diet().groupsFed() == 0, "the diet decays when it is not maintained");
+  checkf(fading.health() == 20.0f,
+         "and current health follows max health down rather than floating above it "
+         "(health %g)",
+         static_cast<double>(fading.health()));
+
+  // --- the round trip ------------------------------------------------------
+  game::Player saver(kOriginX, static_cast<float>(kY), kOriginZ);
+  saver.update(0.001f, idle, *world, options, 0.0);
+  check(eatOne(saver, game::NutritionGroup::Fruit), "the round-trip subject ate something");
+  const game::PlayerState st = saver.state();
+  game::Player loaded(kOriginX, static_cast<float>(kY), kOriginZ);
+  loaded.loadState(st);
+  check(loaded.diet().groupsFed() == 1, "the diet survives a state round trip");
+  checkf(loaded.maxHealth() == saver.maxHealth(),
+         "and the bonus is restored with it (%g vs %g)",
+         static_cast<double>(loaded.maxHealth()), static_cast<double>(saver.maxHealth()));
+
+  // The ordering trap: loadState clamps health against max health, so if the diet
+  // were restored after health, a well-fed player would be robbed of the bonus
+  // hearts on every load. Save at full bonus health and check it all comes back.
+  game::Player rich(kOriginX, static_cast<float>(kY), kOriginZ);
+  rich.update(0.001f, idle, *world, options, 0.0);
+  for (int i = 0; i < game::kNutritionGroups; ++i) {
+    eatOne(rich, static_cast<game::NutritionGroup>(i + 1));
+  }
+  rich.setHealth(rich.maxHealth());
+  checkf(rich.health() > 20.0f, "the saved player really is above twenty health (%g)",
+         static_cast<double>(rich.health()));
+  game::Player back(kOriginX, static_cast<float>(kY), kOriginZ);
+  back.loadState(rich.state());
+  checkf(back.health() == rich.health(),
+         "bonus health survives a load rather than being clamped to twenty (%g)",
+         static_cast<double>(back.health()));
+}
+
+// --- farming -----------------------------------------------------------------
+
+void testFarming() {
+  std::printf("farming\n");
+
+  const world::BlockRegistry& reg = world::blocks();
+  const world::WellKnownBlocks& w = world::wk();
+  const world::BlockId wheat = reg.idOf("crop_wheat");
+  const world::BlockId carrotCrop = reg.idOf("crop_carrot");
+  check(wheat != world::kAir && w.farmland != world::kAir,
+        "the crop and farmland blocks are registered");
+
+  const game::ItemDef* hoe = game::getItem("hoe_stone");
+  const game::ItemDef* carrot = game::getItem("carrot");
+  const game::ItemDef* cobble = game::getItem("cobbled");
+  check(hoe != nullptr && carrot != nullptr && cobble != nullptr,
+        "the hoe and the produce that plants a crop both exist");
+  if (!hoe || !carrot || !cobble) return;
+
+  // A sown row should read as a row. The mesher's own use of this flag has no
+  // headless check — the mesh golden group contains no crops, so flipping it there
+  // changes nothing a test can see, and it is verified by looking at the game. This
+  // guards the half that can be checked: that crops still ask to stand square, and
+  // that wild grass still does not.
+  {
+    int crops = 0, aligned = 0;
+    for (const world::BlockDef& d : reg.all()) {
+      if (d.cropStages <= 0) continue;
+      ++crops;
+      if (d.alignedPlant) ++aligned;
+    }
+    checkf(crops == aligned && crops > 0, "every crop stands square (%d of %d)", aligned,
+           crops);
+    check(!reg.def(w.tall_grass).alignedPlant,
+          "and wild grass still jitters, so a meadow is not grid-stamped");
+  }
+
+  // --- the decision, as a pure function ------------------------------------
+  {
+    using game::FarmAction;
+    check(game::planFarmUse(*hoe, w.turf, true, 0).action == FarmAction::Till,
+          "a hoe tills grass");
+    check(game::planFarmUse(*hoe, w.loam, true, 0).action == FarmAction::Till,
+          "and bare soil");
+    check(game::planFarmUse(*hoe, w.greystone, true, 0).action == FarmAction::None,
+          "but not stone");
+    check(game::planFarmUse(*hoe, w.turf, false, 0).action == FarmAction::None,
+          "and not with something standing on the cell");
+
+    const game::FarmPlan sow = game::planFarmUse(*carrot, w.farmland, true, 0);
+    check(sow.action == FarmAction::Sow && sow.crop == carrotCrop,
+          "produce used on farmland sows its own crop");
+    check(game::planFarmUse(*carrot, w.turf, true, 0).action == FarmAction::NeedsTilling,
+          "produce on untilled grass asks for a hoe rather than doing nothing silently");
+    check(game::planFarmUse(*carrot, w.farmland, false, 0).action == FarmAction::None,
+          "and will not sow into an occupied cell");
+    check(game::planFarmUse(*cobble, w.farmland, true, 0).action == FarmAction::None,
+          "a non-seed on farmland does nothing");
+
+    // Wild seed has to be able to start a farm, whichever way the roll lands.
+    int n = 0;
+    game::wildSeedCrops(n);
+    const game::ItemDef* wild = game::getItem("wild_seeds");
+    bool everySeedGrows = wild != nullptr && n > 0;
+    for (int i = 0; i < n && wild; ++i) {
+      const game::FarmPlan p = game::planFarmUse(*wild, w.farmland, true, i);
+      everySeedGrows = everySeedGrows && p.action == FarmAction::Sow &&
+                       reg.def(p.crop).cropStages > 0;
+    }
+    checkf(everySeedGrows, "every wild-seed outcome is a real crop (%d of them)", n);
+  }
+
+  // --- the index, growth and harvest ---------------------------------------
+  auto world = makeWorld();
+  const int gx = 8, gy = kY, gz = 8;
+  world->setBlock(gx, gy, gz, w.farmland, 0);
+  check(world->cropCells().empty(), "farmland alone is not a crop");
+
+  world->setBlock(gx, gy + 1, gz, wheat, world::cropMetaFor(0));
+  checkf(world->cropCells().size() == 1, "planting a crop indexes its cell (%zu)",
+         world->cropCells().size());
+  check(world::cropStageOf(world->getMeta(gx, gy + 1, gz)) == 0,
+        "and it starts at stage zero");
+
+  // Growth. The sweep is probabilistic, so this drives it until it ripens rather
+  // than asserting a rate — a rate is a tuning value and would make this test an
+  // obstacle the first time anyone changed it.
+  const int stages = reg.def(wheat).cropStages;
+  int sweeps = 0;
+  while (world::cropStageOf(world->getMeta(gx, gy + 1, gz)) < stages - 1 && sweeps < 4000) {
+    world->tickCrops(world::CropSim::kTick);
+    ++sweeps;
+  }
+  checkf(world::cropStageOf(world->getMeta(gx, gy + 1, gz)) == stages - 1,
+         "a planted crop grows to ripe (%d sweeps)", sweeps);
+
+  // And stops. A crop that kept advancing would run its stage into the wall bits of
+  // the metadata byte and start drawing as a wall-mounted torch.
+  for (int i = 0; i < 200; ++i) world->tickCrops(world::CropSim::kTick);
+  checkf(world::cropStageOf(world->getMeta(gx, gy + 1, gz)) == stages - 1,
+         "and stays there rather than growing past its last stage (%d)",
+         world::cropStageOf(world->getMeta(gx, gy + 1, gz)));
+
+  // A WILD crop is scenery. It comes out of the generator rather than out of a
+  // player's hands, so it is not in the edit map, so it is not in the index and the
+  // sweep never visits it — which is exactly why worldgen has to stamp stands ripe.
+  //
+  // The seed matters: this asserts that stands EXIST and are still unindexed. An
+  // empty world would satisfy the second half on its own and prove nothing, which is
+  // what the first version of this check did.
+  {
+    world::World wild(20260812u, 2);
+    wild.primeSpawn(kOriginX, kOriginZ);
+    int wildCrops = 0, unripe = 0;
+    for (int x = -16; x < 32; ++x) {
+      for (int z = -16; z < 32; ++z) {
+        for (int y = 90; y < 140; ++y) {
+          const world::BlockDef& d = reg.def(wild.getBlock(x, y, z));
+          if (d.cropStages <= 0) continue;
+          ++wildCrops;
+          if (world::cropStageOf(wild.getMeta(x, y, z)) != d.cropStages - 1) ++unripe;
+        }
+      }
+    }
+    checkf(wildCrops > 0, "the test seed really does generate wild stands (%d cells)",
+           wildCrops);
+    // Nothing tends a wild stand, so one that generated unripe would stay unripe for
+    // the life of the world — a crop the player can see and can never harvest.
+    checkf(unripe == 0, "and every one of them generates ripe (%d unripe)", unripe);
+    checkf(wild.cropCells().empty(),
+           "and not one is indexed: a wild stand is scenery, not a farm (%zu indexed)",
+           wild.cropCells().size());
+  }
+
+  // --- harvest pays only when ripe -----------------------------------------
+  {
+    std::vector<std::pair<std::string, int>> dropped;
+    world->setDropSink([&dropped](float, float, float, const std::string& key, int n, int) {
+      dropped.emplace_back(key, n);
+    });
+
+    // Unripe: the seed back and nothing more.
+    world->setBlock(gx + 2, gy, gz, w.farmland, 0);
+    world->setBlock(gx + 2, gy + 1, gz, carrotCrop, world::cropMetaFor(0));
+    world->breakBlockInto(gx + 2, gy + 1, gz);
+    check(dropped.size() == 1 && dropped[0].first == "carrot" && dropped[0].second == 1,
+          "an unripe crop gives back its seed and no more");
+
+    dropped.clear();
+    const int ripe = reg.def(carrotCrop).cropStages - 1;
+    world->setBlock(gx + 3, gy, gz, w.farmland, 0);
+    world->setBlock(gx + 3, gy + 1, gz, carrotCrop, world::cropMetaFor(ripe));
+    world->breakBlockInto(gx + 3, gy + 1, gz);
+    check(dropped.size() == 1 && dropped[0].first == "carrot", "a ripe one yields produce");
+    checkf(dropped.size() == 1 && dropped[0].second >= reg.def(carrotCrop).ripeDropMin,
+           "and more of it than it cost to plant (%d)",
+           dropped.empty() ? 0 : dropped[0].second);
+  }
+
+  // Harvesting drops the cell from the index, so a farm that is pulled up stops
+  // costing sweeps.
+  {
+    auto plot = makeWorld();
+    plot->setBlock(4, kY, 4, w.farmland, 0);
+    plot->setBlock(4, kY + 1, 4, wheat, world::cropMetaFor(0));
+    check(plot->cropCells().size() == 1, "one planted cell is indexed");
+    plot->setBlock(4, kY + 1, 4, world::kAir, 0);
+    bool live = false;
+    for (const game::BlockEntityKey key : plot->cropCells()) {
+      int x = 0, y = 0, z = 0;
+      game::unpackBlockEntityKey(key, x, y, z);
+      live = live || world::blocks().def(plot->getBlock(x, y, z)).cropStages > 0;
+    }
+    check(!live, "and harvesting leaves no live crop behind in the index");
+  }
+
+  // --- the stage survives a save ------------------------------------------
+  //
+  // Growth lives in cell metadata and metadata rides in the edit map, so this is
+  // really asking whether that claim is true. If it is not, every farm in every
+  // world resets to seedlings on load.
+  {
+    auto grown = makeWorld();
+    grown->setBlock(6, kY, 6, w.farmland, 0);
+    grown->setBlock(6, kY + 1, 6, wheat, world::cropMetaFor(2));
+
+    world::World reloaded(3918175327u, 2);
+    reloaded.setEdits(grown->edits());
+    reloaded.primeSpawn(kOriginX, kOriginZ);
+    checkf(world::cropStageOf(reloaded.getMeta(6, kY + 1, 6)) == 2,
+           "a crop's growth stage survives a save and reload (stage %d)",
+           world::cropStageOf(reloaded.getMeta(6, kY + 1, 6)));
+    checkf(reloaded.cropCells().size() == 1,
+           "and the crop index rebuilds itself from the edit map (%zu cells)",
+           reloaded.cropCells().size());
+  }
+}
+
+// --- cooking -----------------------------------------------------------------
+
+void testCooking() {
+  std::printf("cooking\n");
+
+  const auto stack = [](const char* key, int n) { return game::ItemStack {key, n, -1}; };
+  const game::ItemStack noBowl;
+  const game::ItemStack bowl = stack("bowl", 1);
+
+  // --- the forge gave food up ----------------------------------------------
+  {
+    bool forgeCooksFood = false;
+    for (const game::SmeltingRecipe& s : game::recipeBook().smelting()) {
+      const game::ItemDef* out = game::getItem(s.out);
+      forgeCooksFood = forgeCooksFood || (out != nullptr && out->type == game::ItemType::Food);
+    }
+    check(!forgeCooksFood,
+          "the forge no longer cooks food, so the stove is not competing with a "
+          "block every player already owns");
+    check(game::smeltingFor("beef_raw") == nullptr, "raw beef has no forge recipe");
+  }
+
+  // --- tags -----------------------------------------------------------------
+  check(game::cookTagMatches("#vegetable", "carrot"), "a carrot is a vegetable");
+  check(game::cookTagMatches("#grain", "wheat"), "wheat is a grain");
+  check(!game::cookTagMatches("#vegetable", "wheat"), "and wheat is not a vegetable");
+  check(game::cookTagMatches("carrot", "carrot"), "a bare key still matches itself");
+  check(game::cookTagMatches("#planks", "planks"),
+        "and the block tags still work here, so #planks did not stop meaning planks");
+
+  // --- matching -------------------------------------------------------------
+  {
+    // Three vegetables, no meat: the plain tier.
+    std::vector<game::ItemStack> slots {stack("carrot", 1), stack("onion", 1),
+                                        stack("cabbage", 1)};
+    const game::CookMatch m = game::matchCooking(game::Kitchen::Pot, slots, bowl);
+    checkf(m.recipe >= 0, "three vegetables and a bowl match a pot recipe (score %d)",
+           m.score);
+    check(m.out == "vegetable_soup", "and make vegetable soup");
+
+    // The same recipe with no bowl matches nothing at all.
+    const game::CookMatch dry = game::matchCooking(game::Kitchen::Pot, slots, noBowl);
+    check(dry.recipe < 0, "without a bowl there is nothing to serve into, so no match");
+  }
+
+  // --- THE TIER MECHANISM ---------------------------------------------------
+  //
+  // This is the "better ingredients, better meal" claim, and it is the one thing in
+  // the update that could quietly do nothing: a tier that never fires looks exactly
+  // like a tier that fires and produces the same item.
+  {
+    std::vector<game::ItemStack> plain {stack("carrot", 1), stack("onion", 1),
+                                        stack("cabbage", 1)};
+    std::vector<game::ItemStack> rich {stack("carrot", 1), stack("tomato", 1),
+                                       stack("garlic", 1)};
+    const game::CookMatch a = game::matchCooking(game::Kitchen::Pot, plain, bowl);
+    const game::CookMatch b = game::matchCooking(game::Kitchen::Pot, rich, bowl);
+    checkf(b.score > a.score, "better ingredients score higher (%d vs %d)", b.score,
+           a.score);
+    checkf(a.out != b.out,
+           "and the SAME recipe yields a different meal for it (%s vs %s)", a.out.c_str(),
+           b.out.c_str());
+    check(b.out == "hearty_stew", "the better one being the hearty stew");
+  }
+
+  // A TIER NOBODY CAN REACH IS A TIER THAT DOES NOT EXIST, and from the outside it
+  // looks exactly like one that works — the recipe simply always produces its lower
+  // output. The first pass at the pot set a threshold of 16 on a recipe whose
+  // maximum possible score is 15, so that tier could never once have fired.
+  //
+  // This computes each recipe's ceiling from the best-quality item that could
+  // satisfy each requirement, and checks every tier sits under it.
+  {
+    int unreachable = 0;
+    for (const game::CookingRecipe& r : game::recipeBook().cooking()) {
+      int ceiling = 0;
+      for (const auto& [want, need] : r.ingredients) {
+        int best = 0;
+        for (const game::ItemDef& d : game::items().all()) {
+          if (game::cookTagMatches(want, d.key) && d.quality > best) best = d.quality;
+        }
+        ceiling += best * need;
+      }
+      for (const game::CookingRecipe::Tier& t : r.tiers) {
+        if (t.minScore <= ceiling) continue;
+        ++unreachable;
+        std::printf("         (unreachable: %s wants %d, ceiling is %d)\n", t.out.c_str(),
+                    t.minScore, ceiling);
+      }
+    }
+    checkf(unreachable == 0, "every output tier is reachable (%d unreachable)", unreachable);
+  }
+
+  // --- greedy allocation ----------------------------------------------------
+  //
+  // A slot may be spent ONCE. The trap is a slot that satisfies two different
+  // requirements of the same recipe: Stuffed Pumpkin wants a pumpkin, a grain and a
+  // vegetable, and a pumpkin is itself a vegetable — so without the running tally
+  // one pumpkin and one wheat would make it, at two thirds of its real cost.
+  //
+  // The first version of this test used one carrot against a two-vegetable recipe,
+  // which reads like the same check and is not: the inner loop advances through the
+  // slots either way, so that case comes out identical with the tally removed. It
+  // passed, it proved nothing, and the sabotage run is what said so.
+  {
+    std::vector<game::ItemStack> shortOne {stack("pumpkin", 1), stack("wheat", 1)};
+    const game::CookMatch m = game::matchCooking(game::Kitchen::Stove, shortOne, noBowl);
+    check(m.out != "stuffed_pumpkin",
+          "a pumpkin cannot be both the pumpkin and the vegetable in one recipe");
+
+    std::vector<game::ItemStack> full {stack("pumpkin", 1), stack("wheat", 1),
+                                       stack("carrot", 1)};
+    const game::CookMatch ok = game::matchCooking(game::Kitchen::Stove, full, noBowl);
+    check(ok.out == "stuffed_pumpkin", "but a separate vegetable alongside it can");
+
+    std::vector<game::ItemStack> one {stack("carrot", 1)};
+    check(game::matchCooking(game::Kitchen::Stove, one, noBowl).recipe < 0,
+          "and one vegetable is still not two");
+    std::vector<game::ItemStack> two {stack("carrot", 1), stack("onion", 1)};
+    const game::CookMatch veg = game::matchCooking(game::Kitchen::Stove, two, noBowl);
+    check(veg.recipe >= 0 && veg.out == "roast_vegetables", "where two of them are");
+  }
+
+  // --- consumption ----------------------------------------------------------
+  {
+    std::vector<game::ItemStack> slots {stack("carrot", 3), stack("onion", 1),
+                                        stack("cabbage", 1)};
+    game::ItemStack cup = stack("bowl", 2);
+    const game::CookMatch m = game::matchCooking(game::Kitchen::Pot, slots, cup);
+    if (m.recipe >= 0) {
+      const game::CookingRecipe& r =
+          game::recipeBook().cooking()[static_cast<std::size_t>(m.recipe)];
+      game::consumeCooking(r, slots, cup);
+      int total = 0;
+      for (const game::ItemStack& s : slots) total += s.count;
+      checkf(total == 2, "cooking takes exactly what the recipe asked for (%d left)",
+             total);
+      check(cup.count == 1, "and exactly one bowl");
+    }
+  }
+
+  // --- the stations actually run --------------------------------------------
+  {
+    // The pot: ingredients, a bowl, and fuel.
+    game::BlockEntity pot = game::makePot();
+    pot.slots[0] = stack("carrot", 1);
+    pot.slots[1] = stack("onion", 1);
+    pot.slots[2] = stack("cabbage", 1);
+    pot.container = stack("bowl", 1);
+    pot.fuel = stack("embercoal", 1);
+    for (int i = 0; i < 400; ++i) game::tickKitchen(pot, 0.1f);
+    checkf(!pot.output.empty(), "a fuelled pot cooks its ingredients into a meal (%s)",
+           pot.output.key.c_str());
+    check(pot.container.empty(), "consuming the bowl with them");
+
+    // No fuel, no meal — however long it sits there.
+    game::BlockEntity cold = game::makePot();
+    cold.slots[0] = stack("carrot", 1);
+    cold.slots[1] = stack("onion", 1);
+    cold.slots[2] = stack("cabbage", 1);
+    cold.container = stack("bowl", 1);
+    for (int i = 0; i < 400; ++i) game::tickKitchen(cold, 0.1f);
+    check(cold.output.empty(), "an unfuelled pot cooks nothing at all");
+
+    // The cutting board is the exception, and deliberately so.
+    game::BlockEntity board = game::makeCutting();
+    board.input = stack("beef_raw", 1);
+    for (int i = 0; i < 100; ++i) game::tickKitchen(board, 0.1f);
+    check(board.output.key == "meat_strips" && board.output.count == 2,
+          "the cutting board needs no fuel, and butchering one chop yields two strips");
+
+    // The stove took meat off the forge.
+    game::BlockEntity stove = game::makeStove();
+    stove.input = stack("beef_raw", 1);
+    stove.fuel = stack("embercoal", 1);
+    for (int i = 0; i < 200; ++i) game::tickKitchen(stove, 0.1f);
+    check(stove.output.key == "beef_cooked", "and the stove is where meat is cooked now");
+  }
+
+  // --- the balance promise --------------------------------------------------
+  //
+  // Asserted as an ORDERING, never as values: "a meal beats anything you can eat
+  // without cooking" is the design promise and survives tuning, where "a stew is 14"
+  // is a number that will change the first time anyone plays it.
+  {
+    const game::ItemDef* stew = game::getItem("hearty_stew");
+    const game::ItemDef* steak = game::getItem("beef_cooked");
+    const game::ItemDef* carrot = game::getItem("carrot");
+    if (stew && steak && carrot) {
+      checkf(stew->food > steak->food && stew->sat > steak->sat,
+             "a cooked meal beats the best uncooked food on both counts (%d/%g vs %d/%g)",
+             stew->food, static_cast<double>(stew->sat), steak->food,
+             static_cast<double>(steak->sat));
+      checkf(steak->food > carrot->food,
+             "and a cooked single food still beats a raw one (%d vs %d)", steak->food,
+             carrot->food);
+      // The whole point of saturation: a meal has to LAST, not merely fill.
+      checkf(stew->sat > static_cast<float>(stew->food) * 0.6f,
+             "a meal's saturation is better than the old flat rule would have given "
+             "it (%g vs %g)",
+             static_cast<double>(stew->sat), static_cast<double>(stew->food) * 0.6);
+    }
+  }
+
+  // Every meal has to be reachable, or it is decoration in the item table.
+  {
+    int meals = 0, reachable = 0;
+    for (const game::ItemDef& def : game::items().all()) {
+      if (def.type != game::ItemType::Food) continue;
+      if (def.icon != game::IconKind::Bowl && def.icon != game::IconKind::Plate) continue;
+      ++meals;
+      for (const game::CookingRecipe& r : game::recipeBook().cooking()) {
+        bool found = false;
+        for (const game::CookingRecipe::Tier& t : r.tiers) found = found || t.out == def.key;
+        if (found) {
+          ++reachable;
+          break;
+        }
+      }
+    }
+    checkf(meals == reachable && meals > 0, "every meal has a recipe that makes it (%d of %d)",
+           reachable, meals);
+  }
+
+  // --- persistence ----------------------------------------------------------
+  //
+  // The stations ride in their own length-prefixed section rather than in BENT,
+  // because BENT cannot describe a kind an older reader does not know: it would
+  // fail() and lose every entity after it. These check both halves of that claim —
+  // that a station round-trips, and that BENT is still clean of them.
+  {
+    save::WorldSave s;
+    s.meta.name = "Kitchen";
+    s.meta.seed = 12345;
+    game::BlockEntity pot = game::makePot();
+    pot.slots[0] = stack("carrot", 2);
+    pot.container = stack("bowl", 3);
+    pot.progress = 1.5f;
+    s.blockEntities[game::blockEntityKey(4, 70, -9)] = std::move(pot);
+    s.blockEntities[game::blockEntityKey(1, 70, 1)] = game::makeChest();
+
+    const std::vector<std::uint8_t> bytes = save::encode(s);
+    save::WorldSave back;
+    std::string err;
+    check(save::decode(bytes.data(), bytes.size(), back, &err),
+          "a world holding a cooking pot saves and loads");
+
+    const auto it = back.blockEntities.find(game::blockEntityKey(4, 70, -9));
+    check(it != back.blockEntities.end() && it->second.kind == game::BlockEntityKind::Pot,
+          "and the pot comes back as a pot");
+    if (it != back.blockEntities.end()) {
+      check(it->second.slots.size() == game::kPotSlots &&
+                it->second.slots[0].key == "carrot" && it->second.slots[0].count == 2,
+            "with its ingredients");
+      check(it->second.container.key == "bowl" && it->second.container.count == 3,
+            "and its bowls");
+      check(it->second.progress == 1.5f, "and how far through the cook it was");
+    }
+    check(back.blockEntities.count(game::blockEntityKey(1, 70, 1)) == 1,
+          "and the chest beside it survived too");
+
+    // Byte-identical re-encode, the same check testSaves makes: if the station
+    // section round-trips lossily this is what notices.
+    check(save::encode(back) == bytes, "and it re-encodes to byte-identical output");
+
+    // THE POINT OF THE WHOLE DESIGN: a reader that does not know this tag skips it
+    // and still gets everything else. Simulated by renaming the tag to one no build
+    // has ever had, which is exactly what an older build sees — four bytes it does
+    // not recognise.
+    //
+    // The payload is CRC'd, so the checksum has to be recomputed afterwards or the
+    // file is merely corrupt and the load fails for the wrong reason. The first
+    // version of this flipped the byte and stopped there, and "save file is corrupt"
+    // looked convincingly like a real failure.
+    constexpr std::size_t kHeader = 8 + 2 + 2 + 4 + 4;  // magic, ver, pad, size, crc
+    std::vector<std::uint8_t> masked = bytes;
+    const std::uint8_t needle[4] = {'S', 'T', 'A', 'T'};
+    bool patched = false;
+    for (std::size_t i = kHeader; i + 4 <= masked.size() && !patched; ++i) {
+      if (std::equal(needle, needle + 4, masked.begin() + static_cast<std::ptrdiff_t>(i))) {
+        masked[i] = 'X';  // a tag from the future
+        patched = true;
+      }
+    }
+    check(patched, "the station section is findable in the bytes, so the next check is real");
+    if (patched) {
+      const std::uint32_t crc = crc32(masked.data() + kHeader, masked.size() - kHeader);
+      masked[kHeader - 4] = static_cast<std::uint8_t>(crc);
+      masked[kHeader - 3] = static_cast<std::uint8_t>(crc >> 8);
+      masked[kHeader - 2] = static_cast<std::uint8_t>(crc >> 16);
+      masked[kHeader - 1] = static_cast<std::uint8_t>(crc >> 24);
+    }
+    save::WorldSave older;
+    const bool loaded = save::decode(masked.data(), masked.size(), older, &err);
+    checkf(loaded, "a build that does not know the station tag still loads the world (%s)",
+           err.c_str());
+    check(older.blockEntities.count(game::blockEntityKey(1, 70, 1)) == 1,
+          "and keeps the chest it does understand, rather than losing it to the pot");
+  }
+
+  // --- forward compatibility: an unknown station KIND ------------------------
+  //
+  // The length prefix on each entry is the entire reason this section is permanent,
+  // and nothing above tests it: when the kind is known the reader lands exactly on
+  // the end of the body anyway, so removing the seek changes nothing a normal save
+  // can show. The sabotage run is what said so.
+  //
+  // So forge the case this build cannot produce. Two stations are written, the
+  // FIRST one's kind byte is overwritten with a value no build has ever had, and the
+  // second must still arrive. That is precisely what a future kind will look like to
+  // today's reader.
+  {
+    save::WorldSave s;
+    s.meta.name = "Future";
+    s.meta.seed = 99;
+    s.blockEntities[game::blockEntityKey(0, 64, 0)] = game::makeStove();
+    game::BlockEntity later = game::makePot();
+    later.container = stack("bowl", 7);
+    s.blockEntities[game::blockEntityKey(9, 64, 9)] = std::move(later);
+
+    std::vector<std::uint8_t> bytes = save::encode(s);
+    constexpr std::size_t kHeader = 8 + 2 + 2 + 4 + 4;
+    const std::uint8_t tag[4] = {'S', 'T', 'A', 'T'};
+    std::size_t at = 0;
+    for (std::size_t i = kHeader; i + 4 <= bytes.size(); ++i) {
+      if (std::equal(tag, tag + 4, bytes.begin() + static_cast<std::ptrdiff_t>(i))) {
+        at = i;
+        break;
+      }
+    }
+    // tag(4) sectionLen(4) count(4) x(4) y(4) z(4) bodyLen(4) -> the kind byte.
+    const std::size_t kindAt = at + 4 + 4 + 4 + 12 + 4;
+    check(at != 0 && kindAt < bytes.size(), "the first station's kind byte was located");
+    if (at != 0 && kindAt < bytes.size()) {
+      bytes[kindAt] = 99;  // a station kind from some later version
+      const std::uint32_t crc = crc32(bytes.data() + kHeader, bytes.size() - kHeader);
+      bytes[kHeader - 4] = static_cast<std::uint8_t>(crc);
+      bytes[kHeader - 3] = static_cast<std::uint8_t>(crc >> 8);
+      bytes[kHeader - 2] = static_cast<std::uint8_t>(crc >> 16);
+      bytes[kHeader - 1] = static_cast<std::uint8_t>(crc >> 24);
+
+      save::WorldSave back;
+      std::string err;
+      checkf(save::decode(bytes.data(), bytes.size(), back, &err),
+             "a station kind from the future does not break the load (%s)", err.c_str());
+      const auto it = back.blockEntities.find(game::blockEntityKey(9, 64, 9));
+      check(it != back.blockEntities.end() && it->second.container.count == 7,
+            "and the station AFTER it still arrives intact, which is what the length "
+            "prefix is for");
+    }
   }
 }
 
@@ -7773,10 +8517,28 @@ void testCompletion() {
   {
     // The point of the whole exercise: Hollowreach's stone is called greystone,
     // and nobody types a key they have not read.
+    //
+    // "sto" alone no longer reaches it, and that is a real finding rather than a
+    // broken test. fuzzyScore pays +14 for a match on a word boundary and +2 for one
+    // buried mid-word, so every `<tool>_stone` outranks `greystone` outright — and
+    // the Farming update's hoes added a sixth of them, which pushed greystone past
+    // the ten-row cap. The crowding was always there; one more tool tipped it over.
+    //
+    // Asserted with the *stem* a player actually gets to after one more keystroke,
+    // and paired with a check that the bare query still lands in the stone family,
+    // so this keeps testing discoverability instead of quietly testing nothing.
     const cmd::Completion c = cmd::complete("/give sto", 9, owner);
+    int stoneish = 0;
+    for (const cmd::Suggestion& s : c.items) {
+      if (s.label.find("stone") != std::string::npos) ++stoneish;
+    }
+    checkf(stoneish >= 5, "'sto' offers the stone family (%d of %zu rows)", stoneish,
+           c.items.size());
+
+    const cmd::Completion g = cmd::complete("/give greys", 11, owner);
     bool found = false;
-    for (const cmd::Suggestion& s : c.items) found = found || s.label == "greystone";
-    check(found, "and 'sto' finds greystone, which is not what anyone would guess");
+    for (const cmd::Suggestion& s : g.items) found = found || s.label == "greystone";
+    check(found, "and 'greys' finds greystone, which is not what anyone would guess");
     check(c.begin == 6 && c.end == 9, "replacing exactly the argument being typed");
   }
   {
@@ -9135,6 +9897,9 @@ int runSelfTest() {
   testAutoStep();
   testCrouch();
   testSurvival();
+  testNutrition();
+  testFarming();
+  testCooking();
   testLayout();
   testEntities();
   testSaves();

@@ -75,7 +75,18 @@ inline constexpr int pocketCeiling(int ver) { return seaLevel(ver) - kPocketCeil
 // is the property that lets an existing world be moved forward without its landscape
 // shifting under what the player built on it. The golden vectors hash every version
 // from 1 up, so that claim is checked rather than asserted.
-inline constexpr int kGenVersion = 5;
+//
+// v6 adds wild crop stands, and likewise adds nothing else. It touches one function,
+// pickFoliage, behind an `if (ver >= 6)`; the terrain, the caves, the lakes and the
+// dungeons are all bit-identical to v5. A stand generates at its RIPE stage, because
+// the growth sweep only visits crops a player planted and wild ones would otherwise
+// stay seedlings forever.
+//
+// The one thing to watch when moving a world from v5 to v6: crop stands appear only
+// in chunks generated AFTER the move, so an explored world grows them at its
+// frontier and not at home. That is the same behaviour dungeons had at v5 and is a
+// property of re-derivation, not a bug to fix.
+inline constexpr int kGenVersion = 6;
 
 enum class Biome : std::uint8_t { Meadow = 0, Forest = 1, Birch = 2, Desert = 3, Snow = 4 };
 inline constexpr int kBiomeCount = 5;

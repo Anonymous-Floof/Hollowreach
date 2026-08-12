@@ -235,4 +235,115 @@ float fuelValue(std::string_view key) {
   return FuelTable::get().value(std::string(key));
 }
 
+// --- the kitchen -------------------------------------------------------------
+
+bool cookTagMatches(std::string_view want, std::string_view have) {
+  if (want.empty() || have.empty()) return false;
+  if (want[0] != '#') return want == have;
+
+  // Food tags are derived from the item's own NutritionGroup rather than listed, so
+  // a crop added later joins its group by existing and cannot be left out of one.
+  const ItemDef* def = getItem(have);
+  if (def != nullptr && def->group != NutritionGroup::None) {
+    const char* tag = nullptr;
+    switch (def->group) {
+      case NutritionGroup::Grain: tag = "#grain"; break;
+      case NutritionGroup::Vegetable: tag = "#vegetable"; break;
+      case NutritionGroup::Fruit: tag = "#fruit"; break;
+      case NutritionGroup::Protein: tag = "#protein"; break;
+      case NutritionGroup::Dairy: tag = "#dairy"; break;
+      case NutritionGroup::None: break;
+    }
+    if (tag != nullptr && want == tag) return true;
+  }
+  // Fall through to the block tags, so #planks and #logs keep working here too.
+  return world::blocks().ingredientMatches(want, have);
+}
+
+CookMatch matchCooking(Kitchen station, const std::vector<ItemStack>& slots,
+                       const ItemStack& container) {
+  CookMatch best;
+  int bestDemand = -1;
+  const std::vector<CookingRecipe>& table = recipeBook().cooking();
+
+  for (std::size_t ri = 0; ri < table.size(); ++ri) {
+    const CookingRecipe& r = table[ri];
+    if (r.station != station) continue;
+    if (!r.container.empty() && (container.empty() || container.key != r.container)) continue;
+
+    // Greedy allocation over a scratch tally of the counts. A slot may only be spent
+    // once, which is the whole reason this is not "test each requirement against the
+    // slots independently": two #vegetable requirements must need two vegetables,
+    // not one vegetable counted twice.
+    std::vector<int> left;
+    left.reserve(slots.size());
+    for (const ItemStack& s : slots) left.push_back(s.empty() ? 0 : s.count);
+
+    int score = 0;
+    bool ok = true;
+    for (const auto& [want, need] : r.ingredients) {
+      int remaining = need;
+      for (std::size_t si = 0; si < slots.size() && remaining > 0; ++si) {
+        if (left[si] <= 0 || !cookTagMatches(want, slots[si].key)) continue;
+        const int take = left[si] < remaining ? left[si] : remaining;
+        left[si] -= take;
+        remaining -= take;
+        if (const ItemDef* def = getItem(slots[si].key)) score += def->quality * take;
+      }
+      if (remaining > 0) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+
+    const CookingRecipe::Tier* tier = r.tierFor(score);
+    if (tier == nullptr) continue;
+
+    // THE MOST DEMANDING SATISFIED RECIPE WINS, not the first one found.
+    //
+    // Crafting can take the first match because shapes are distinct. Cooking cannot:
+    // its requirements are tags, so a general recipe matches everything a specific
+    // one does. "Any two vegetables -> Roast Vegetables" is satisfied by the pumpkin
+    // and carrot sitting in a Stuffed Pumpkin, and first-match-wins would hand the
+    // player the lesser dish every single time while the better recipe sat there
+    // looking correct.
+    //
+    // Demand is the total ingredient count, so a three-ingredient recipe beats a
+    // two-ingredient one. Ties keep table order, which preserves the old contract
+    // that a recipe added later cannot shadow one already there.
+    int demand = 0;
+    for (const auto& [want, need] : r.ingredients) {
+      (void)want;
+      demand += need;
+    }
+    if (demand <= bestDemand) continue;
+    bestDemand = demand;
+    best.recipe = static_cast<int>(ri);
+    best.score = score;
+    best.out = tier->out;
+    best.outCount = tier->count;
+    best.seconds = r.seconds;
+  }
+  return best;
+}
+
+void consumeCooking(const CookingRecipe& r, std::vector<ItemStack>& slots,
+                    ItemStack& container) {
+  for (const auto& [want, need] : r.ingredients) {
+    int remaining = need;
+    for (std::size_t si = 0; si < slots.size() && remaining > 0; ++si) {
+      if (slots[si].empty() || !cookTagMatches(want, slots[si].key)) continue;
+      const int take = slots[si].count < remaining ? slots[si].count : remaining;
+      slots[si].count -= take;
+      remaining -= take;
+      if (slots[si].count <= 0) slots[si].clear();
+    }
+  }
+  if (!r.container.empty() && !container.empty()) {
+    container.count--;
+    if (container.count <= 0) container.clear();
+  }
+}
+
 }  // namespace hr::game
