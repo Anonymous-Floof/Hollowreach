@@ -5,15 +5,3 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
-
-recipe(147)  # bowl: was the boat's hull exactly, so it could not be crafted at all
-             # and every pot meal needs one. Now a wooden V, the bucket's shape.
-recipe(149)  # stove: was the forge's ring exactly, and the forge is registered
-             # first, so the grid handed back a forge. Now has an embercoal firebox.
-fuel(bowl)   # 11.25 -> 6.75, and correct: derived from the recipe, and a bowl is
-             # now three planks rather than five. Nothing else changed shape, so
-             # no other fuel value moved.
-
-# Note what is NOT here: no gen, atlas, loot or mesh labels, and recipes still
-# numbers 221. Both changes edited a recipe in place rather than inserting one,
-# which is the whole reason the positional labels did not shift.
