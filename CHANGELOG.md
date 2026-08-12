@@ -60,6 +60,10 @@ what it lets them do, never by the refactor that made it possible.
   that is watered and fed is ready in roughly seven minutes. Shake **Wild Seeds** out
   of tall grass if you have not found a patch yet.
 
+  **Tilled soil shows what it is worth.** Dry, watered, fertilised and both are four
+  visibly different tiles, darkening as the ground improves, so a field can be read
+  by looking at it rather than remembered.
+
 - **A kitchen, and a reason to use it.** Three new stations, all crafted at a
   workbench:
   - the **Cutting Board** mills grain into flour and butchers meat — one raw chop

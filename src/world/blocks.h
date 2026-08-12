@@ -305,8 +305,16 @@ struct WellKnownBlocks {
   // The five flowers, in the order worldgen indexes them.
   std::array<BlockId, 5> flowers {};
 
+  // Tilled soil is FOUR blocks, not one: plain or enriched, each dry or damp.
+  //
+  // A cube resolves its six face textures once when the registry is built, so one
+  // block can only ever have one top tile. Showing a player that their field is
+  // watered — or fertilised, or both — therefore has to be four blocks swapped
+  // between, and CropSim does the swapping as it sweeps.
   BlockId farmland = 0;
+  BlockId farmlandWet = 0;
   BlockId farmlandRich = 0;
+  BlockId farmlandRichWet = 0;
   BlockId cropRice = 0;  // keyed off wetness, not biome; see wk() in blocks.cpp
 
   // Wild crops, grouped by the biome that favours them. Worldgen picks a patch's
@@ -321,5 +329,34 @@ struct WellKnownBlocks {
 };
 
 const WellKnownBlocks& wk();
+
+// --- tilled soil, in one place ----------------------------------------------
+//
+// Four blocks mean four chances for a caller to test for the wrong one, and that
+// has already happened once here: sowing checked `== farmland` and silently refused
+// to plant in the fertilised ground it had just rewarded the player for making.
+// Every question about tilled soil goes through these three functions.
+
+// Any of the four: is this ground a crop can stand in?
+inline bool isFarmland(BlockId id) {
+  const WellKnownBlocks& w = wk();
+  return id == w.farmland || id == w.farmlandWet || id == w.farmlandRich ||
+         id == w.farmlandRichWet;
+}
+
+// Has it been fertilised? True for both the dry and the damp enriched blocks.
+inline bool isRichFarmland(BlockId id) {
+  const WellKnownBlocks& w = wk();
+  return id == w.farmlandRich || id == w.farmlandRichWet;
+}
+
+// Which of the four a tile should BE, given what it is and whether water reaches
+// it. The single source of truth for the appearance swap, so the sweep cannot
+// disagree with a test about what damp fertilised soil looks like.
+inline BlockId farmlandFor(bool rich, bool moist) {
+  const WellKnownBlocks& w = wk();
+  if (rich) return moist ? w.farmlandRichWet : w.farmlandRich;
+  return moist ? w.farmlandWet : w.farmland;
+}
 
 }  // namespace hr::world

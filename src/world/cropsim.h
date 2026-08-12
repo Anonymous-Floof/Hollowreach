@@ -34,6 +34,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
+
+#include "world/blocks.h"  // BlockId, for the deferred soil swaps
 
 namespace hr::world {
 
@@ -78,6 +81,15 @@ class CropSim {
   static constexpr float kFertiliserBoost = 2.0f;
 
  private:
+  // A soil tile that should change to show it is watered or fertilised. Collected
+  // during the walk and applied after it, because setBlock edits the very index the
+  // walk is iterating.
+  struct SoilSwap {
+    int x, y, z;
+    BlockId id;
+  };
+  std::vector<SoilSwap> soilSwaps_;
+
   World& world_;
   // Where the last sweep stopped, so a big farm is covered across several sweeps
   // rather than the same prefix every time.

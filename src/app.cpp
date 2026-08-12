@@ -635,13 +635,18 @@ game::InteractHooks App::makeInteractHooks() {
 
     switch (plan.action) {
       case game::FarmAction::Till:
-        world_->setBlock(x, y, z, w.farmland, 0);
+        // The right one of the four straight away, rather than plain soil that the
+        // sweep corrects a second or two later. Tilling next to a river should look
+        // damp the instant the hoe comes down.
+        world_->setBlock(x, y, z, world::farmlandFor(false, world_->moistFarmland(x, y, z)),
+                         0);
         audio::sfx::blockPlace(
             reg.def(w.farmland),
             Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
         return game::UseResult::Used;  // a hoe is not consumed by using it
       case game::FarmAction::Enrich:
-        world_->setBlock(x, y, z, w.farmlandRich, 0);
+        world_->setBlock(x, y, z, world::farmlandFor(true, world_->moistFarmland(x, y, z)),
+                         0);
         audio::sfx::blockPlace(
             reg.def(w.farmlandRich),
             Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});

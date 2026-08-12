@@ -47,8 +47,26 @@ void CropSim::tick(float dt) {
     // walked away and came back.
     if (def.cropStages <= 0) continue;
 
+    // The soil, read once and used for both what the tile LOOKS like and how fast
+    // the crop grows. Two separate readings would be two things to fall out of step.
+    const BlockId soil = world_.getBlock(x, y - 1, z);
+    const bool tilled = isFarmland(soil);
+    const bool rich = isRichFarmland(soil);
+    const bool moist = tilled && world_.moistFarmland(x, y - 1, z);
+
+    // Make the ground show its state. Moisture was computed on demand and never
+    // drawn, so a watered field looked exactly like a dry one and the doubled growth
+    // rate read as folklore. Deferred like the advances below, because setBlock
+    // during the walk would edit the index being walked.
+    if (tilled) {
+      const BlockId want = farmlandFor(rich, moist);
+      if (want != soil) soilSwaps_.push_back({x, y - 1, z, want});
+    }
+
     const int stage = cropStageOf(world_.getMeta(x, y, z));
-    if (stage >= def.cropStages - 1) continue;  // already ripe
+    // Ripe crops stop growing but their soil is still refreshed above — a finished
+    // field should not freeze its ground in whatever state it happened to ripen in.
+    if (stage >= def.cropStages - 1) continue;
 
     // xorshift32. Growth is not re-derived from anything, so it does not need the
     // coordinate-hash determinism the generator does — and must not have it, or
@@ -59,16 +77,13 @@ void CropSim::tick(float dt) {
     const float roll = static_cast<float>(rng_ & 0xFFFFFF) / 16777216.0f;
 
     // Damp soil roughly doubles the rate, which is the whole reason to dig a farm
-    // beside water rather than anywhere convenient. Read from the block beneath the
-    // crop, so re-tilling somewhere better actually helps.
+    // beside water rather than anywhere convenient.
     float chance = kAdvanceChance;
-    const BlockId soil = world_.getBlock(x, y - 1, z);
-    const bool tilled = soil == w.farmland || soil == w.farmlandRich;
-    if (tilled && world_.moistFarmland(x, y - 1, z)) chance *= kMoistBoost;
+    if (moist) chance *= kMoistBoost;
     // Fertiliser multiplies the RATE rather than skipping a stage. A skip would make
     // the item a way to not play the system; a multiplier makes it a way to play it
     // faster, and it stacks with damp soil so a well-made farm is worth making.
-    if (soil == w.farmlandRich) chance *= kFertiliserBoost;
+    if (rich) chance *= kFertiliserBoost;
     // Sky light, not block light: a torch keeps monsters off a field but does not
     // make anything grow, and a crop under a floor should sit there indefinitely
     // rather than ripening in the dark.
@@ -82,6 +97,10 @@ void CropSim::tick(float dt) {
     // touched and only the mesh is dirtied.
     world_.setMeta(a.x, a.y, a.z, cropMetaFor(a.stage));
   }
+  // setBlock here, not setMeta: these are four different blocks, because a cube's
+  // faces are fixed at registry-build time and cannot be chosen per cell.
+  for (const SoilSwap& s : soilSwaps_) world_.setBlock(s.x, s.y, s.z, s.id, 0);
+  soilSwaps_.clear();
 }
 
 }  // namespace hr::world

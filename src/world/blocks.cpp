@@ -536,6 +536,15 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "farmland_rich", "Fertilised Farmland").cube().solidOpaque()
       .tex3("farmland_rich", "loam", "loam").hard(0.6f).shovel().drops("loam");
 
+  // The damp halves of both. A `farmland_wet` tile was painted when farmland was
+  // first added and then never referenced by anything — the moisture bonus was real
+  // and completely invisible, so watering a field looked like superstition. CropSim
+  // swaps between these as it sweeps.
+  Builder(B, "farmland_wet", "Farmland").cube().solidOpaque()
+      .tex3("farmland_wet", "loam", "loam").hard(0.6f).shovel().drops("loam");
+  Builder(B, "farmland_rich_wet", "Fertilised Farmland").cube().solidOpaque()
+      .tex3("farmland_rich_wet", "loam", "loam").hard(0.6f).shovel().drops("loam");
+
   // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
   //
@@ -696,6 +705,8 @@ const WellKnownBlocks& wk() {
 
     w.farmland = id("farmland");
     w.farmlandRich = id("farmland_rich");
+    w.farmlandWet = id("farmland_wet");
+    w.farmlandRichWet = id("farmland_rich_wet");
 
     // Wild crop lists, per biome. Order is load-bearing here too — worldgen indexes
     // these with a hash roll, so REORDERING ONE CHANGES EVERY WORLD that has already

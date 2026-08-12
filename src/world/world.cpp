@@ -948,7 +948,7 @@ bool World::harvestDrop(int wx, int wy, int wz, std::string& key, int& count) {
     // bigger number on every harvest, where a coin flip makes a good plot feel
     // lucky as well as fast — and it keeps the fertiliser worth spreading on a
     // field you have already watered.
-    if (wy > 0 && getBlock(wx, wy - 1, wz) == wk().farmlandRich && (cropDropRng_() & 1u)) {
+    if (wy > 0 && isRichFarmland(getBlock(wx, wy - 1, wz)) && (cropDropRng_() & 1u)) {
       ++n;
     }
     key = def.ripeDrop;

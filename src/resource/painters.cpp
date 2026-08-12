@@ -1374,6 +1374,23 @@ std::vector<PainterEntry> buildPainters() {
   // Fertilised soil: the damp tile, darkened, with green flecks worked through it.
   // It has to be tellable from plain farmland at a glance and across a whole field,
   // which is why the flecks are scattered rather than a border.
+  // Fertilised AND watered: the enriched tile taken darker still, so a field reads
+  // at a glance as one of four states rather than two. The green flecks stay bright
+  // against it, which is what keeps it saying "fertilised" and not merely "wet".
+  add("farmland_rich_wet", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x2e2013), 12, rng);
+    for (int i = 0; i < 26; ++i) {
+      const int x = static_cast<int>(rng.next() * T);
+      const int y = static_cast<int>(rng.next() * T);
+      const double f = rng.next();
+      px(img, ox, oy, x, y, 62 + f * 36, 102 + f * 42, 44 + f * 24);
+    }
+    for (int x = 0; x < T; ++x) {
+      px(img, ox, oy, x, 4, 40, 28, 17);
+      px(img, ox, oy, x, 11, 40, 28, 17);
+    }
+  });
+
   add("farmland_rich", [](Image& img, int ox, int oy, Mulberry32& rng) {
     noisy(img, ox, oy, hex(0x4a3320), 14, rng);
     for (int i = 0; i < 26; ++i) {

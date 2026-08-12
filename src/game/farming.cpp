@@ -30,7 +30,11 @@ FarmPlan planFarmUse(const ItemDef& item, world::BlockId target, bool clearAbove
   // a second dose is refused rather than silently eaten — the tile is already rich
   // and there is nothing more to buy.
   if (item.key == "fertiliser") {
-    if (target == w.farmland) plan.action = FarmAction::Enrich;
+    // Tilled but not already enriched — either dampness, since the wet block is the
+    // same soil with a different face.
+    if (world::isFarmland(target) && !world::isRichFarmland(target)) {
+      plan.action = FarmAction::Enrich;
+    }
     return plan;
   }
 
@@ -55,7 +59,7 @@ FarmPlan planFarmUse(const ItemDef& item, world::BlockId target, bool clearAbove
   // now, which is there whenever it is wanted and silent when it is not.
   // Either soil sows. Fertilised farmland is still farmland — forgetting that here
   // would mean the reward for making the good soil was being unable to plant in it.
-  if (target != w.farmland && target != w.farmlandRich) return plan;
+  if (!world::isFarmland(target)) return plan;
   if (!clearAbove) return plan;
 
   plan.action = FarmAction::Sow;

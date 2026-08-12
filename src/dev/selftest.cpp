@@ -1595,6 +1595,44 @@ void testFarming() {
       return advances;
     };
 
+    // --- the soil has to SHOW its state -------------------------------------
+    //
+    // The moisture bonus was real and completely invisible for the whole of this
+    // update: a `farmland_wet` tile was painted and then referenced by nothing, so
+    // watering a field changed the growth rate and not one pixel. A player has no
+    // way to tell a working mechanic from a superstition.
+    {
+      auto w2 = makeWorld();
+      const world::BlockId wheatId = reg.idOf("crop_wheat");
+      w2->setBlock(gx, gy, gz, w.farmland, 0);
+      w2->setBlock(gx, gy + 1, gz, wheatId, world::cropMetaFor(0));
+      w2->tickCrops(world::CropSim::kTick);
+      check(w2->getBlock(gx, gy, gz) == w.farmland, "dry soil stays looking dry");
+
+      w2->setBlock(gx + 3, gy, gz, w.water, 0);
+      w2->tickCrops(world::CropSim::kTick);
+      check(w2->getBlock(gx, gy, gz) == w.farmlandWet,
+            "and darkens once water is in reach of it");
+
+      // Fertilising damp ground has to show BOTH, not lose one to the other.
+      w2->setBlock(gx, gy, gz, w.farmlandRich, 0);
+      w2->tickCrops(world::CropSim::kTick);
+      check(w2->getBlock(gx, gy, gz) == w.farmlandRichWet,
+            "fertilised AND watered soil shows both at once");
+
+      // And it goes back. A pond drained should not leave the field looking wet
+      // forever, which is what a one-way swap would do.
+      w2->setBlock(gx + 3, gy, gz, world::kAir, 0);
+      w2->tickCrops(world::CropSim::kTick);
+      check(w2->getBlock(gx, gy, gz) == w.farmlandRich,
+            "and dries back out when the water goes");
+
+      // The swap must not cost the crop standing on it. setBlock on the soil wakes
+      // its neighbours, and a crop needs solid ground — all four have to qualify.
+      check(w2->getBlock(gx, gy + 1, gz) == wheatId,
+            "and the crop standing on it survives every swap");
+    }
+
     // The reading itself, first: a boost cannot apply if the ground is not seen as
     // damp, and that scan is easy to get subtly wrong.
     {
