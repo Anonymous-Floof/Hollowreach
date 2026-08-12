@@ -252,9 +252,22 @@ void Hud::drawDebug(Ui2D& ui, Text& text, const HudFrame& frame) const {
 
   std::string targetName = "\xE2\x80\x94";  // em dash
   if (frame.hasTarget && frame.world) {
-    targetName = world::blocks()
-                     .def(frame.world->getBlock(frame.targetX, frame.targetY, frame.targetZ))
-                     .name;
+    const world::BlockId id =
+        frame.world->getBlock(frame.targetX, frame.targetY, frame.targetZ);
+    const world::BlockDef& def = world::blocks().def(id);
+    targetName = def.name;
+    // A crop also says how far along it is. Growth is otherwise only legible by
+    // staring at the billboard and guessing, and "is this one ripe" is the single
+    // most common question a farm asks. Stages are stored from zero and counted
+    // from one here, because nobody thinks of a seedling as stage 0.
+    if (def.cropStages > 0) {
+      const int stage =
+          world::cropStageOf(frame.world->getMeta(frame.targetX, frame.targetY, frame.targetZ));
+      char crop[96];
+      std::snprintf(crop, sizeof crop, "%s, stage %d/%d%s", def.name.c_str(), stage + 1,
+                    def.cropStages, stage + 1 >= def.cropStages ? " (ripe)" : "");
+      targetName = crop;
+    }
   }
 
   // js/ui/hud.js:158-159 — eight compass points, indexed off yaw in 45 degree steps.

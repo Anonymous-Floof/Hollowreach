@@ -52,6 +52,7 @@ tile(item/soybean)
 tile(item/wild_seeds)
 tile(item/bowl)
 tile(item/flour)
+tile(item/fertiliser)
 
 # The kitchen: three station blocks and the six hoes.
 tile(block/cooking_pot*)

@@ -468,6 +468,8 @@ BlockRegistry::BlockRegistry() {
   // ---------------------------------------------------------------------------
   Builder(B, "farmland", "Farmland").cube().solidOpaque()
       .tex3("farmland", "loam", "loam").hard(0.6f).shovel().drops("loam");
+  // (Fertilised farmland is registered at the very END of this table, not here
+  // beside plain farmland where it belongs by subject. See the note down there.)
 
   {
     struct CropSpec {
@@ -519,6 +521,20 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "cooking_pot", "Cooking Pot").cube().solidOpaque()
       .tex3("cooking_pot_top", "cooking_pot_side", "greystone").hard(2.2f)
       .pick(tier::kWood).drops("cooking_pot").station(Station::Pot);
+
+  // Enriched soil. A separate block rather than a bit of farmland's metadata,
+  // because the mesher only picks a tile by meta for CROSS blocks — that is how crop
+  // stages work. A cube's faces are resolved once at registry-build time, so a
+  // fertilised tile has to BE a different block to look like one, and it must look
+  // like one or nobody can tell which rows they have already treated.
+  //
+  // Registered LAST rather than beside plain farmland, where it obviously belongs.
+  // It was written there first and that moved every crop and station id up by one,
+  // which the golden gate would have reported as the whole v6 world changing when
+  // not a single cell of terrain had. Ids are handed out in registration order; new
+  // blocks go at the end, however badly they read there.
+  Builder(B, "farmland_rich", "Fertilised Farmland").cube().solidOpaque()
+      .tex3("farmland_rich", "loam", "loam").hard(0.6f).shovel().drops("loam");
 
   // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
@@ -679,6 +695,7 @@ const WellKnownBlocks& wk() {
                  id("flower_dandelion"), id("flower_violet")};
 
     w.farmland = id("farmland");
+    w.farmlandRich = id("farmland_rich");
 
     // Wild crop lists, per biome. Order is load-bearing here too — worldgen indexes
     // these with a hash roll, so REORDERING ONE CHANGES EVERY WORLD that has already

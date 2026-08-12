@@ -23,7 +23,10 @@ enum class FarmAction : std::uint8_t {
   None,
   Till,        // turn the target into farmland; the tool is not consumed
   Sow,         // plant `crop` in the cell above; one seed is consumed
-  NeedsTilling  // they are holding a seed over bare soil: worth saying so
+  Enrich,  // fertiliser on tilled soil: doubles the growth rate of whatever is sown
+  // There is deliberately no "NeedsTilling" here any more. Bare soil is what a
+  // player looks at most of the time, so a hint keyed off it fired constantly while
+  // they were only trying to eat. Sowing simply does not apply, and the caller eats.
 };
 
 struct FarmPlan {

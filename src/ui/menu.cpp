@@ -104,7 +104,10 @@ constexpr Control kControls[] = {
     {"E", "Inventory"},
     {"H", "Recipe book"},
     {"M", "Atlas map"},
-    {"Q", "Drop one (hold to keep going Â· Ctrl+Q: stack)"},
+    // The middot as an escape, like every other row here. It was pasted in as a
+    // literal once and came out as "Â·" — UTF-8 bytes re-encoded as if they were
+    // Latin-1, which is what mojibake looks like when it survives into a string.
+    {"Q", "Drop one (hold to keep going \xC2\xB7 Ctrl+Q: stack)"},
     {"F1", "Hide the interface"},
     {"F2", "Screenshot"},
     {"F3", "Debug overlay"},

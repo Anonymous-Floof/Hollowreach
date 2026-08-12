@@ -250,10 +250,17 @@ void RecipeBook::buildData() {
   // the game would be uncraftable-by-discovery — the player would have to be told
   // the ingredients by somebody who read the source.
   for (const game::CookingRecipe& r : game::recipeBook().cooking()) {
-    // One row per TIER, not one per recipe. The whole point of tiering is that the
-    // same ingredients make a better meal when they are better ingredients, and a
-    // book that only listed the base result would hide the interesting half.
-    for (const game::CookingRecipe::Tier& t : r.tiers) {
+    // One row per TIER, because the tiers are the interesting half — but the rows
+    // have to be TOLD APART, and they were not.
+    //
+    // Every tier of a recipe has the same ingredient list, so listing them plainly
+    // produced two rows of identical chips: Vegetable Soup and Hearty Stew showing
+    // the same two recipes, with nothing on screen explaining why one differed. The
+    // ingredients are not what separates them; the QUALITY of the ingredients is.
+    // So a tier above the base says so, and the base says what it is.
+    const bool tiered = r.tiers.size() > 1;
+    for (std::size_t ti = 0; ti < r.tiers.size(); ++ti) {
+      const game::CookingRecipe::Tier& t = r.tiers[ti];
       Entry e;
       for (const auto& [key, count] : r.ingredients) {
         // A "#tag" is not an item and has no icon, so show a representative of the
@@ -264,7 +271,14 @@ void RecipeBook::buildData() {
       e.outKey = t.out;
       e.outCount = t.count;
       e.name = displayName(t.out);
-      addEntry("cook:" + t.out, "cooking", std::move(e));
+      if (tiered) {
+        // Authored best-first, so anything before the last entry is an upgrade.
+        e.name += ti + 1 < r.tiers.size() ? "  (fine ingredients)" : "  (plain ingredients)";
+      }
+      // Keyed by tier as well as output, or two recipes that both top out at Hearty
+      // Stew collapse into one family and the second is silently dropped.
+      addEntry("cook:" + t.out + ":" + std::to_string(r.seconds) + ":" + std::to_string(ti),
+               "cooking", std::move(e));
     }
   }
 }

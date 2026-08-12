@@ -89,6 +89,10 @@ struct UiCallbacks {
   std::function<void()> openGallery;
   // The block entity behind an open station screen, or nullptr when it has gone.
   std::function<game::BlockEntity*()> currentStation;
+  // The five diet levels, for the inventory screen's bars. A callback rather than a
+  // stored copy for the same reason the station is one: it is the player's, it
+  // changes every frame, and the interface must not own a stale second copy of it.
+  std::function<const game::Diet*()> currentDiet;
   std::function<void()> closeStation;
 };
 

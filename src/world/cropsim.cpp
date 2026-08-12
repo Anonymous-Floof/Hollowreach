@@ -62,9 +62,13 @@ void CropSim::tick(float dt) {
     // beside water rather than anywhere convenient. Read from the block beneath the
     // crop, so re-tilling somewhere better actually helps.
     float chance = kAdvanceChance;
-    if (world_.getBlock(x, y - 1, z) == w.farmland && world_.moistFarmland(x, y - 1, z)) {
-      chance *= 2.0f;
-    }
+    const BlockId soil = world_.getBlock(x, y - 1, z);
+    const bool tilled = soil == w.farmland || soil == w.farmlandRich;
+    if (tilled && world_.moistFarmland(x, y - 1, z)) chance *= kMoistBoost;
+    // Fertiliser multiplies the RATE rather than skipping a stage. A skip would make
+    // the item a way to not play the system; a multiplier makes it a way to play it
+    // faster, and it stacks with damp soil so a well-made farm is worth making.
+    if (soil == w.farmlandRich) chance *= kFertiliserBoost;
     // Sky light, not block light: a torch keeps monsters off a field but does not
     // make anything grow, and a crop under a floor should sit there indefinitely
     // rather than ripening in the dark.

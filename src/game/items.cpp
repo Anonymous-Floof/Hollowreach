@@ -591,13 +591,22 @@ void paintPlate(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
 void paintHoe(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   const Rgba m = solid(col), d = shade(col, 0.74), M = shade(col, 1.25);
   const Rgba haft = shade(0x9c7748, 1.0), haftD = shade(0x7c5c34, 1.0);
-  for (int i = 0; i < 9; ++i) {  // haft, butt low-right to head high-left
-    pset(g, 12 - i, 4 + i, haft);
-    pset(g, 13 - i, 4 + i, haftD);
+
+  // The haft climbs from the butt at the bottom right to the head at the top left.
+  // The first version ran it to (4,12) while drawing the blade up at rows 3-5, so
+  // the two never touched and the icon read as a stick with a bar floating beside
+  // it. A tool has to look like one object.
+  for (int i = 0; i < 8; ++i) {
+    pset(g, 12 - i, 12 - i, haft);
+    pset(g, 13 - i, 12 - i, haftD);
   }
-  prow(g, 3, 8, 3, M);  // the blade, flat and turned down
-  prow(g, 3, 8, 4, m);
-  prow(g, 4, 7, 5, d);
+
+  // The head: a blade jutting LEFT from the top of the haft, with its cutting edge
+  // turned down. That right angle is the whole silhouette of a hoe, and it is what
+  // stops this reading as an axe at sixteen pixels.
+  prow(g, 2, 6, 4, M);  // the back of the blade
+  prow(g, 2, 6, 5, m);  // its body, meeting the haft at x=5
+  prow(g, 2, 4, 6, d);  // the edge, turned down toward the soil
 }
 
 PainterFn painterFor(IconKind kind) {
@@ -678,6 +687,10 @@ constexpr MaterialSpec kMaterials[] = {
     {"bowl", "Bowl", 0xa8703fu, IconKind::Bowl},
     // Milled at the cutting board; the one thing the stove bakes into bread.
     {"flour", "Flour", 0xe8dcc0u, IconKind::Seed},
+    // Compost. Verdanite is the growth ore, and rotten flesh is the one item in the
+    // game whose only use was a gamble nobody takes — so this is also where it stops
+    // being pure litter.
+    {"fertiliser", "Fertiliser", 0x6f8f42u, IconKind::Lump},
 };
 
 struct FoodSpec {
@@ -1142,6 +1155,12 @@ Tooltip itemTooltip(std::string_view key, int durabilityOverride, float fuelSeco
     if (it->group != NutritionGroup::None) {
       std::snprintf(buf, sizeof buf, "diet: %s", nutritionName(it->group));
       out.lines.emplace_back(buf);
+    }
+    // Where it can be planted, for anything that is also a seed. This replaced a
+    // toast that fired whenever somebody right-clicked bare ground holding food —
+    // a tooltip answers the same question only when it is asked.
+    if (world::blocks().cropForProduce(it->key) != 0) {
+      out.lines.emplace_back("plant on tilled soil (use a hoe)");
     }
   }
   if (it->type == ItemType::Warp) out.lines.emplace_back("use: warp to the surface above you");

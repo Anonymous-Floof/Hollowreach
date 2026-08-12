@@ -1488,12 +1488,32 @@ void testFarming() {
     const game::FarmPlan sow = game::planFarmUse(*carrot, w.farmland, true, 0);
     check(sow.action == FarmAction::Sow && sow.crop == carrotCrop,
           "produce used on farmland sows its own crop");
-    check(game::planFarmUse(*carrot, w.turf, true, 0).action == FarmAction::NeedsTilling,
-          "produce on untilled grass asks for a hoe rather than doing nothing silently");
+    // Bare soil is not a farming attempt, so the caller is free to eat the carrot.
+    // This asserted a "till it first" hint until that hint turned out to fire on
+    // nearly every attempt to eat anything, grass being what one looks at.
+    check(game::planFarmUse(*carrot, w.turf, true, 0).action == FarmAction::None,
+          "produce on untilled grass does not try to farm, so it can be eaten");
     check(game::planFarmUse(*carrot, w.farmland, false, 0).action == FarmAction::None,
           "and will not sow into an occupied cell");
     check(game::planFarmUse(*cobble, w.farmland, true, 0).action == FarmAction::None,
           "a non-seed on farmland does nothing");
+
+    // --- fertiliser ---------------------------------------------------------
+    const game::ItemDef* fert = game::getItem("fertiliser");
+    check(fert != nullptr, "fertiliser is an item");
+    if (fert) {
+      check(game::planFarmUse(*fert, w.farmland, true, 0).action == FarmAction::Enrich,
+            "fertiliser on tilled soil enriches it");
+      check(game::planFarmUse(*fert, w.turf, true, 0).action == FarmAction::None,
+            "but not on grass, which was never tilled");
+      check(game::planFarmUse(*fert, w.farmlandRich, true, 0).action == FarmAction::None,
+            "and a second dose is refused rather than silently eaten");
+    }
+    // Sowing has to work on BOTH soils, or the reward for making the good ground is
+    // being unable to plant in it.
+    const game::FarmPlan rich = game::planFarmUse(*carrot, w.farmlandRich, true, 0);
+    check(rich.action == FarmAction::Sow && rich.crop == carrotCrop,
+          "produce sows into fertilised soil as readily as plain");
 
     // Wild seed has to be able to start a farm, whichever way the roll lands.
     int n = 0;
@@ -1538,6 +1558,36 @@ void testFarming() {
   checkf(world::cropStageOf(world->getMeta(gx, gy + 1, gz)) == stages - 1,
          "and stays there rather than growing past its last stage (%d)",
          world::cropStageOf(world->getMeta(gx, gy + 1, gz)));
+
+  // --- fertiliser actually changes the RATE ---------------------------------
+  //
+  // A multiplier that is read but never applied looks exactly like one that works:
+  // the crop still ripens, just as slowly. So this measures both and compares.
+  //
+  // Comparable because the sweep's RNG is seeded identically in every CropSim and
+  // both worlds are built the same way — the ONLY difference is the soil block.
+  {
+    const auto sweepsToRipe = [&](world::BlockId soil) {
+      auto w2 = makeWorld();
+      const world::BlockId wheatId = reg.idOf("crop_wheat");
+      w2->setBlock(gx, gy, gz, soil, 0);
+      w2->setBlock(gx, gy + 1, gz, wheatId, world::cropMetaFor(0));
+      const int last = reg.def(wheatId).cropStages - 1;
+      int n = 0;
+      while (world::cropStageOf(w2->getMeta(gx, gy + 1, gz)) < last && n < 20000) {
+        w2->tickCrops(world::CropSim::kTick);
+        ++n;
+      }
+      return n;
+    };
+    const int plain = sweepsToRipe(w.farmland);
+    const int rich = sweepsToRipe(w.farmlandRich);
+    checkf(rich < plain, "fertilised soil ripens a crop sooner than plain (%d vs %d sweeps)",
+           rich, plain);
+    // Roughly double, not merely "some faster" — a boost that only shaved a few
+    // percent off would pass the check above while being worth nothing to a player.
+    checkf(rich <= plain * 3 / 4, "and by a wide enough margin to be worth the verdanite");
+  }
 
   // A WILD crop is scenery. It comes out of the generator rather than out of a
   // player's hands, so it is not in the edit map, so it is not in the index and the
@@ -9850,25 +9900,32 @@ void testAtlasGate() {
 // message in the game, and nothing else would notice.
 // ---------------------------------------------------------------------------
 void testNotificationSetting() {
-  std::printf("\n-- routine notifications --\n");
+  std::printf("\n-- notifications --\n");
   ui::Notify notify;
-  const bool restore = ui::settings().flag("routineNotifications");
+  const bool restore = ui::settings().flag("notifications");
 
-  ui::settings().setFlag("routineNotifications", true, /*persist=*/false);
+  ui::settings().setFlag("notifications", true, /*persist=*/false);
   notify.push("Autosaved");
   check(!notify.empty(), "with the setting on, a routine toast shows");
   notify.clear();
 
-  ui::settings().setFlag("routineNotifications", false, /*persist=*/false);
+  ui::settings().setFlag("notifications", false, /*persist=*/false);
   notify.push("Autosaved");
   check(notify.empty(), "with it off, a routine toast is suppressed");
 
+  // The switch now covers EVERYTHING. It used to let failures and refusals
+  // through, and the two checks below asserted exactly that — they are inverted
+  // rather than deleted, because "off means off" is the claim now and it deserves
+  // a test as much as the old behaviour did.
   notify.push("Could not save: disk full", ui::Toast::Important);
-  check(!notify.empty(), "but a failure is shown whatever the setting says");
-  notify.clear();
+  check(notify.empty(), "and so is a failure, because off now means off");
 
   notify.push("You need an Atlas to chart the world", ui::Toast::Important);
-  check(!notify.empty(), "and so is a refusal, for the same reason");
+  check(notify.empty(), "and so is a refusal, which is the one that repeats");
+
+  ui::settings().setFlag("notifications", true, /*persist=*/false);
+  notify.push("Could not save: disk full", ui::Toast::Important);
+  check(!notify.empty(), "turning it back on brings them all back");
   notify.clear();
 
   // An empty message was never a toast and must not become one now that push()
@@ -9876,7 +9933,7 @@ void testNotificationSetting() {
   notify.push("", ui::Toast::Important);
   check(notify.empty(), "an empty message is still not a toast");
 
-  ui::settings().setFlag("routineNotifications", restore, /*persist=*/false);
+  ui::settings().setFlag("notifications", restore, /*persist=*/false);
 }
 
 }  // namespace

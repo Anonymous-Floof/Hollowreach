@@ -216,6 +216,7 @@ RecipeBook::RecipeBook() {
   shaped({"PPP", "L L"}, {{'P', "#planks"}, {'L', "log"}}, "cutting_board", 1, kBench);
   shaped({"CCC", "C C", "CCC"}, {{'C', "cobbled"}}, "stove", 1, kBench);
   shaped({"I I", "I I", "III"}, {{'I', "ferralite_ingot"}}, "cooking_pot", 1, kBench);
+  shapeless({{"verdanite", 1}, {"rotten_flesh", 2}}, "fertiliser", 3, kBench);
 
   // --- smelting (forge) ---
   //

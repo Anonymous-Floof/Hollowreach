@@ -640,15 +640,18 @@ game::InteractHooks App::makeInteractHooks() {
             reg.def(w.farmland),
             Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
         return game::UseResult::Used;  // a hoe is not consumed by using it
+      case game::FarmAction::Enrich:
+        world_->setBlock(x, y, z, w.farmlandRich, 0);
+        audio::sfx::blockPlace(
+            reg.def(w.farmlandRich),
+            Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
+        return game::UseResult::UsedAndConsume;
       case game::FarmAction::Sow:
         world_->setBlock(x, y + 1, z, plan.crop, world::cropMetaFor(0));
         audio::sfx::blockPlace(
             reg.def(plan.crop),
             Vec3{static_cast<float>(x), static_cast<float>(y + 1), static_cast<float>(z)});
         return game::UseResult::UsedAndConsume;
-      case game::FarmAction::NeedsTilling:
-        interface_.notify().push("Till the soil first \xE2\x80\x94 you need a hoe");
-        return game::UseResult::Ignored;
       case game::FarmAction::None:
         break;
     }
@@ -891,6 +894,9 @@ void App::wireInterface() {
       }
     }
     stationOpen_ = false;
+  };
+  interface_.callbacks.currentDiet = [this]() -> const game::Diet* {
+    return player_ ? &player_->diet() : nullptr;
   };
   interface_.callbacks.currentStation = [this]() -> game::BlockEntity* {
     if (!stationOpen_ || !world_) return nullptr;
@@ -3074,6 +3080,12 @@ void App::toggleRecipeBook() {
       case ui::InventoryMode::Workbench: recipeStation_ = world::Station::Workbench; break;
       case ui::InventoryMode::Forge: recipeStation_ = world::Station::Forge; break;
       case ui::InventoryMode::Chest: recipeStation_ = world::Station::Chest; break;
+      // The kitchens, for exactly the reason spelled out above: without these the
+      // default arm sends you back to a plain inventory and the station you were
+      // standing at is simply gone.
+      case ui::InventoryMode::Cutting: recipeStation_ = world::Station::Cutting; break;
+      case ui::InventoryMode::Stove: recipeStation_ = world::Station::Stove; break;
+      case ui::InventoryMode::Pot: recipeStation_ = world::Station::Pot; break;
       default: recipeStation_ = world::Station::None; break;
     }
     state_ = AppState::RecipeBook;

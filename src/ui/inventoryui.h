@@ -126,6 +126,7 @@ class InventoryUI {
   // The live block entity, refreshed every frame: a forge whose block was broken
   // while the screen was open must not be written to.
   void setStation(game::BlockEntity* station) { station_ = station; }
+  void setDiet(const game::Diet* diet) { diet_ = diet; }
 
   // Handles the pointer, then lays out and draws. One call, because the drag
   // interaction needs the hit test from the same frame's layout.
@@ -204,11 +205,15 @@ class InventoryUI {
   // the other two show a single input; everything else about the layout is the same,
   // so writing it three times would only be three places to fix a spacing bug.
   void kitchenPanel(const UiEvent& event);
+  // The five diet bars. On the inventory screen rather than the HUD: it is a thing
+  // you check when deciding what to eat, not while running from something.
+  void dietPanel(const UiEvent& event);
   widget::StackVisual visualFor(const game::ItemStack& stack) const;
 
   game::Inventory* inv_ = nullptr;
   const render::IconAtlas* icons_ = nullptr;
   game::BlockEntity* station_ = nullptr;
+  const game::Diet* diet_ = nullptr;
 
   InventoryMode mode_ = InventoryMode::Closed;
   int craftSize_ = 2;

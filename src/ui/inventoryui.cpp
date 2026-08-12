@@ -839,18 +839,97 @@ void InventoryUI::forgePanel(const UiEvent& event) {
   (void)event;
 }
 
-void InventoryUI::kitchenPanel(const UiEvent& event) {
-  const bool isPot = mode_ == InventoryMode::Pot;
-  const char* title = isPot      ? "Cooking Pot"
-                      : mode_ == InventoryMode::Stove ? "Stove"
-                                                      : "Cutting Board";
-
+void InventoryUI::dietPanel(const UiEvent& event) {
+  if (!diet_) return;
   doc_.begin(widget::invPanel());
-  doc_.label(title, widget::invTitle(), [] {
+  doc_.label("Diet", widget::invTitle(), [] {
     Style s;
-    s.margin = Edges(0, 0, 10, 0);
+    s.margin = Edges(0, 0, 8, 0);
     return s;
   }());
+
+  // One labelled bar per group, plus what the whole thing is currently worth. The
+  // bonus line matters more than the bars: a player who cannot see the reward has
+  // no reason to read the bars at all.
+  for (int i = 0; i < game::kNutritionGroups; ++i) {
+    const auto group = static_cast<game::NutritionGroup>(i + 1);
+    doc_.begin(Doc::row(8, Justify::Start, Align::Center));
+
+    TextStyle name = widget::settingValue();
+    name.color = col(Role::InkProse);
+    // Sized so all three top panels fit the bag's width. The first pass used 86 and
+    // 120 and pushed the row wide enough to clip "Armour" down to "Armou" — the
+    // panels share one row and the row does not wrap.
+    Style label;
+    label.width = 64;
+    doc_.begin(label);
+    doc_.label(game::nutritionName(group), name);
+    doc_.end();
+
+    // A custom node: the bar is drawn in draw(), where the level can be read. Tag
+    // 2002 with the group index, matching how the forge gauges are done.
+    Style bar;
+    bar.width = 96;
+    bar.height = 8;
+    bar.radius = 4;
+    bar.bg = kBlack;
+    doc_.custom(bar, 2002, i);
+    doc_.end();
+  }
+
+  char summary[96];
+  const int fed = diet_->groupsFed();
+  std::snprintf(summary, sizeof summary, "%d of %d groups \xC2\xB7 +%g health", fed,
+                game::kNutritionGroups, static_cast<double>(diet_->healthBonus()));
+  TextStyle note = widget::settingValue();
+  note.color = fed > 0 ? col(Role::Accent) : col(Role::Muted);
+  Style noteBox;
+  noteBox.margin = Edges(8, 0, 0, 0);
+  doc_.begin(noteBox);
+  doc_.label(summary, note);
+  doc_.end();
+
+  doc_.end();
+  (void)event;
+}
+
+void InventoryUI::kitchenPanel(const UiEvent& event) {
+  const bool isPot = mode_ == InventoryMode::Pot;
+  const bool isStove = mode_ == InventoryMode::Stove;
+  const char* title = isPot ? "Cooking Pot" : isStove ? "Stove" : "Cutting Board";
+
+  // One line saying what the station is FOR. Three boxes of slots look alike, and a
+  // player who has just built all three has no way to tell from the layout which one
+  // grinds wheat and which one makes stew. The recipe book is one click away on the
+  // same row, for the same reason the workbench carries it: "what can I make here"
+  // is asked while looking at the slots.
+  const char* blurb = isPot ? "Several ingredients into one meal. Needs a bowl and fuel."
+                     : isStove ? "Cooks one thing at a time. Meat, bread, roasts. Needs fuel."
+                               : "Prep: mills grain into flour, cuts meat into strips. No fuel.";
+
+  doc_.begin(widget::invPanel());
+  {
+    Style head = Doc::row(10, Justify::SpaceBetween, Align::Center);
+    doc_.begin(head);
+    doc_.label(title, widget::invTitle());
+    const bool hovered = hoveredTag_ == kTagBook;
+    Style s = widget::btnSmall(hovered, false, widget::ButtonKind::Normal);
+    s.width = kAuto;
+    s.margin = Edges(0);
+    doc_.begin(s, kTagBook);
+    doc_.label("Recipes \xC2\xB7 H", widget::btnSmallText(hovered, widget::ButtonKind::Normal));
+    doc_.end();
+    doc_.end();
+  }
+  {
+    TextStyle sub = widget::settingValue();
+    sub.color = col(Role::Muted);
+    Style box;
+    box.margin = Edges(2, 0, 10, 0);
+    doc_.begin(box);
+    doc_.label(blurb, sub);
+    doc_.end();
+  }
   doc_.begin(Doc::row(8, Justify::Start, Align::Center));
 
   // Ingredients. The pot takes six in two rows of three; the board and the stove
@@ -974,6 +1053,7 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
     case InventoryMode::Inventory:
       armorPanel(event);
       craftPanel(event);
+      dietPanel(event);
       break;
     case InventoryMode::Workbench: craftPanel(event); break;
     case InventoryMode::Forge:
@@ -1211,6 +1291,20 @@ void InventoryUI::draw(Ui2D& ui, Text& text) {
     }
     if (fuelNode >= 0) {
       widget::drawBar(ui, doc_.node(fuelNode).rect, forgeFuel_, col(Role::FuelFill), kBlack, 4);
+    }
+  }
+
+  // The diet bars. Green once a group is over the line that earns a heart, muted
+  // below it — the threshold is the only number that matters here, so the colour
+  // carries it rather than making anyone read a scale.
+  if (mode_ == InventoryMode::Inventory && diet_) {
+    for (int i = 0; i < game::kNutritionGroups; ++i) {
+      const int node = doc_.findTag(2002, i);
+      if (node < 0) continue;
+      const float level = diet_->level[i];
+      const bool fed = level > game::dietConst::kCountsAbove;
+      widget::drawBar(ui, doc_.node(node).rect, level / game::dietConst::kMax,
+                      fed ? col(Role::Health) : col(Role::Muted), kBlack, 4);
     }
   }
 

@@ -306,6 +306,7 @@ struct WellKnownBlocks {
   std::array<BlockId, 5> flowers {};
 
   BlockId farmland = 0;
+  BlockId farmlandRich = 0;
   BlockId cropRice = 0;  // keyed off wetness, not biome; see wk() in blocks.cpp
 
   // Wild crops, grouped by the biome that favours them. Worldgen picks a patch's

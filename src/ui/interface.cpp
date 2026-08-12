@@ -146,6 +146,9 @@ void Interface::update(double dt, const UiFrame& frame) {
   if (frame.inventory) hud_.update(dt, *frame.inventory);
   // The station's block entity is re-resolved every frame: mining a forge while its
   // screen is open must not leave the interface writing through a dangling pointer.
+  if (screen_ == Screen::Inventory && callbacks.currentDiet) {
+    inventoryUI_.setDiet(callbacks.currentDiet());
+  }
   if (screen_ == Screen::Inventory && callbacks.currentStation) {
     const InventoryMode mode = inventoryUI_.mode();
     if (mode == InventoryMode::Forge || mode == InventoryMode::Chest) {

@@ -1371,6 +1371,23 @@ std::vector<PainterEntry> buildPainters() {
     }
   }
 
+  // Fertilised soil: the damp tile, darkened, with green flecks worked through it.
+  // It has to be tellable from plain farmland at a glance and across a whole field,
+  // which is why the flecks are scattered rather than a border.
+  add("farmland_rich", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x4a3320), 14, rng);
+    for (int i = 0; i < 26; ++i) {
+      const int x = static_cast<int>(rng.next() * T);
+      const int y = static_cast<int>(rng.next() * T);
+      const double f = rng.next();
+      px(img, ox, oy, x, y, 70 + f * 40, 112 + f * 46, 52 + f * 26);
+    }
+    for (int x = 0; x < T; ++x) {  // the furrows, as on plain farmland
+      px(img, ox, oy, x, 4, 58, 42, 26);
+      px(img, ox, oy, x, 11, 58, 42, 26);
+    }
+  });
+
   // ---- the kitchen ----
   add("cutting_board_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
     plankTexInto(img, ox, oy, rng, hex(0xc2a068), hex(0x9c7c46));

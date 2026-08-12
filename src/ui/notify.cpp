@@ -18,7 +18,13 @@ void Notify::push(std::string message, Toast kind) {
   // Asked here rather than at each of the fifty-odd call sites, so a toast added
   // later cannot forget the setting exists. The cost is one map lookup per toast,
   // against a thing that happens a few times a minute at most.
-  if (kind == Toast::Routine && !settings().flag("routineNotifications")) return;
+  //
+  // EVERY toast, not only the routine ones. The split existed because silencing a
+  // refusal ("you need a hoe for that") would make a control look broken rather than
+  // quiet — but in practice the refusals are the ones that repeat, and a player who
+  // turns notifications off has asked for silence, not for a curated subset of it.
+  // `kind` still exists and still drives how a toast is styled.
+  if (!settings().flag("notifications")) return;
   // A hard cap the JS did not need: the DOM would scroll off screen, whereas here a
   // runaway notifier would just paint over the whole right-hand side.
   if (toasts_.size() >= 8) toasts_.pop_front();

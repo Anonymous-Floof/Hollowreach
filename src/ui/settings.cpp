@@ -73,12 +73,13 @@ const std::vector<SettingDef>& schema() {
        0, true},
       {"deathWaypoints", "Death Waypoints on the Atlas", SettingType::Toggle, "Gameplay", 0, 0, 0,
        0, true},
-      // "Routine", not "Notifications", because the label has to be honest: the
-      // refusals and the failures carry on regardless. See ui/notify.h — a control
-      // that silently does nothing reads as broken, and nobody connects that back
-      // to a switch they flipped a month ago.
-      {"routineNotifications", "Routine Notifications (\"Autosaved\", \"Screenshot saved\")",
-       SettingType::Toggle, "Gameplay", 0, 0, 0, 0, true},
+      // This used to gate only the routine toasts, on the argument that silencing a
+      // refusal would make a control look broken. In practice the refusals are the
+      // ones that repeat — the farming hint fired every time anyone ate a carrot
+      // while looking at grass — so the honest label is now the honest behaviour:
+      // off means off.
+      {"notifications", "Notifications (\"Autosaved\", hints, refusals)", SettingType::Toggle,
+       "Gameplay", 0, 0, 0, 0, true},
 
       // --- Difficulty: the world's, and they stay with it ----------------------
       // How hard the place is to survive. A world shared with a friend has to be

@@ -56,10 +56,19 @@ class CropSim {
   static constexpr float kTick = 2.0f;
   static constexpr std::size_t kMaxPerTick = 2048;
 
-  // Chance one crop advances one stage in one sweep, before modifiers. About one
-  // stage every ~40s of sweeps on good ground, so four stages is a few minutes —
-  // long enough to be worth walking away from, short enough to see it happen.
-  static constexpr float kAdvanceChance = 0.05f;
+  // Chance one crop advances one stage in one sweep, before modifiers.
+  //
+  // At 0.0125 a stage takes about 160s of sweeps on plain dry soil, so a full crop
+  // is roughly ten minutes — and about two and a half on soil that is both damp and
+  // fertilised, since those multiply. This was four times faster to begin with,
+  // which made a field ripen while you were still building the fence around it.
+  static constexpr float kAdvanceChance = 0.0125f;
+
+  // Damp soil and fertiliser each double the rate, and they stack. Kept as named
+  // constants because the cost of the fertiliser recipe is balanced against this
+  // number, not against a literal buried in the sweep.
+  static constexpr float kMoistBoost = 2.0f;
+  static constexpr float kFertiliserBoost = 2.0f;
 
  private:
   World& world_;

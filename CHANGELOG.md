@@ -87,6 +87,16 @@ what it lets them do, never by the refactor that made it possible.
 - **Milk finally does something.** Cook it on a stove for cheese, which is the only
   dairy in the game and so the only way to fill that part of a diet.
 
+- **Fertiliser.** Verdanite and rotten flesh compost into it at a workbench, and it
+  turns tilled soil into **Fertilised Farmland** — visibly darker, with green worked
+  through it — which grows crops twice as fast. It stacks with damp ground, so soil
+  that is both watered and fed is four times a dry plain plot. Rotten flesh finally
+  has a use that is not a gamble.
+
+- **The debug overlay names the crop you are looking at and how far along it is** —
+  "Carrot, stage 2/4 (ripe)" — so a field can be read at a glance rather than by
+  squinting at the shapes.
+
 - **`--find-crop`** prints the wild crops near a seed's spawn and points at the
   densest patch, the way `--find-dungeon` does for dungeons.
 
@@ -95,6 +105,14 @@ what it lets them do, never by the refactor that made it possible.
   changes nothing else. Existing worlds keep their terrain exactly as it was;
   moving one forward grows crops in the ground you have not explored yet.
 - Multiplayer needs both ends on this version: the network version moved to 12.
+- **The notification toggle now silences every popup**, not only the routine ones.
+  It used to let hints and refusals through on purpose, so that a control could
+  never look broken — but those are the ones that repeat, so off now means off.
+
+### Fixed
+- **The controls list on the About screen showed a mangled character** in the "drop
+  one item" row, where a middot had been pasted in as raw bytes. It has looked like
+  that since 2.10.0.
 
 ## [2.13.0] - 2026-08-12
 

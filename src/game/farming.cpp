@@ -26,6 +26,14 @@ FarmPlan planFarmUse(const ItemDef& item, world::BlockId target, bool clearAbove
     return plan;
   }
 
+  // Fertiliser enriches soil that has already been tilled. Only plain farmland, so
+  // a second dose is refused rather than silently eaten — the tile is already rich
+  // and there is nothing more to buy.
+  if (item.key == "fertiliser") {
+    if (target == w.farmland) plan.action = FarmAction::Enrich;
+    return plan;
+  }
+
   // The produce IS the seed, so sowing is keyed off whatever the crop drops.
   world::BlockId crop = reg.cropForProduce(item.key);
   if (crop == 0 && item.key == "wild_seeds") {
@@ -36,12 +44,18 @@ FarmPlan planFarmUse(const ItemDef& item, world::BlockId target, bool clearAbove
   }
   if (crop == 0) return plan;  // not a seed at all
 
-  if (target != w.farmland) {
-    // Only worth a message when they were plainly trying to farm. Saying "till the
-    // soil first" every time somebody right-clicks holding a carrot would be noise.
-    if (target == w.turf || target == w.loam) plan.action = FarmAction::NeedsTilling;
-    return plan;
-  }
+  // Anything that is not tilled soil is not a farming attempt, and this must fall
+  // straight through so the caller can eat the thing instead.
+  //
+  // There WAS a "till the soil first" hint here, gated on turf and loam so it only
+  // fired when somebody was "plainly trying to farm". That reasoning was wrong:
+  // grass and dirt are what a player is looking at almost all the time, so the hint
+  // fired on nearly every attempt to eat a carrot. A message that appears when you
+  // did not ask a question is not help. Where to plant lives on the item's tooltip
+  // now, which is there whenever it is wanted and silent when it is not.
+  // Either soil sows. Fertilised farmland is still farmland — forgetting that here
+  // would mean the reward for making the good soil was being unable to plant in it.
+  if (target != w.farmland && target != w.farmlandRich) return plan;
   if (!clearAbove) return plan;
 
   plan.action = FarmAction::Sow;
