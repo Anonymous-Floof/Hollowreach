@@ -1559,34 +1559,62 @@ void testFarming() {
          "and stays there rather than growing past its last stage (%d)",
          world::cropStageOf(world->getMeta(gx, gy + 1, gz)));
 
-  // --- fertiliser actually changes the RATE ---------------------------------
+  // --- do water and fertiliser ACTUALLY do anything? -------------------------
   //
-  // A multiplier that is read but never applied looks exactly like one that works:
-  // the crop still ripens, just as slowly. So this measures both and compares.
+  // Measured as advances over a fixed budget of sweeps, not as "how long did one
+  // crop take to ripen". That first instrument was useless and said so quietly:
+  // ripening is a geometric process whose standard deviation equals its mean, so a
+  // single run of a doubled rate came out 315 sweeps against 339 for the undoubled
+  // one -- a 7%% difference that looked exactly like a boost being ignored. It was
+  // the measurement that was broken, not the boost.
   //
-  // Comparable because the sweep's RNG is seeded identically in every CropSim and
-  // both worlds are built the same way — the ONLY difference is the soil block.
+  // Counting advances over 4000 sweeps averages tens of events instead of three,
+  // and the ratio lands where the constants say it should.
   {
-    const auto sweepsToRipe = [&](world::BlockId soil) {
+    const auto advancesIn = [&](bool pond, world::BlockId soil, int sweeps) {
       auto w2 = makeWorld();
       const world::BlockId wheatId = reg.idOf("crop_wheat");
       w2->setBlock(gx, gy, gz, soil, 0);
+      if (pond) w2->setBlock(gx + 3, gy, gz, w.water, 0);
       w2->setBlock(gx, gy + 1, gz, wheatId, world::cropMetaFor(0));
-      const int last = reg.def(wheatId).cropStages - 1;
-      int n = 0;
-      while (world::cropStageOf(w2->getMeta(gx, gy + 1, gz)) < last && n < 20000) {
+      int advances = 0, last = 0;
+      for (int i = 0; i < sweeps; ++i) {
         w2->tickCrops(world::CropSim::kTick);
-        ++n;
+        const int s = world::cropStageOf(w2->getMeta(gx, gy + 1, gz));
+        if (s != last) {
+          ++advances;
+          last = s;
+        }
+        // Reset on ripe so the budget keeps producing events rather than stalling
+        // against the last stage.
+        if (s >= reg.def(wheatId).cropStages - 1) {
+          w2->setMeta(gx, gy + 1, gz, world::cropMetaFor(0));
+          last = 0;
+        }
       }
-      return n;
+      return advances;
     };
-    const int plain = sweepsToRipe(w.farmland);
-    const int rich = sweepsToRipe(w.farmlandRich);
-    checkf(rich < plain, "fertilised soil ripens a crop sooner than plain (%d vs %d sweeps)",
-           rich, plain);
-    // Roughly double, not merely "some faster" — a boost that only shaved a few
-    // percent off would pass the check above while being worth nothing to a player.
-    checkf(rich <= plain * 3 / 4, "and by a wide enough margin to be worth the verdanite");
+
+    // The reading itself, first: a boost cannot apply if the ground is not seen as
+    // damp, and that scan is easy to get subtly wrong.
+    {
+      auto probe = makeWorld();
+      probe->setBlock(gx, gy, gz, w.farmland, 0);
+      checkf(!probe->moistFarmland(gx, gy, gz), "dry soil reads as dry (sky %d)",
+             probe->getSky(gx, gy + 1, gz));
+      probe->setBlock(gx + 3, gy, gz, w.water, 0);
+      check(probe->moistFarmland(gx, gy, gz), "and water three cells away reads as damp");
+    }
+
+    const int plain = advancesIn(false, w.farmland, 4000);
+    const int damp = advancesIn(true, w.farmland, 4000);
+    const int rich = advancesIn(false, w.farmlandRich, 4000);
+    const int both = advancesIn(true, w.farmlandRich, 4000);
+
+    checkf(damp >= plain * 3 / 2, "water really does speed a crop up (%d vs %d advances)",
+           damp, plain);
+    checkf(rich >= plain * 3 / 2, "and so does fertiliser (%d vs %d)", rich, plain);
+    checkf(both >= plain * 5 / 2, "and together they stack (%d vs %d)", both, plain);
   }
 
   // A WILD crop is scenery. It comes out of the generator rather than out of a
@@ -1643,6 +1671,93 @@ void testFarming() {
     checkf(dropped.size() == 1 && dropped[0].second >= reg.def(carrotCrop).ripeDropMin,
            "and more of it than it cost to plant (%d)",
            dropped.empty() ? 0 : dropped[0].second);
+
+    // THE PATH A PLAYER ACTUALLY TAKES.
+    //
+    // Everything above goes through breakBlockInto, which is what BlockUpdateSim
+    // calls when a crop loses its soil. Mining one by hand is a different function,
+    // and it read the block's plain `drop` field — so a fully grown potato gave
+    // exactly one potato however long you had waited, while digging the earth out
+    // from under it gave four. Every check above passed throughout.
+    //
+    // Both paths resolve through World::harvestDrop now. This asserts the resolver
+    // itself, at the ripeness the player sees.
+    {
+      std::string key;
+      int count = 0;
+      world->setBlock(gx + 4, gy, gz, w.farmland, 0);
+      world->setBlock(gx + 4, gy + 1, gz, carrotCrop, world::cropMetaFor(ripe));
+      check(world->harvestDrop(gx + 4, gy + 1, gz, key, count),
+            "the shared resolver answers for a ripe crop");
+      checkf(key == "carrot" && count >= reg.def(carrotCrop).ripeDropMin,
+             "with the ripe yield, which is what mining now spawns (%d)", count);
+
+      world->setBlock(gx + 4, gy + 1, gz, carrotCrop, world::cropMetaFor(0));
+      count = 0;
+      world->harvestDrop(gx + 4, gy + 1, gz, key, count);
+      check(key == "carrot" && count == 1, "and the bare seed for an unripe one");
+    }
+
+    // Fertilised soil pays a bonus half the time, so over many harvests the total
+    // has to beat plain soil. One harvest proves nothing about a coin flip.
+    //
+    // The MARGIN matters, not just the direction. "rich > plain" passed with the
+    // bonus disabled, because the two runs draw from different stretches of the
+    // same RNG stream and one of them wins by luck about half the time. The bonus
+    // is worth +0.5 on a mean of three, so a tenth is far outside the noise and far
+    // inside the real effect.
+    {
+      const auto totalOver = [&](world::BlockId soil) {
+        int total = 0;
+        for (int i = 0; i < 400; ++i) {
+          std::string key;
+          int count = 0;
+          world->setBlock(gx + 5, gy, gz, soil, 0);
+          world->setBlock(gx + 5, gy + 1, gz, carrotCrop, world::cropMetaFor(ripe));
+          if (world->harvestDrop(gx + 5, gy + 1, gz, key, count)) total += count;
+        }
+        return total;
+      };
+      const int plain = totalOver(w.farmland);
+      const int rich = totalOver(w.farmlandRich);
+      checkf(rich > plain * 11 / 10,
+             "fertilised ground pays meaningfully more over many harvests (%d vs %d)", rich,
+             plain);
+    }
+  }
+
+  // --- MINING A CROP BY HAND, which is the way anyone actually harvests -------
+  //
+  // Everything above tests World::harvestDrop. The bug this replaced was not in the
+  // resolver at all — it was that Interact::complete never called one, and read the
+  // block's plain `drop` field instead. A test of the resolver cannot see that, and
+  // reverting the caller left every check above green. So this drives the real path.
+  {
+    auto plot = makeWorld();
+    std::vector<std::pair<std::string, int>> mined;
+    plot->setDropSink([&mined](float, float, float, const std::string& key, int n, int) {
+      mined.emplace_back(key, n);
+    });
+
+    game::Player miner(kOriginX, static_cast<float>(kY), kOriginZ);
+    miner.setLook(kYawPlusX, -0.10f);
+    game::Inventory bag;
+    game::Interact act;
+    const game::InteractHooks silent = silentHooks();
+    Input in;
+
+    // A ripe carrot at eye level, straight ahead along +x.
+    plot->setBlock(11, kEyeLevel - 1, 8, w.farmland, 0);
+    plot->setBlock(11, kEyeLevel, 8, carrotCrop,
+                   world::cropMetaFor(reg.def(carrotCrop).cropStages - 1));
+    frame(in, true, false);
+    act.update(30.0f, in, miner, *plot, bag, silent);
+
+    checkf(mined.size() == 1 && mined[0].first == "carrot",
+           "mining a ripe crop by hand drops produce (%zu drops)", mined.size());
+    checkf(!mined.empty() && mined[0].second >= reg.def(carrotCrop).ripeDropMin,
+           "and pays the ripe yield rather than a single seed (%d)",
+           mined.empty() ? 0 : mined[0].second);
   }
 
   // Harvesting drops the cell from the index, so a farm that is pulled up stops

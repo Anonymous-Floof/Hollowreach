@@ -165,6 +165,17 @@ class World {
   // get the item back rather than have it vanish.
   void breakBlockInto(int wx, int wy, int wz);
 
+  // What breaking the block at (wx, wy, wz) yields, resolved BEFORE it is removed
+  // because the answer depends on its metadata and on the soil underneath it.
+  // Returns false for a block that drops nothing.
+  //
+  // This exists because there are two ways a block can break — a player mining it,
+  // and BlockUpdateSim knocking it down when its support goes — and they each used
+  // to work out the drop for themselves. Only the second one knew about crop
+  // ripeness, so mining a fully grown potato by hand gave one potato while digging
+  // the soil out from under it gave four. Both paths call this now.
+  bool harvestDrop(int wx, int wy, int wz, std::string& key, int& count);
+
   // Lifts the block at the cell out of the grid and hands it to a falling-block
   // entity, which puts it back down wherever it lands. Does nothing without an
   // entity sink, so a headless world simply leaves the block where it was rather

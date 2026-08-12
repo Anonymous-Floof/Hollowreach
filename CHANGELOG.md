@@ -52,9 +52,13 @@ what it lets them do, never by the refactor that made it possible.
 
   Till soil with a **hoe** and plant with the crop itself — there are no separate
   seed items, so a carrot is both the thing you eat and the thing you sow. Crops
-  grow through four visible stages and pay out only when ripe, and **farmland near
-  water grows them about twice as fast**. Shake **Wild Seeds** out of tall grass if
-  you have not found a patch yet.
+  grow through four visible stages and **pay out several times over when ripe** —
+  harvest one early and you get your seed back and nothing else.
+
+  A crop takes **about half an hour** on plain dry soil. **Farmland near water grows
+  it twice as fast**, fertiliser does the same again, and the two stack — so a plot
+  that is watered and fed is ready in roughly seven minutes. Shake **Wild Seeds** out
+  of tall grass if you have not found a patch yet.
 
 - **A kitchen, and a reason to use it.** Three new stations, all crafted at a
   workbench:
@@ -89,9 +93,10 @@ what it lets them do, never by the refactor that made it possible.
 
 - **Fertiliser.** Verdanite and rotten flesh compost into it at a workbench, and it
   turns tilled soil into **Fertilised Farmland** — visibly darker, with green worked
-  through it — which grows crops twice as fast. It stacks with damp ground, so soil
-  that is both watered and fed is four times a dry plain plot. Rotten flesh finally
-  has a use that is not a gamble.
+  through it. Crops grow twice as fast in it, and half of all harvests from it pay an
+  extra item. It stacks with damp ground, so a plot that is both watered and fed
+  grows four times as fast as dry plain soil. Rotten flesh finally has a use that is
+  not a gamble.
 
 - **The debug overlay names the crop you are looking at and how far along it is** —
   "Carrot, stage 2/4 (ripe)" — so a field can be read at a glance rather than by

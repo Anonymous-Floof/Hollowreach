@@ -359,7 +359,15 @@ void Interact::complete(world::World& world, Inventory& inventory, const RayHit&
   const bool canDrop = !instantBreak_ && !b.drop.empty() &&
                        (!gated || (correctTool && tool->tier >= b.minTier));
   if (canDrop) {
-    world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, b.drop, b.dropCount);
+    // Through the world's own resolver rather than reading b.drop here, so a ripe
+    // crop pays what it is worth. This line used to spawn b.drop directly, which
+    // meant harvesting a grown potato by hand gave exactly one every time while the
+    // stages, the yields and the fertiliser bonus all sat there doing nothing.
+    std::string key;
+    int count = 0;
+    if (world.harvestDrop(hit.x, hit.y, hit.z, key, count)) {
+      world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, key, count);
+    }
   } else if (gated && !instantBreak_ && hooks.notify) {
     static const char* kTierNames[] = {"", "wood", "stone", "copper", "iron"};
     const char* need = kTierNames[std::min(4, b.minTier)];

@@ -929,31 +929,47 @@ void World::spawnDrop(float wx, float wy, float wz, const std::string& key, int 
   if (dropSink_) dropSink_(wx, wy, wz, key, count, dura);
 }
 
-void World::breakBlockInto(int wx, int wy, int wz) {
+bool World::harvestDrop(int wx, int wy, int wz, std::string& key, int& count) {
   const BlockId id = getBlock(wx, wy, wz);
-  if (id == kAir) return;
+  if (id == kAir) return false;
   const BlockDef& def = blocks().def(id);
-  const int meta = getMeta(wx, wy, wz);
-  // setBlock before the drop, so the drop lands in air rather than inside the
-  // block it came from and gets shoved out by the collision resolver.
-  setBlock(wx, wy, wz, kAir, 0);
 
   // A ripe crop pays; an unripe one gives back the seed and nothing else. Without
   // that difference there would be no cost to harvesting the moment you planted,
   // and therefore no reason for growth stages to exist at all.
   if (def.cropStages > 0 && !def.ripeDrop.empty() &&
-      cropStageOf(meta) >= def.cropStages - 1) {
+      cropStageOf(getMeta(wx, wy, wz)) >= def.cropStages - 1) {
     int n = def.ripeDropMin;
     if (def.ripeDropMax > def.ripeDropMin) {
       n += static_cast<int>(cropDropRng_() % static_cast<std::uint32_t>(
                                 def.ripeDropMax - def.ripeDropMin + 1));
     }
-    spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, def.ripeDrop, n);
-    return;
+    // Fertilised soil pays a bonus half the time. A flat bonus would just be a
+    // bigger number on every harvest, where a coin flip makes a good plot feel
+    // lucky as well as fast — and it keeps the fertiliser worth spreading on a
+    // field you have already watered.
+    if (wy > 0 && getBlock(wx, wy - 1, wz) == wk().farmlandRich && (cropDropRng_() & 1u)) {
+      ++n;
+    }
+    key = def.ripeDrop;
+    count = n;
+    return true;
   }
-  if (!def.drop.empty()) {
-    spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, def.drop, def.dropCount);
-  }
+  if (def.drop.empty()) return false;
+  key = def.drop;
+  count = def.dropCount;
+  return true;
+}
+
+void World::breakBlockInto(int wx, int wy, int wz) {
+  if (getBlock(wx, wy, wz) == kAir) return;
+  std::string key;
+  int count = 0;
+  const bool any = harvestDrop(wx, wy, wz, key, count);
+  // setBlock before the drop, so the drop lands in air rather than inside the
+  // block it came from and gets shoved out by the collision resolver.
+  setBlock(wx, wy, wz, kAir, 0);
+  if (any) spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, key, count);
 }
 
 void World::beginFall(int wx, int wy, int wz) {

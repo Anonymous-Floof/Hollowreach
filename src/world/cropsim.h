@@ -58,11 +58,18 @@ class CropSim {
 
   // Chance one crop advances one stage in one sweep, before modifiers.
   //
-  // At 0.0125 a stage takes about 160s of sweeps on plain dry soil, so a full crop
-  // is roughly ten minutes — and about two and a half on soil that is both damp and
-  // fertilised, since those multiply. This was four times faster to begin with,
-  // which made a field ripen while you were still building the fence around it.
-  static constexpr float kAdvanceChance = 0.0125f;
+  // A crop is sown at stage 0 and ripens at stage 3, so it needs THREE advances,
+  // not four — the count of stages is one more than the number of steps between
+  // them, and using four here would have made everything a third too slow.
+  //
+  // 3 / 0.00333 = 900 sweeps, and a sweep is 2s, so plain dry soil is **thirty
+  // minutes**. Either water or fertiliser halves it to fifteen; both together
+  // quarter it to seven and a half.
+  //
+  // Retuned twice before this. 0.05 ripened a field while you were still building
+  // the fence around it, and 0.0125 was still quick enough that growth was
+  // something you stood and watched.
+  static constexpr float kAdvanceChance = 0.00333f;
 
   // Damp soil and fertiliser each double the rate, and they stack. Kept as named
   // constants because the cost of the fertiliser recipe is balanced against this
