@@ -1,11 +1,12 @@
 # hollowreach atlas tiles v1
 # source: c++
-# tileRes=16 tiles=290
+# tileRes=16 tiles=319
 
 ## atlas.tiles
-tile(block/bed_foot_top) = 32cc3bab
-tile(block/bed_head_top) = 755c00ba
-tile(block/bed_side) = 1b5eccec
+tile(block/bed_bottom) = e16ea906
+tile(block/bed_foot_top) = 2c86e063
+tile(block/bed_head_top) = 2cf797fa
+tile(block/bed_side) = fbd2b985
 tile(block/bedrock) = 4ce9624b
 tile(block/birch_door) = b37c7632
 tile(block/birch_leaves) = d2aed42a
@@ -115,11 +116,14 @@ tile(block/fern) = 3a678038
 tile(block/flower_cornflower) = 9d211fa9
 tile(block/flower_daisy) = 8306d8fc
 tile(block/flower_dandelion) = 870f2ef2
+tile(block/flower_fernflower) = 2a93415a
+tile(block/flower_marigold) = 2daf2ebc
+tile(block/flower_nightcap) = 0f6006b9
 tile(block/flower_poppy) = d412a53e
 tile(block/flower_violet) = 4a835e9b
 tile(block/forge_side) = 054a1a26
 tile(block/forge_top) = 6d38c336
-tile(block/glass) = a06d0082
+tile(block/glass) = 2c9b4e82
 tile(block/greystone) = 7ed499f5
 tile(block/ladder) = 7863d425
 tile(block/leaves) = b5fcdd90
@@ -213,6 +217,30 @@ tile(item/chest_sunbrass) = ce793d21
 tile(item/chili) = 37f4fe41
 tile(item/cooked_strips) = 2eb221cd
 tile(item/copper_ingot) = e74867dc
+tile(item/dye_black) = 5ef78b71
+tile(item/dye_blue) = d9ae6111
+tile(item/dye_green) = 1012a93e
+tile(item/dye_orange) = f2e8adc6
+tile(item/dye_purple) = 47839c4d
+tile(item/dye_red) = 82b5834f
+tile(item/dye_white) = 6d208bb9
+tile(item/dye_yellow) = a68b8e00
+tile(item/dyed_boots_aetherite) = 384455f8
+tile(item/dyed_boots_copper) = 384455f8
+tile(item/dyed_boots_ferralite) = 384455f8
+tile(item/dyed_boots_sunbrass) = 384455f8
+tile(item/dyed_chest_aetherite) = bb5cabc5
+tile(item/dyed_chest_copper) = bb5cabc5
+tile(item/dyed_chest_ferralite) = bb5cabc5
+tile(item/dyed_chest_sunbrass) = bb5cabc5
+tile(item/dyed_helmet_aetherite) = 4f6f88a8
+tile(item/dyed_helmet_copper) = 4f6f88a8
+tile(item/dyed_helmet_ferralite) = 4f6f88a8
+tile(item/dyed_helmet_sunbrass) = 4f6f88a8
+tile(item/dyed_legs_aetherite) = 15a902a6
+tile(item/dyed_legs_copper) = 15a902a6
+tile(item/dyed_legs_ferralite) = 15a902a6
+tile(item/dyed_legs_sunbrass) = 15a902a6
 tile(item/embercoal) = 0a2f8f3e
 tile(item/ferralite_ingot) = aaaa7a9b
 tile(item/fertiliser) = 13a04139
@@ -246,6 +274,7 @@ tile(item/meat_strips) = 5715e4f5
 tile(item/melon) = afe2a109
 tile(item/milk_bucket) = 413584c1
 tile(item/onion) = 36d8e3b0
+tile(item/palette) = 5a82537d
 tile(item/paper) = 6489d3f5
 tile(item/pick_aetherite) = e14a168d
 tile(item/pick_copper) = 06590115

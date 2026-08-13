@@ -1,6 +1,6 @@
 # hollowreach recipes v1
 # source: c++
-# recipes=152 smelting=6
+# recipes=177 smelting=6
 
 ## recipes
 recipe(000) = shapeless|hand|log*1|out=planks*4
@@ -155,6 +155,31 @@ recipe(148) = shaped|workbench|3x2|0,0,#planks 0,1,#planks 0,2,#planks 1,0,log 1
 recipe(149) = shaped|workbench|3x3|0,0,cobbled 0,1,cobbled 0,2,cobbled 1,0,cobbled 1,2,cobbled 2,0,cobbled 2,1,embercoal 2,2,cobbled|out=stove*1
 recipe(150) = shaped|workbench|3x3|0,0,ferralite_ingot 0,2,ferralite_ingot 1,0,ferralite_ingot 1,2,ferralite_ingot 2,0,ferralite_ingot 2,1,ferralite_ingot 2,2,ferralite_ingot|out=cooking_pot*1
 recipe(151) = shapeless|workbench|rotten_flesh*2 verdanite*1|out=fertiliser*3
+recipe(152) = shapeless|hand|flower_poppy*1|out=dye_red*2
+recipe(153) = shapeless|hand|flower_marigold*1|out=dye_orange*2
+recipe(154) = shapeless|hand|flower_dandelion*1|out=dye_yellow*2
+recipe(155) = shapeless|hand|flower_fernflower*1|out=dye_green*2
+recipe(156) = shapeless|hand|flower_cornflower*1|out=dye_blue*2
+recipe(157) = shapeless|hand|flower_violet*1|out=dye_purple*2
+recipe(158) = shapeless|hand|flower_daisy*1|out=dye_white*2
+recipe(159) = shapeless|hand|flower_nightcap*1|out=dye_black*2
+recipe(160) = shapeless|workbench|helmet_copper*1 wool*1|out=dyed_helmet_copper*1
+recipe(161) = shapeless|workbench|chest_copper*1 wool*1|out=dyed_chest_copper*1
+recipe(162) = shapeless|workbench|legs_copper*1 wool*1|out=dyed_legs_copper*1
+recipe(163) = shapeless|workbench|boots_copper*1 wool*1|out=dyed_boots_copper*1
+recipe(164) = shapeless|workbench|helmet_ferralite*1 wool*1|out=dyed_helmet_ferralite*1
+recipe(165) = shapeless|workbench|chest_ferralite*1 wool*1|out=dyed_chest_ferralite*1
+recipe(166) = shapeless|workbench|legs_ferralite*1 wool*1|out=dyed_legs_ferralite*1
+recipe(167) = shapeless|workbench|boots_ferralite*1 wool*1|out=dyed_boots_ferralite*1
+recipe(168) = shapeless|workbench|helmet_sunbrass*1 wool*1|out=dyed_helmet_sunbrass*1
+recipe(169) = shapeless|workbench|chest_sunbrass*1 wool*1|out=dyed_chest_sunbrass*1
+recipe(170) = shapeless|workbench|legs_sunbrass*1 wool*1|out=dyed_legs_sunbrass*1
+recipe(171) = shapeless|workbench|boots_sunbrass*1 wool*1|out=dyed_boots_sunbrass*1
+recipe(172) = shapeless|workbench|helmet_aetherite*1 wool*1|out=dyed_helmet_aetherite*1
+recipe(173) = shapeless|workbench|chest_aetherite*1 wool*1|out=dyed_chest_aetherite*1
+recipe(174) = shapeless|workbench|legs_aetherite*1 wool*1|out=dyed_legs_aetherite*1
+recipe(175) = shapeless|workbench|boots_aetherite*1 wool*1|out=dyed_boots_aetherite*1
+recipe(176) = shapeless|workbench|dye_black*1 dye_blue*1 dye_green*1 dye_orange*1 dye_purple*1 dye_red*1 dye_white*1 dye_yellow*1|out=palette*1
 
 ## smelting
 smelt(00) = #logs -> charcoal in 8s
