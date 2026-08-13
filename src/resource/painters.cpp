@@ -769,18 +769,18 @@ std::vector<PainterEntry> buildPainters() {
     // rivets, and a pair of diagonal glints.
     (void)rng;
     for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, i, 0, 200, 226, 232);
-      px(img, ox, oy, i, T - 1, 190, 216, 224);
-      px(img, ox, oy, 0, i, 200, 226, 232);
-      px(img, ox, oy, T - 1, i, 190, 216, 224);
+      px(img, ox, oy, i, 0, 219, 219, 219);
+      px(img, ox, oy, i, T - 1, 210, 210, 210);
+      px(img, ox, oy, 0, i, 219, 219, 219);
+      px(img, ox, oy, T - 1, i, 210, 210, 210);
     }
-    px(img, ox, oy, 1, 1, 236, 247, 251);
-    px(img, ox, oy, 14, 1, 224, 240, 246);
-    px(img, ox, oy, 1, 14, 224, 240, 246);
-    px(img, ox, oy, 14, 14, 210, 232, 240);
-    for (int i = 2; i < 8; ++i) px(img, ox, oy, i, i, 235, 246, 250);
-    for (int i = 4; i < 8; ++i) px(img, ox, oy, i - 1, i + 2, 224, 240, 246);
-    for (int i = 10; i < 13; ++i) px(img, ox, oy, i, i, 218, 236, 244);
+    px(img, ox, oy, 1, 1, 245, 245, 245);
+    px(img, ox, oy, 14, 1, 237, 237, 237);
+    px(img, ox, oy, 1, 14, 237, 237, 237);
+    px(img, ox, oy, 14, 14, 227, 227, 227);
+    for (int i = 2; i < 8; ++i) px(img, ox, oy, i, i, 244, 244, 244);
+    for (int i = 4; i < 8; ++i) px(img, ox, oy, i - 1, i + 2, 237, 237, 237);
+    for (int i = 10; i < 13; ++i) px(img, ox, oy, i, i, 233, 233, 233);
   });
   add("water", [](Image& img, int ox, int oy, Mulberry32& rng) {
     for (int y = 0; y < T; ++y) {
@@ -1039,11 +1039,11 @@ std::vector<PainterEntry> buildPainters() {
   add("door", doorTex(0xb08a52, 0x6e5230));
 
   add("bed_head_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0xb5443a), 12, rng);  // red blanket base
-    blobs(img, ox, oy, hex(0xa03c33), 6, rng, 1);
+    noisy(img, ox, oy, hex(0xb5b5b5), 12, rng);  // neutral blanket, takes the dye
+    blobs(img, ox, oy, hex(0xa0a0a0), 6, rng, 1);
     for (int x = 0; x < T; ++x) {  // headboard rail
-      px(img, ox, oy, x, 0, 124, 74, 42);
-      px(img, ox, oy, x, 1, 96, 58, 34);
+      px(img, ox, oy, x, 0, 84, 84, 84);
+      px(img, ox, oy, x, 1, 62, 62, 62);
     }
     // Plump pillow: dim rounded edge, bright centre, a stitched highlight.
     for (int y = 2; y <= 6; ++y) {
@@ -1060,41 +1060,58 @@ std::vector<PainterEntry> buildPainters() {
     px(img, ox, oy, 4, 3, 250, 249, 242);
     px(img, ox, oy, 5, 3, 250, 249, 242);
     for (int x = 0; x < T; ++x) {  // blanket folded below the pillow
-      px(img, ox, oy, x, 8, 150, 58, 50);
-      px(img, ox, oy, x, 9, 128, 46, 40);
+      px(img, ox, oy, x, 8, 150, 150, 150);
+      px(img, ox, oy, x, 9, 128, 128, 128);
     }
   });
   add("bed_foot_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0xb5443a), 10, rng);  // red quilt
+    noisy(img, ox, oy, hex(0xb5b5b5), 10, rng);  // neutral quilt
     for (int y = 0; y < T; ++y) {                // diagonal quilt stitching
       for (int x = 0; x < T; ++x) {
-        if ((x + y) % 6 == 0 || (x - y + 32) % 6 == 0) px(img, ox, oy, x, y, 150, 58, 50);
+        if ((x + y) % 6 == 0 || (x - y + 32) % 6 == 0) px(img, ox, oy, x, y, 150, 150, 150);
       }
     }
     for (int x = 0; x < T; ++x) {  // tucked white sheet at the foot end
-      px(img, ox, oy, x, 13, 128, 46, 40);
+      px(img, ox, oy, x, 13, 128, 128, 128);
       px(img, ox, oy, x, 14, 222, 218, 206);
       px(img, ox, oy, x, 15, 192, 188, 176);
     }
   });
+  // The underside, which is never visible in play but is part of a dyeable block
+  // and therefore has to be neutral like the rest of it.
+  add("bed_bottom", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x6e6e6e), 10, rng);
+    for (int x = 0; x < T; ++x) {
+      px(img, ox, oy, x, 0, 88, 88, 88);
+      px(img, ox, oy, x, T - 1, 52, 52, 52);
+    }
+  });
   add("bed_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    Mulberry32 inner = seeded("bedside");
-    planksInto(img, ox, oy, inner);  // wood frame at the bottom
+    // A neutral frame rather than planksInto. The shaders multiply the dye over
+    // this whole tile, so a brown frame would come out as brown-times-the-dye — a
+    // muddy version of whatever was chosen. Painted as greys it reads as a frame in
+    // shadow at every colour, which is what "the details should be dark" buys.
+    for (int y = 8; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double j = (rng.next() * 2 - 1) * 8;
+        px(img, ox, oy, x, y, 96 + j, 96 + j, 96 + j);
+      }
+    }
     // Draped blanket with a lit top edge and a shadowed hem.
     for (int y = 0; y < 8; ++y) {
       for (int x = 0; x < T; ++x) {
         const double j = (rng.next() * 2 - 1) * 10;
-        px(img, ox, oy, x, y, 181 + j, 68 + j, 58 + j);
+        px(img, ox, oy, x, y, 181 + j, 181 + j, 181 + j);
       }
     }
     for (int x = 0; x < T; ++x) {
-      px(img, ox, oy, x, 0, 205, 86, 74);
-      px(img, ox, oy, x, 7, 138, 50, 44);
-      px(img, ox, oy, x, 8, 224, 220, 208);  // white sheet peeking out
-      px(img, ox, oy, x, 9, 128, 88, 48);    // frame rail
+      px(img, ox, oy, x, 0, 205, 205, 205);
+      px(img, ox, oy, x, 7, 138, 138, 138);
+      px(img, ox, oy, x, 8, 220, 220, 220);  // sheet peeking out
+      px(img, ox, oy, x, 9, 104, 104, 104);  // frame rail
     }
     for (int y = 12; y < T; ++y) {  // shadowed gap between stout legs
-      for (int x = 3; x <= 12; ++x) px(img, ox, oy, x, y, 34, 28, 22);
+      for (int x = 3; x <= 12; ++x) px(img, ox, oy, x, y, 30, 30, 30);
     }
   });
 
@@ -1309,6 +1326,14 @@ std::vector<PainterEntry> buildPainters() {
   add("flower_cornflower", flowerTex(0x3f7a32, 0x4a6fe0, 0x2a3f8a));
   add("flower_dandelion", flowerTex(0x3f7a32, 0xf2c53a, 0xc99a24));
   add("flower_violet", flowerTex(0x3f7a32, 0x9a5ac2, 0xf2c53a));
+  // The Dye update's three, filling the gaps between the primaries the first five
+  // cover. flowerTex is already parametric, so a new species is a row and two hex
+  // colours rather than a sprite — the same bargain the crop painters made.
+  add("flower_marigold", flowerTex(0x3f7a32, 0xe8862a, 0xb4551a));
+  add("flower_fernflower", flowerTex(0x3f7a32, 0x4fae53, 0x2f7a38));
+  // A dark bloom with a pale eye, or it reads as a hole in the ground rather than a
+  // flower. Black dye has to come from something you can actually see growing.
+  add("flower_nightcap", flowerTex(0x3a6b2e, 0x2a2333, 0x8d86a0));
 
   // ---- crops: eighteen, four stages each, from the five families above ----
   //

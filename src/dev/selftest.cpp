@@ -24,6 +24,8 @@
 #include "game/entities/manager.h"
 #include "game/entities/senses.h"
 #include "game/crafting.h"
+#include "game/dyeing.h"
+#include "resource/painters.h"
 #include "game/interact.h"
 #include "game/farming.h"
 #include "game/inventory.h"
@@ -223,7 +225,8 @@ void testBreaking() {
   const world::WellKnownBlocks& wk = world::wk();
 
   std::vector<std::string> drops;
-  world->setDropSink([&drops](float, float, float, const std::string& key, int count, int) {
+  world->setDropSink([&drops](float, float, float, const std::string& key, int count, int,
+                              std::int32_t) {
     drops.push_back(key + "*" + std::to_string(count));
   });
 
@@ -611,7 +614,8 @@ void testBlockEntities() {
 
   // Mining it spills the contents and drops the entity.
   std::vector<std::string> spilled;
-  world->setDropSink([&spilled](float, float, float, const std::string& key, int count, int) {
+  world->setDropSink([&spilled](float, float, float, const std::string& key, int count, int,
+                                std::int32_t) {
     spilled.push_back(key + "*" + std::to_string(count));
   });
   inv.give("pick_stone", 1);
@@ -668,6 +672,146 @@ void testCrafting() {
   check(game::fuelValue("forge") == 0, "a forge is not");
   check(game::fuelValue("#planks") == game::fuelValue("planks"),
         "an ingredient tag resolves to its representative");
+}
+
+// --- dyeing ------------------------------------------------------------------
+//
+// The rules live in game/dyeing.h with no interface attached precisely so they can be
+// asserted here. Every one of these is a question the palette screen would otherwise
+// be the only place that knew the answer to.
+void testDyeing() {
+  std::printf("dyeing\n");
+
+  // The anchors are written out in dyeing.cpp AND in the item table, because they
+  // mean different things in each — the sprite's paint versus the space's anchors.
+  // A duplicated constant is only safe if something checks it, so this does.
+  {
+    int matched = 0;
+    for (int i = 0; i < game::dyeAnchorCount(); ++i) {
+      const game::DyeAnchor& a = game::dyeAnchors()[i];
+      const game::ItemDef* def = game::getItem(a.key);
+      if (def && def->color == a.rgb) ++matched;
+    }
+    checkf(matched == game::dyeAnchorCount(),
+           "every dye anchor matches the item it names (%d/%d)", matched,
+           game::dyeAnchorCount());
+  }
+
+  // Nearest-dye, which is what the player is charged. Picked at the anchors
+  // themselves and at colours plainly between them.
+  check(std::string(game::nearestDye(0xd23a34u).key) == "dye_red",
+        "an exact dye colour costs that dye");
+  check(std::string(game::nearestDye(0xff0000u).key) == "dye_red",
+        "and so does a pure red near it");
+  check(std::string(game::nearestDye(0x101010u).key) == "dye_black",
+        "near-black costs black");
+  check(std::string(game::nearestDye(0xfafafau).key) == "dye_white",
+        "near-white costs white");
+  check(std::string(game::nearestDye(0x2f8f3fu).key) == "dye_green",
+        "a middling green costs green, not the blue next to it on the wheel");
+
+  // Cost and payment.
+  {
+    game::Inventory inv;
+    inv.give("wool", 8);
+    inv.give("dye_blue", 2);
+
+    const game::DyeCost cost = game::dyeCostFor(inv, 0x4a6fe0u);
+    check(cost.dyeKey == "dye_blue" && cost.have == 2 && cost.affordable,
+          "the cost names the dye and how many are held");
+
+    game::ItemStack slot {"wool", 8, -1};
+    check(game::applyDye(inv, slot, 0x4a6fe0u), "a dyeable stack takes the colour");
+    check(slot.tint == 0x4a6fe0, "and wears it");
+    checkf(inv.countOf("dye_blue") == 1, "having spent exactly one dye (%d left)",
+           inv.countOf("dye_blue"));
+
+    // The whole point of the 16 cap: eight items and sixteen items both cost one.
+    game::ItemStack full {"wool", game::kDyePerApplication, -1};
+    check(game::applyDye(inv, full, 0x4a6fe0u), "sixteen at once is one application");
+    checkf(inv.countOf("dye_blue") == 0, "and still one dye (%d left)",
+           inv.countOf("dye_blue"));
+
+    // Nothing left to pay with.
+    game::ItemStack broke {"wool", 1, -1};
+    check(!game::applyDye(inv, broke, 0x4a6fe0u), "with no dye left the application is refused");
+    check(!broke.dyed(), "and the item is NOT quietly coloured for free");
+  }
+
+  // Over the cap, which is what stops a shift-click dyeing a whole stack for one dye.
+  {
+    game::Inventory inv;
+    inv.give("dye_red", 4);
+    game::ItemStack heap {"wool", game::kDyePerApplication + 1, -1};
+    check(!game::applyDye(inv, heap, 0xd23a34u), "one more than the cap is refused");
+    checkf(inv.countOf("dye_red") == 4, "and costs nothing (%d dye left)",
+           inv.countOf("dye_red"));
+  }
+
+  // What may be dyed at all.
+  check(game::isDyeable(game::ItemStack{"wool", 1, -1}), "wool is dyeable");
+  check(game::isDyeable(game::ItemStack{"glass", 1, -1}), "so is glass");
+  check(game::isDyeable(game::ItemStack{"bed", 1, -1}), "so is a bed");
+  check(game::isDyeable(game::ItemStack{"dyed_chest_ferralite", 1, -1}),
+        "and colourable armour, which is the point of it existing");
+  check(!game::isDyeable(game::ItemStack{"chest_ferralite", 1, -1}),
+        "plain armour is not, or the colourable craft would be pointless");
+  check(!game::isDyeable(game::ItemStack{"greystone", 1, -1}), "and neither is stone");
+  {
+    game::Inventory inv;
+    inv.give("dye_red", 4);
+    game::ItemStack stone {"greystone", 1, -1};
+    check(!game::applyDye(inv, stone, 0xd23a34u), "an undyeable item cannot be dyed");
+    check(inv.countOf("dye_red") == 4, "and costs nothing either");
+  }
+
+  // A DYEABLE BLOCK'S TILE MUST BE NEUTRAL, or every colour mixed from it comes out
+  // wrong — a red dye over the bed's old red blanket was fine and over its blue
+  // pillow was black. This is the check that keeps the next dyeable block honest,
+  // because "I forgot to repaint it" produces a subtly wrong colour rather than
+  // anything that looks like a failure.
+  {
+    int checked = 0, coloured = 0;
+    std::string worst;
+    int worstSpread = 0;
+    for (const world::BlockDef& d : world::blocks().all()) {
+      if (!d.dyeable) continue;
+      for (const auto& [slot, ref] : d.textures.entries()) {
+        if (ref.isVariable() || ref.id().empty()) continue;
+        const resource::PainterEntry* p = resource::findPainter(ref.id());
+        if (!p) continue;
+        const Image tile = resource::paintTile(*p);
+        ++checked;
+        // The widest gap between any pixel's channels. A neutral tile is grey
+        // everywhere, so this is near zero; a tile with hue left in it is not.
+        int spread = 0;
+        for (int y = 0; y < tile.height(); ++y) {
+          for (int x = 0; x < tile.width(); ++x) {
+            const Rgba c = tile.get(x, y);
+            if (c.a == 0) continue;  // fully transparent, no colour to judge
+            const int r = c.r, g = c.g, b = c.b;
+            spread = std::max(spread, std::max({r, g, b}) - std::min({r, g, b}));
+          }
+        }
+        // 24/255 of slack. Wide enough for the wood frame under a bed's blanket,
+        // which is a detail rather than a dyeable surface, and far too narrow for
+        // the red quilt that used to be painted over it.
+        if (spread > 24) {
+          ++coloured;
+          if (spread > worstSpread) {
+            worstSpread = spread;
+            worst = ref.id().path();
+          }
+        }
+      }
+    }
+    checkf(checked >= 4, "every dyeable block's tiles were painted and inspected (%d)",
+           checked);
+    checkf(coloured == 0,
+           "and every one is neutral, so a dye lands at full strength (%d not, worst %s "
+           "at %d)",
+           coloured, worst.empty() ? "-" : worst.c_str(), worstSpread);
+  }
 }
 
 // --- every authored recipe can actually be made ------------------------------
@@ -1802,7 +1946,8 @@ void testFarming() {
   // --- harvest pays only when ripe -----------------------------------------
   {
     std::vector<std::pair<std::string, int>> dropped;
-    world->setDropSink([&dropped](float, float, float, const std::string& key, int n, int) {
+    world->setDropSink([&dropped](float, float, float, const std::string& key, int n, int,
+                                  std::int32_t) {
       dropped.emplace_back(key, n);
     });
 
@@ -1886,7 +2031,8 @@ void testFarming() {
   {
     auto plot = makeWorld();
     std::vector<std::pair<std::string, int>> mined;
-    plot->setDropSink([&mined](float, float, float, const std::string& key, int n, int) {
+    plot->setDropSink([&mined](float, float, float, const std::string& key, int n, int,
+                               std::int32_t) {
       mined.emplace_back(key, n);
     });
 
@@ -7457,8 +7603,8 @@ void testNetSession() {
   // the host, through this seam and nowhere else — without it the spill is a
   // silent no-op and a test of it proves nothing.
   hostWorld->setDropSink([&hostEntities](float x, float y, float z, const std::string& key,
-                                         int count, int dura) {
-    hostEntities.spawnDrop(Vec3{x, y, z}, key, count, dura);
+                                         int count, int dura, std::int32_t tint) {
+    hostEntities.spawnDrop(Vec3{x, y, z}, key, count, dura, tint);
   });
 
   // Something alive before anyone joins, so the payload has something to strip.
@@ -10347,6 +10493,7 @@ int runSelfTest() {
   testPlacing();
   testBlockEntities();
   testCrafting();
+  testDyeing();
   testRecipesReachable();
   testCookingReachable();
   testSettingScope();

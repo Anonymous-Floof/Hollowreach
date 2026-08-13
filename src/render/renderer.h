@@ -108,6 +108,10 @@ class Renderer {
   // viewmodel(), which the game ticks.
   void render(world::World& world, const Camera& camera, const Sky& sky, int screenWidth,
               int screenHeight, const Selection* selection, const std::string& heldItem,
+              // The dye on the held stack, 0xRRGGBB, or -1. Passed rather than looked
+              // up because the renderer sees a key, and a key cannot answer what
+              // colour THIS stack of it was painted.
+              std::int32_t heldTint,
               float underwater, double time);
 
   // The live entities to draw, or null in a world without them. Set once by App;
@@ -139,7 +143,7 @@ class Renderer {
 
  private:
   void drawHeld(const world::World& world, const Camera& camera, const Sky& sky,
-                const std::string& itemKey, float aspect);
+                const std::string& itemKey, std::int32_t dye, float aspect);
   void renderShadowMap(world::World& world, const Camera& camera, const Sky& sky, double time);
   // Wall-clock seconds since the renderer started, for the entity walk cycles.
   double animClock_ = 0.0;

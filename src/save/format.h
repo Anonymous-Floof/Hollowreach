@@ -49,7 +49,10 @@ namespace hr::save {
 
 // Bumped whenever a section's layout changes. Adding a whole new section does not
 // need a bump, because an old reader skips what it does not know.
-inline constexpr std::uint16_t kSaveVersion = 1;
+// 2: the Dye update. ItemStack gained a colour, and every stack in the file goes
+// through writeStack/readStack — so this is a layout change inside sections that
+// already exist, which is the one thing a new tag cannot work around.
+inline constexpr std::uint16_t kSaveVersion = 2;
 
 // The oldest version this build can still read. Migrations cover everything from
 // here up to kSaveVersion.
@@ -108,6 +111,10 @@ struct WorldSave {
   // the world — where changing the layout of the block-entity section would have
   // made every existing save unreadable without a migration.
   std::unordered_map<game::BlockEntityKey, game::Painting> paintings;
+  // Dyed cells, position -> 0xRRGGBB. Also its own section, and for the plainest
+  // version of the same reason: an older build skips the tag and opens the world
+  // with its dyed blocks back at neutral, which is a world it can still play.
+  world::World::TintMap tints;
   std::vector<game::EntitySave> entities;
   std::vector<WaypointSave> waypoints;
   std::vector<GuestSave> guests;

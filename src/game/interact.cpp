@@ -140,6 +140,16 @@ void Interact::update(float dt, const Input& input, Player& player, world::World
         return;
       }
     }
+    // ---- the palette: opens its screen, aiming anywhere ----
+    //
+    // Before the wayshard and before eating for the same reason tilling is: pointing
+    // at something is not what this does. A palette is used ON ITSELF.
+    if (held->type == ItemType::Palette) {
+      if (hooks.onPalette && hooks.onPalette()) {
+        swung_ = true;
+        return;
+      }
+    }
     // ---- wayshard: warp to the surface, aiming anywhere ----
     if (held->type == ItemType::Warp && !blockHandles(true)) {
       if (hooks.onWarp && hooks.onWarp()) {
@@ -366,7 +376,10 @@ void Interact::complete(world::World& world, Inventory& inventory, const RayHit&
     std::string key;
     int count = 0;
     if (world.harvestDrop(hit.x, hit.y, hit.z, key, count)) {
-      world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, key, count);
+      // Read the colour while the block is still standing — the cell is cleared
+      // further down, and with it the tint.
+      const std::int32_t tint = world.dyedDrop(hit.x, hit.y, hit.z, key);
+      world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, key, count, -1, tint);
     }
   } else if (gated && !instantBreak_ && hooks.notify) {
     static const char* kTierNames[] = {"", "wood", "stone", "copper", "iron"};
@@ -384,7 +397,8 @@ void Interact::complete(world::World& world, Inventory& inventory, const RayHit&
   if (b.station != world::Station::None) {
     if (const BlockEntity* be = world.getBlockEntity(hit.x, hit.y, hit.z)) {
       for (const ItemStack& s : entityContents(*be)) {
-        world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, s.key, s.count, s.dura);
+        world.spawnDrop(hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f, s.key, s.count, s.dura,
+                        s.tint);
       }
     }
     world.removeBlockEntity(hit.x, hit.y, hit.z);
@@ -475,6 +489,15 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
   // bit0 marks a player-placed leaf, exempting it from natural leaf decay.
   const int meta = placed.isLeaf ? 1 : placementMeta(placed, player, hit);
 
+  // The colour the held stack carries, read BEFORE anything is consumed: `slot` is a
+  // reference into the inventory, and consumeSelected can empty it out from under us.
+  // Applied after each setBlock rather than through it, so the three placement paths
+  // below — bed, door, everything else — each colour every cell they wrote.
+  const std::int32_t dye = slot.tint;
+  const auto colour = [&world, dye](int x, int y, int z) {
+    if (dye >= 0) world.setTint(x, y, z, static_cast<std::uint32_t>(dye));
+  };
+
   // Beds occupy two horizontal cells: foot plus head, extending away from the
   // player.
   if (placed.render == RenderKind::Bed) {
@@ -488,6 +511,8 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
     if (intersectsPlayer(hx, cy, hz, player)) return;
     world.setBlock(cx, cy, cz, item->blockId, f);      // foot (bit2 = 0)
     world.setBlock(hx, cy, hz, item->blockId, f | 4);  // head (bit2 = 1)
+    colour(cx, cy, cz);
+    colour(hx, cy, hz);  // both halves, or a dyed bed is dyed at one end
     inventory.consumeSelected();
     audio::sfx::blockPlace(placed, Vec3{cx + 0.5f, cy + 0.5f, cz + 0.5f});
     return;
@@ -499,12 +524,15 @@ void Interact::tryPlace(world::World& world, Inventory& inventory, Player& playe
     if (intersectsPlayer(cx, cy + 1, cz, player)) return;
     world.setBlock(cx, cy, cz, item->blockId, meta);
     world.setBlock(cx, cy + 1, cz, item->blockId, meta | 2);  // bit1 = upper
+    colour(cx, cy, cz);
+    colour(cx, cy + 1, cz);
     inventory.consumeSelected();
     audio::sfx::blockPlace(placed, Vec3{cx + 0.5f, cy + 0.5f, cz + 0.5f});
     return;
   }
 
   world.setBlock(cx, cy, cz, item->blockId, meta);
+  colour(cx, cy, cz);
   // A station block carries state from the moment it exists, so its forge starts
   // smelting or its chest keeps items even if it is never opened.
   const BlockEntityKind kind = entityKindFor(placed.key);

@@ -15,6 +15,9 @@ Interface::~Interface() = default;
 
 bool Interface::init(ShaderCache& shaders, const render::IconAtlas* icons) {
   icons_ = icons;
+  // The palette draws the item in its slot itself rather than through the Doc
+  // layout, so it needs the atlas directly.
+  palette_.setIcons(icons);
   if (!ui_.init(shaders)) {
     log::error("interface shader failed to build");
     return false;
@@ -342,6 +345,13 @@ void Interface::draw(const Window& window, Input& input, const UiFrame& frame) {
         // frame of the wrong thing.
         if (screen_ == Screen::TimeWheel) timeWheel_.draw(ui_, text_, *frame.sky);
       }
+      break;
+    case Screen::Palette:
+      palette_.update(ui_, text_, event);
+      // Same guard the wheel above needs: Done closes the screen from inside
+      // update(), and drawing the card over a world that is already back would be
+      // one frame of the wrong thing.
+      if (screen_ == Screen::Palette) palette_.draw(ui_, text_);
       break;
     case Screen::Boot:
     case Screen::None:

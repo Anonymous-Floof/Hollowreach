@@ -60,6 +60,9 @@ enum class AppState {
   PaintingPick,
   // A bed's 24-hour dial: read the clock, or pick an hour and sleep to it.
   TimeWheel,
+  // The Dyer's Palette. Its slot lives in App rather than in the screen so what
+  // was left in it survives closing and reopening the window.
+  Palette,
 };
 
 struct AppOptions {
@@ -276,6 +279,10 @@ class App {
   bool hasAtlas() const;
   // The Escape / Back path. Each screen returns somewhere different.
   void closeCurrentScreen();
+  // The globally saved palette colours, to and from settings.json. Hex joined by
+  // '|', exactly as the resource-pack list is.
+  void saveGlobalFavourites();
+  void loadGlobalFavourites();
   std::string nextScreenshotName() const;
   // --screen <name> -> the state and, for the station screens, the inventory mode.
   bool applyStartScreen(const std::string& name);
@@ -471,6 +478,13 @@ class App {
   // A detached forge/chest for --screen forge|chest, so a station screen can be
   // captured without placing a block first.
   game::BlockEntity scratchStation_;
+  // The palette screen's single slot, and the two favourite lists. Held here rather
+  // than in the screen because all three outlive it: the slot keeps what was left in
+  // it, and the lists are persisted — one into the world file, one beside
+  // settings.json.
+  game::ItemStack paletteSlot_;
+  std::vector<std::uint32_t> paletteWorldFavourites_;
+  std::vector<std::uint32_t> paletteGlobalFavourites_;
 
   // 0..1 strength of the submerged post, eased toward the target each frame.
   float underwater_ = 0.0f;

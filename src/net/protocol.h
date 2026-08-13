@@ -322,6 +322,10 @@ struct GiveMsg {
   std::string key;
   std::int32_t count = 1;
   std::int32_t dura = -1;
+  // 0xRRGGBB or -1. An award is a drop the host caught on the guest's behalf, and a
+  // drop can be dyed, so this has to travel with it or the colour is lost at exactly
+  // the crossing nobody would think to check.
+  std::int32_t tint = -1;
 };
 
 struct DamageMsg {

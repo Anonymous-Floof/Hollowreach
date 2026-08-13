@@ -167,6 +167,52 @@ void paintNugget(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   pset(g, 5, 7, M);
 }
 
+// A pinch of ground pigment: a small heap with a scatter of loose grains above it.
+// Shaded from ItemDef::color like every other painter here, so eight dyes are eight
+// table rows and no sprite work at all.
+void paintDye(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba M = shade(col, 1.9), m = solid(col), d = shade(col, 0.5);
+  // The heap.
+  prow(g, 4, 11, 12, d);
+  prow(g, 4, 11, 11, m);
+  prow(g, 5, 10, 10, m);
+  prow(g, 6, 9, 9, M);
+  // Loose grains drifting off it, so a dye reads as powder rather than as a stone.
+  pset(g, 5, 7, m);
+  pset(g, 9, 6, m);
+  pset(g, 7, 5, M);
+  pset(g, 11, 8, d);
+  pset(g, 3, 9, d);
+}
+
+// A wooden board with a thumb hole and six dabs of wet colour on it. The dabs are
+// hard-coded rather than shaded from ItemDef::color, and deliberately: this is the
+// one item in the game whose whole subject IS the colours, so a single-hue version
+// of it would say nothing about what it does.
+void paintPalette(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba M = shade(col, 1.5), m = solid(col), d = shade(col, 0.55);
+  // The board: a rounded slab.
+  prow(g, 3, 12, 4, M);
+  for (int y = 5; y <= 10; ++y) prow(g, 2, 13, y, m);
+  prow(g, 3, 12, 11, d);
+  // The thumb hole. Painted very dark rather than cut out: the sprite is also
+  // extruded into the held and dropped models, and a hole through the middle of one
+  // texel of board reads as a gap in the mesh rather than as a thumb hole.
+  const Rgba hole = shade(col, 0.22);
+  pset(g, 4, 9, hole);
+  pset(g, 5, 9, hole);
+  pset(g, 4, 10, hole);
+  pset(g, 5, 10, hole);
+  // Six dabs, one per corner of the wheel. These are the only literal colours in
+  // any painter here.
+  pset(g, 4, 6, Rgba{0xd2, 0x3a, 0x34, 255});
+  pset(g, 6, 5, Rgba{0xe8, 0x86, 0x2a, 255});
+  pset(g, 8, 5, Rgba{0xf2, 0xc5, 0x3a, 255});
+  pset(g, 10, 6, Rgba{0x4f, 0xae, 0x53, 255});
+  pset(g, 11, 8, Rgba{0x4a, 0x6f, 0xe0, 255});
+  pset(g, 9, 9, Rgba{0x9a, 0x5a, 0xc2, 255});
+}
+
 void paintLump(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   const Rgba M = shade(col, 2.4), m = solid(col), d = shade(col, 0.45);
   prow(g, 6, 9, 4, m);
@@ -629,6 +675,8 @@ PainterFn painterFor(IconKind kind) {
     case IconKind::Ingot: return paintIngot;
     case IconKind::Nugget: return paintNugget;
     case IconKind::Lump: return paintLump;
+    case IconKind::Dye: return paintDye;
+    case IconKind::Palette: return paintPalette;
     case IconKind::Gem: return paintGem;
     case IconKind::Shard: return paintShard;
     case IconKind::Boat: return paintBoat;
@@ -691,6 +739,25 @@ constexpr MaterialSpec kMaterials[] = {
     // game whose only use was a gamble nobody takes — so this is also where it stops
     // being pure litter.
     {"fertiliser", "Fertiliser", 0x6f8f42u, IconKind::Lump},
+
+    // --- The Dye update ------------------------------------------------------
+    //
+    // One per flower. Appended, like everything else here: an item's index IS its
+    // cell in the icon atlas, so inserting one anywhere but the end repaints every
+    // icon after it.
+    //
+    // These colours are not decoration. The palette charges one dye per application
+    // and picks the one NEAREST the colour being mixed, so this table is the set of
+    // anchors the whole 24-bit space is measured against — which is why they are
+    // spread across the wheel rather than chosen to look nice beside each other.
+    {"dye_red", "Red Dye", 0xd23a34u, IconKind::Dye},
+    {"dye_orange", "Orange Dye", 0xe8862au, IconKind::Dye},
+    {"dye_yellow", "Yellow Dye", 0xf2c53au, IconKind::Dye},
+    {"dye_green", "Green Dye", 0x4fae53u, IconKind::Dye},
+    {"dye_blue", "Blue Dye", 0x4a6fe0u, IconKind::Dye},
+    {"dye_purple", "Purple Dye", 0x9a5ac2u, IconKind::Dye},
+    {"dye_white", "White Dye", 0xf0f0eau, IconKind::Dye},
+    {"dye_black", "Black Dye", 0x2a2333u, IconKind::Dye},
 };
 
 struct FoodSpec {
@@ -930,6 +997,10 @@ ItemRegistry::ItemRegistry() {
     def.type = ItemType::Block;
     def.icon = IconKind::Block;
     def.blockId = b.id;
+    // Mirrored rather than restated. A block item and its block are the same thing
+    // to a player, so "can this be dyed" has to have one answer — and the block
+    // table is where it is already written.
+    def.dyeable = b.dyeable;
     byBlock_[b.id] = static_cast<int>(items_.size());
     add(std::move(def));
   }
@@ -1069,6 +1140,55 @@ ItemRegistry::ItemRegistry() {
       def.color = m.color;
       add(std::move(def));
     }
+  }
+
+  // ---- colourable armour, appended after the whole plain matrix -------------
+  //
+  // A second full 4x4 rather than a `dyeable` flag on the sixteen above, because a
+  // player who spends iron on a chestplate should not have made an undyed one by
+  // accident — and because a plain iron chestplate LOOKS like iron, which is worth
+  // keeping. Crafting the plain piece with a wool is what converts it.
+  //
+  // The colour is a neutral grey rather than the material's own. That is the whole
+  // trick: the sprite painters shade from ItemDef::color, so a grey base produces a
+  // greyscale piece whose highlights and shadows survive the multiply — the dye
+  // lands on white and comes out at full strength, the outline stays near-black and
+  // reads as an outline. Handing these m.color would tint every dye toward iron.
+  //
+  // Appended AFTER the plain matrix, never interleaved with it: an item's index is
+  // its cell in the icon atlas.
+  for (const ArmorMaterial& m : armorMaterials()) {
+    int pieceIndex = 0;
+    for (const ArmorPiece& p : armorPieces()) {
+      ItemDef def;
+      def.key = std::string("dyed_") + p.piece + "_" + m.id;
+      def.name = std::string("Colourable ") + m.name + " " + p.name;
+      def.type = ItemType::Armor;
+      def.icon = kArmorIcons[pieceIndex++];
+      def.maxStack = 1;
+      def.armorSlot = p.slot;
+      // Identical protection and wear to the plain piece. Dyeing is a cosmetic
+      // choice, and a cosmetic choice that costs defence is a choice nobody makes.
+      def.defense = std::max(1, static_cast<int>(std::floor(m.defense * p.mult + 0.5f)));
+      def.durability = static_cast<int>(std::floor(m.durability * p.mult + 0.5f));
+      def.color = 0xd6d6d6u;
+      def.dyeable = true;
+      add(std::move(def));
+    }
+  }
+
+  // The palette itself, last of all. No durability: it is the tool that opens the
+  // colour screen, and a colour screen that wears out and has to be re-crafted from
+  // one of every flower in the world would make the whole feature a chore.
+  {
+    ItemDef def;
+    def.key = "palette";
+    def.name = "Dyer's Palette";
+    def.type = ItemType::Palette;
+    def.icon = IconKind::Palette;
+    def.maxStack = 1;
+    def.color = 0xa8763fu;
+    add(std::move(def));
   }
 }
 

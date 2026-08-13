@@ -690,7 +690,7 @@ void Renderer::drawSelection(const Camera& camera, const Selection& sel) {
 // SOME depth test a model just draws in emission order and its back faces paint
 // over its front ones — the old "held block has no top face".
 void Renderer::drawHeld(const world::World& world, const Camera& camera, const Sky& sky,
-                        const std::string& itemKey, float aspect) {
+                        const std::string& itemKey, std::int32_t dye, float aspect) {
   const ItemMesh* mesh = itemMeshes_.get(itemKey);
   if (!mesh) return;
 
@@ -717,6 +717,16 @@ void Renderer::drawHeld(const world::World& world, const Camera& camera, const S
   glDisable(GL_BLEND);
   viewmodelProg_->setMat4("uMVP", mvp.data());
   viewmodelProg_->set("uLight", light);
+  // White unless the stack is dyed. Set every draw rather than only when dyed: the
+  // program is shared, so a colour left over from the last held item would paint the
+  // next one.
+  if (dye >= 0) {
+    viewmodelProg_->set("uDye", static_cast<float>((dye >> 16) & 0xFF) / 255.0f,
+                        static_cast<float>((dye >> 8) & 0xFF) / 255.0f,
+                        static_cast<float>(dye & 0xFF) / 255.0f, 1.0f);
+  } else {
+    viewmodelProg_->set("uDye", 1.0f, 1.0f, 1.0f, 1.0f);
+  }
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, atlas_->texture());
   viewmodelProg_->set("uAtlas", 0);
@@ -728,7 +738,8 @@ void Renderer::drawHeld(const world::World& world, const Camera& camera, const S
 
 void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
                       int screenWidth, int screenHeight, const Selection* selection,
-                      const std::string& heldItem, float underwater, double time) {
+                      const std::string& heldItem, std::int32_t heldTint, float underwater,
+                      double time) {
   const float cloudBase =
       static_cast<float>(world::seaLevel(world.genVersion())) + 72.0f;
 
@@ -1038,7 +1049,7 @@ void Renderer::render(world::World& world, const Camera& camera, const Sky& sky,
 
   drawDebugLines(camera);
   if (selection) drawSelection(camera, *selection);
-  if (!heldItem.empty()) drawHeld(world, camera, sky, heldItem, aspect);
+  if (!heldItem.empty()) drawHeld(world, camera, sky, heldItem, heldTint, aspect);
   profiler_.end();
 
   // ============ Pass 2c: god rays, half resolution =============

@@ -230,6 +230,58 @@ RecipeBook::RecipeBook() {
   shaped({"I I", "I I", "III"}, {{'I', "ferralite_ingot"}}, "cooking_pot", 1, kBench);
   shapeless({{"verdanite", 1}, {"rotten_flesh", 2}}, "fertiliser", 3, kBench);
 
+  // --- The Dye update, all appended ----------------------------------------
+  //
+  // One flower, two dye. Shapeless and single-ingredient, so each is trivially
+  // distinct from every other and testRecipesReachable has nothing to catch.
+  //
+  // Two rather than one because the palette CONSUMES a dye per application and one
+  // application covers sixteen items: at 1:1 a wall of two hundred wool would want
+  // thirteen flowers of one species, which on a map where nightcap only grows in
+  // snow is a scavenger hunt rather than a build.
+  {
+    struct FlowerDye {
+      const char* flower;
+      const char* dye;
+    };
+    static constexpr FlowerDye kDyes[] = {
+        {"flower_poppy", "dye_red"},        {"flower_marigold", "dye_orange"},
+        {"flower_dandelion", "dye_yellow"}, {"flower_fernflower", "dye_green"},
+        {"flower_cornflower", "dye_blue"},  {"flower_violet", "dye_purple"},
+        {"flower_daisy", "dye_white"},      {"flower_nightcap", "dye_black"},
+    };
+    for (const FlowerDye& d : kDyes) shapeless({{d.flower, 1}}, d.dye, 2, kHand);
+  }
+
+  // A plain piece plus a wool becomes its colourable twin. Shapeless, because two
+  // ingredients in a fixed shape would be an arbitrary pattern to memorise for
+  // sixteen recipes that are all the same idea.
+  //
+  // Sixteen near-identical recipes is exactly the shape that shadows something, so
+  // note what keeps them distinct: each names a DIFFERENT concrete piece, and the
+  // shapeless matcher requires the bag to match exactly. testRecipesReachable
+  // proves it rather than this comment doing so.
+  for (const ArmorMaterial& m : armorMaterials()) {
+    for (const ArmorPiece& p : armorPieces()) {
+      const std::string plain = std::string(p.piece) + "_" + m.id;
+      shapeless({{plain, 1}, {"wool", 1}}, "dyed_" + plain, 1, kBench);
+    }
+  }
+
+  // One of every dye, and therefore one of every flower. The palette is the only
+  // recipe in the game that asks for the whole of a category, which is the point:
+  // it is the reward for having actually walked the map rather than a thing you
+  // stumble into with the contents of one meadow.
+  shapeless({{"dye_red", 1},
+             {"dye_orange", 1},
+             {"dye_yellow", 1},
+             {"dye_green", 1},
+             {"dye_blue", 1},
+             {"dye_purple", 1},
+             {"dye_white", 1},
+             {"dye_black", 1}},
+            "palette", 1, kBench);
+
   // --- smelting (forge) ---
   //
   // MEAT IS GONE FROM HERE. Cooking food at a forge was the whole of the kitchen

@@ -161,6 +161,10 @@ struct BlockDef {
   bool toggle = false;
   bool tall = false;  // occupies two stacked cells (doors)
   bool sleep = false;
+  // Accepts a dye. The tile is painted neutral so the shaders' multiply lands on
+  // something that can take a colour, and the flag is what the palette screen asks
+  // before it will let the item into its slot.
+  bool dyeable = false;
   bool anchor = false;
   bool shore = false;  // needs adjacent water to be placed
   bool isPlank = false;
@@ -303,7 +307,17 @@ struct WellKnownBlocks {
           dusk_leaves = 0, birch_log = 0, birch_leaves = 0, palm_log = 0, palm_leaves = 0;
 
   // The five flowers, in the order worldgen indexes them.
+  //
+  // FROZEN. The Dye update added three more and did NOT append them here, because
+  // worldgen picks a species with `flowers[hash * size]` — widening this array would
+  // hand a different flower to the same hash and silently repaint every meadow in
+  // every world generated before v7. The eight-flower list lives beside it and the
+  // generator chooses between them by version.
   std::array<BlockId, 5> flowers {};
+  // All eight, for gen v7 and later. The first five are the same blocks in the same
+  // order, so a v7 meadow still looks like a v6 one with two new species mixed in
+  // rather than a completely different field.
+  std::array<BlockId, 8> flowersV7 {};
 
   // Tilled soil is FOUR blocks, not one: plain or enriched, each dry or damp.
   //

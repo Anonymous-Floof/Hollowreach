@@ -48,7 +48,13 @@ void dropUpdate(Entity& e, float dt, EntityContext& ctx) {
   if (ctx.entities) {
     for (Entity& o : ctx.entities->all()) {
       if (&o == &e || o.dead || o.type != EntityType::Drop) continue;
-      if (o.data.key != e.data.key || o.data.instant != e.data.instant || o.id <= e.id) continue;
+      // Colour is part of "a like drop". Two piles of wool on the floor merge only
+      // if they are the same colour; without the tint test a red one lying next to a
+      // blue one would absorb it and the second dye would simply be gone.
+      if (o.data.key != e.data.key || o.data.tint != e.data.tint ||
+          o.data.instant != e.data.instant || o.id <= e.id) {
+        continue;
+      }
       const float dx = o.pos.x - e.pos.x, dy = o.pos.y - e.pos.y, dz = o.pos.z - e.pos.z;
       if (dx * dx + dy * dy + dz * dz > kMergeRange2) continue;
       o.data.count += e.data.count;
@@ -68,7 +74,7 @@ void dropUpdate(Entity& e, float dt, EntityContext& ctx) {
     const float dx = p.x - e.pos.x, dy = (p.y + 0.9f) - e.pos.y, dz = p.z - e.pos.z;
     if (dx * dx + dy * dy + dz * dz > kPickupRange2) return;
   }
-  const int left = ctx.inventory->give(e.data.key, e.data.count, e.data.dura);
+  const int left = ctx.inventory->give(e.data.key, e.data.count, e.data.dura, e.data.tint);
   if (left < e.data.count) audio::sfx::pickup();
   if (left <= 0) e.dead = true;
   else e.data.count = left;

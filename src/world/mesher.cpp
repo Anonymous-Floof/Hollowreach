@@ -128,6 +128,14 @@ class Sampler {
     const ChunkData* c = pick(lx, lz);
     return c ? c->meta.get(localIdx(wrap(lx), ly, wrap(lz))) : 0;
   }
+  // The cell's dye colour, 0xRRGGBB. White for anything undyed or out of bounds,
+  // which is the identity for the multiply the shaders do.
+  std::uint32_t dye(int lx, int ly, int lz) const {
+    if (ly < 0 || ly >= WH) return kNoDye;
+    const ChunkData* c = pick(lx, lz);
+    return c ? c->tint.get(localIdx(wrap(lx), ly, wrap(lz))) : kNoDye;
+  }
+  static constexpr std::uint32_t kNoDye = 0x00FFFFFFu;
   bool opaque(int lx, int ly, int lz) const { return reg_.opaque(voxel(lx, ly, lz)); }
   bool isWater(int lx, int ly, int lz) const { return voxel(lx, ly, lz) == water_; }
 
@@ -138,13 +146,19 @@ class Sampler {
   BlockId water_ = wk().water;
 };
 
-bool faceVisible(BlockId self, BlockId neighbour) {
+// `selfDye` and `neighbourDye` are the two cells' colours. They matter for exactly
+// one reason: two transparent blocks of the same id merge, and once glass can be
+// dyed, "the same id" stopped meaning "looks the same". A red pane against a blue
+// one would drop the face between them and read as one solid slab of whichever got
+// meshed — the wall would visibly lose its boundary.
+bool faceVisible(BlockId self, BlockId neighbour, std::uint32_t selfDye,
+                 std::uint32_t neighbourDye) {
   if (neighbour == kAir) return true;
   if (blocks().opaque(neighbour)) return false;  // fully hidden
   // Same transparent block merges, so a body of glass or leaves has no internal
   // faces. Note this is not Minecraft's rule (it uses a per-block predicate); keep
   // ours, but it stays out of the model data so a pack cannot depend on it.
-  return neighbour != self;
+  return neighbour != self || selfDye != neighbourDye;
 }
 
 }  // namespace
@@ -247,11 +261,24 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
         const int worldX = baseX + x;
         const int worldZ = baseZ + z;
 
-        const resource::Rgb8 tint =
+        // Two independent reasons for a block to be a colour, and they MULTIPLY
+        // rather than one winning: the biome colormap (white everywhere today) and
+        // the cell's own dye. White is the identity for both, so an undyed cell in a
+        // biome with no colormap comes out byte for byte as it always did — which is
+        // what keeps the mesh golden unchanged for every world nobody has dyed.
+        resource::Rgb8 tint =
             def.tintIndex == resource::kNoTint
                 ? resource::kWhite
                 : resource::tintFor(def.tintIndex,
                                     climate ? climate->at(x, z) : Biome::Meadow);
+        if (const std::uint32_t dye = s.dye(x, y, z); dye != Sampler::kNoDye) {
+          const auto mix = [](std::uint8_t a, std::uint32_t b) {
+            return static_cast<std::uint8_t>((static_cast<int>(a) * static_cast<int>(b)) / 255);
+          };
+          tint.r = mix(tint.r, (dye >> 16) & 0xFF);
+          tint.g = mix(tint.g, (dye >> 8) & 0xFF);
+          tint.b = mix(tint.b, dye & 0xFF);
+        }
 
         const float cellSky = s.sky(x, y, z) / 15.0;
         const float cellBlock = s.blockLight(x, y, z) / 15.0;
@@ -503,7 +530,10 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
         for (int fi = 0; fi < 6; ++fi) {
           const FaceSpec& f = kFaces[fi];
           const int alx = x + f.dir[0], aly = y + f.dir[1], alz = z + f.dir[2];
-          if (!faceVisible(id, s.voxel(alx, aly, alz))) continue;
+          if (!faceVisible(id, s.voxel(alx, aly, alz), s.dye(x, y, z),
+                           s.dye(alx, aly, alz))) {
+            continue;
+          }
 
           const resource::TileRef& tile = tiles.face(id, fi);
           // Leaves sway as a whole. The original also had a liquid case here, but

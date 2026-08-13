@@ -229,6 +229,14 @@ struct ChunkData {
   Banded<std::uint8_t> meta;
   Banded<std::uint8_t> skylight;
   Banded<std::uint8_t> blocklight;
+  // Per-cell dye colour, 0xRRGGBB, copied here from World::tints_ so the mesher can
+  // read it off-thread without reaching for a map the main thread is editing.
+  //
+  // WHITE, not zero, and the explicit initialiser is the whole reason this is not a
+  // bare declaration: the shaders multiply by this, so white is the identity and a
+  // default-constructed band of zeroes would render every block in the world black.
+  // A band nobody has dyed stays uniform and costs four bytes.
+  Banded<std::uint32_t> tint {0x00FFFFFFu};
 
   // Collapses every array back to uniform wherever it can. Cheap enough to run at
   // the end of a worldgen or lighting job, on the worker that produced it.
@@ -237,9 +245,11 @@ struct ChunkData {
     meta.compact();
     skylight.compact();
     blocklight.compact();
+    tint.compact();
   }
   std::size_t bytes() const {
-    return voxels.bytes() + meta.bytes() + skylight.bytes() + blocklight.bytes();
+    return voxels.bytes() + meta.bytes() + skylight.bytes() + blocklight.bytes() +
+           tint.bytes();
   }
 
   BlockId get(int x, int y, int z) const {

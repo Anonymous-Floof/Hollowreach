@@ -124,12 +124,40 @@ void World::applyEdits(LoadedChunk& lc) {
   // Re-apply any saved player edits on top of freshly generated terrain. This is
   // what makes regeneration from a seed safe: the world is deterministic, and the
   // edits are the only thing that is not.
+  //
+  // Dye colours are the second thing that is not, and they are replayed here for the
+  // same reason and at the same moment. Doing it anywhere later would mean a chunk
+  // could be meshed once in its undyed state, and nothing goes back to correct that.
   auto it = edits_.find(chunkKey(lc.chunk.cx, lc.chunk.cz));
-  if (it == edits_.end()) return;
-  ChunkData& d = mutableData(lc);
-  for (const auto& [index, packed] : it->second) {
-    d.voxels.set(index, static_cast<BlockId>(packed & 0xFFFF));
-    d.meta.set(index, static_cast<std::uint8_t>((packed >> 16) & 0xFF));
+  const bool anyEdits = it != edits_.end();
+  if (anyEdits) {
+    ChunkData& d = mutableData(lc);
+    for (const auto& [index, packed] : it->second) {
+      d.voxels.set(index, static_cast<BlockId>(packed & 0xFFFF));
+      d.meta.set(index, static_cast<std::uint8_t>((packed >> 16) & 0xFF));
+    }
+  }
+  applyTints(lc);
+}
+
+// Walks this chunk's dyed cells out of the world-wide map.
+//
+// Keyed by world position rather than by chunk, so this filters rather than looks
+// up. That is the right trade for what it is: dyed cells are rare, the map is
+// usually empty, and keeping ONE map keyed the way every other caller wants to ask
+// (tintAt, the save, the network) beats a second index that could fall out of step
+// with it.
+void World::applyTints(LoadedChunk& lc) {
+  if (tints_.empty()) return;
+  const int baseX = lc.chunk.cx * CX, baseZ = lc.chunk.cz * CZ;
+  ChunkData* d = nullptr;
+  for (const auto& [key, rgb] : tints_) {
+    int wx = 0, wy = 0, wz = 0;
+    game::unpackBlockEntityKey(key, wx, wy, wz);
+    if (wx < baseX || wx >= baseX + CX || wz < baseZ || wz >= baseZ + CZ) continue;
+    if (wy < 0 || wy >= WH) continue;
+    if (!d) d = &mutableData(lc);
+    d->tint.set(localIdx(wx - baseX, wy, wz - baseZ), rgb);
   }
 }
 
@@ -663,6 +691,17 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
     removeBlockEntity(wx, wy, wz);
   }
 
+  // And a dye colour belongs to the block, for the third time and the same reason.
+  // Without this the map keeps an entry at a cell whose dyed block is long gone, and
+  // the NEXT block placed there — an undyed one, out of a stack the player never
+  // coloured — comes out wearing it. Every route that removes a block passes through
+  // here, including the flood and the falling block that the mining path never sees.
+  //
+  // `tints_.empty()` first because the water simulation calls setBlock thousands of
+  // times a tick and an undyed world must not pay a hash lookup for each one. The
+  // painting line above earns its cheapness the same way.
+  if (previous != id && !tints_.empty()) tints_.erase(game::blockEntityKey(wx, wy, wz));
+
   // Carries the change outward cell by cell, over chunk borders where it has to
   // go, and marks whatever meshes it actually touched. This used to relight the
   // whole 3x3 — nine chunks, 49152 cells each, twice over — for one torch, and
@@ -916,6 +955,49 @@ void World::removePainting(int wx, int wy, int wz) {
   if (paintings_.erase(game::blockEntityKey(wx, wy, wz)) > 0) ++paintingRevision_;
 }
 
+// --- dyed cells --------------------------------------------------------------
+//
+// The map is the truth and the chunk band is a copy of it, kept in step here so the
+// mesher — which runs off-thread against an immutable ChunkData and cannot reach a
+// map the main thread is editing — never has to look anything up.
+
+std::uint32_t World::tintAt(int wx, int wy, int wz) const {
+  const auto it = tints_.find(game::blockEntityKey(wx, wy, wz));
+  return it == tints_.end() ? kUntinted : it->second;
+}
+
+void World::setTint(int wx, int wy, int wz, std::uint32_t rgb) {
+  if (wy < 0 || wy >= WH) return;
+  rgb &= 0x00FFFFFFu;
+  tints_[game::blockEntityKey(wx, wy, wz)] = rgb;
+  writeTintCell(wx, wy, wz, rgb);
+}
+
+void World::clearTint(int wx, int wy, int wz) {
+  if (tints_.erase(game::blockEntityKey(wx, wy, wz)) == 0) return;
+  writeTintCell(wx, wy, wz, kUntinted);
+}
+
+// Writes the band and dirties exactly what a colour change can affect. Neither light
+// nor collision can have moved, so this is the cheap half of setMeta: the mesh only,
+// and the neighbours whose face culling compares against this cell's colour.
+void World::writeTintCell(int wx, int wy, int wz, std::uint32_t rgb) {
+  const int cx = floorDiv16(wx), cz = floorDiv16(wz);
+  LoadedChunk* lc = chunkAt(cx, cz);
+  if (!lc) return;  // not loaded: the map carries it, and generateChunk replays it
+
+  const int lx = wx & 15, lz = wz & 15;
+  ChunkData& d = mutableData(*lc);
+  d.tint.set(localIdx(lx, wy, lz), rgb);
+
+  mapDirty_.insert(chunkKey(cx, cz));
+  dirtyMesh(cx, cz);
+  if (lx == 0) dirtyMesh(cx - 1, cz);
+  if (lx == 15) dirtyMesh(cx + 1, cz);
+  if (lz == 0) dirtyMesh(cx, cz - 1);
+  if (lz == 15) dirtyMesh(cx, cz + 1);
+}
+
 void World::tickBlockEntities(float dt) {
   for (auto& [key, be] : blockEntities_) {
     if (be.kind == game::BlockEntityKind::Forge) game::tickForge(be, dt);
@@ -925,8 +1007,8 @@ void World::tickBlockEntities(float dt) {
 }
 
 void World::spawnDrop(float wx, float wy, float wz, const std::string& key, int count,
-                      int dura) const {
-  if (dropSink_) dropSink_(wx, wy, wz, key, count, dura);
+                      int dura, std::int32_t tint) const {
+  if (dropSink_) dropSink_(wx, wy, wz, key, count, dura, tint);
 }
 
 bool World::harvestDrop(int wx, int wy, int wz, std::string& key, int& count) {
@@ -966,10 +1048,27 @@ void World::breakBlockInto(int wx, int wy, int wz) {
   std::string key;
   int count = 0;
   const bool any = harvestDrop(wx, wy, wz, key, count);
+  // The colour has to be read BEFORE the cell is cleared, because setBlock drops the
+  // tint along with the block — which is what stops the next thing placed here from
+  // inheriting it. Read late and this always hands back an undyed drop.
+  const std::int32_t tint = dyedDrop(wx, wy, wz, key);
   // setBlock before the drop, so the drop lands in air rather than inside the
   // block it came from and gets shoved out by the collision resolver.
   setBlock(wx, wy, wz, kAir, 0);
-  if (any) spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, key, count);
+  if (any) spawnDrop(wx + 0.5f, wy + 0.5f, wz + 0.5f, key, count, -1, tint);
+}
+
+// The colour a break at this cell should hand to its drop, or -1.
+//
+// Gated on the drop being the block itself. A dyed wool drops dyed wool, but a dyed
+// bed that somehow dropped planks must not hand the planks its colour, and neither
+// must a crop whose ripe drop is a different item entirely. "What fell out of it"
+// and "what colour it was" are only the same question when the two keys match.
+std::int32_t World::dyedDrop(int wx, int wy, int wz, const std::string& dropKey) const {
+  if (tints_.empty() || dropKey.empty()) return -1;
+  if (blocks().def(getBlock(wx, wy, wz)).key != dropKey) return -1;
+  const auto it = tints_.find(game::blockEntityKey(wx, wy, wz));
+  return it == tints_.end() ? -1 : static_cast<std::int32_t>(it->second);
 }
 
 void World::beginFall(int wx, int wy, int wz) {

@@ -166,6 +166,12 @@ const std::vector<SettingDef>& schema() {
       // row that made you cycle through folder names would be worse than useless.
       {"resourcePacks", "Resource Packs", SettingType::Text, "Audio", 0, 0, 0, 0, false, "", {},
        true},
+      // The palette's globally saved colours, hex and joined by '|'. Hidden for the
+      // same reason and installation-scoped on purpose: "save everywhere" means
+      // exactly that, so it cannot live in a world file. The per-world list is a
+      // section of the world save instead.
+      {"paletteFavourites", "Saved Colours", SettingType::Text, "Audio", 0, 0, 0, 0, false, "",
+       {}, true},
   };
   return table;
 }

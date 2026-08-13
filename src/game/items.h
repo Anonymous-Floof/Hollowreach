@@ -42,6 +42,9 @@ enum class ItemType : std::uint8_t {
   Bucket,    // scoop / pour / milk
   Atlas,     // carrying it unlocks the map
   Warp,      // wayshard: right-click to surface
+  // The dyer's palette: right-click anywhere to open the colour screen. Held like a
+  // tool and never consumed — it is the workbench of colour, not a reagent.
+  Palette,
   Tool,
   Armor,
 };
@@ -83,6 +86,8 @@ enum class IconKind : std::uint8_t {
   Hoe,      // tills soil; mines nothing
   Bowl,     // soups and stews; contents take the colour, the bowl never does
   Plate,    // roasts and pies
+  Dye,      // a pinch of ground pigment; one painter serves all eight
+  Palette,  // the dyer's board, with dabs of every colour on it
   Pick,
   Axe,
   Shovel,
@@ -132,6 +137,9 @@ struct ItemDef {
   // a chili is the reverse. Summed over a pot's contents to pick which tier of a
   // recipe's output comes out.
   int quality = 0;
+  // Accepts a dye in the palette. Mirrored from BlockDef::dyeable for a block item,
+  // and set directly for the Colourable armour family, which has no block at all.
+  bool dyeable = false;
 
   // Bucket.
   std::string holds;            // "water" | "milk"; empty = the empty bucket

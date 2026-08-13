@@ -98,6 +98,9 @@ struct EntitySave {
   std::string key;
   int count = 1;
   int dura = -1;
+  // The dye on the stack lying on the ground. Saved, or a dyed item dropped at
+  // logout comes back the colour it was before anybody painted it.
+  std::int32_t tint = -1;
   float despawn = 600.0f;
   bool instant = true;
 
@@ -126,7 +129,8 @@ class EntityManager {
   // A mined block or a spilled container becomes an instant-collect drop with a
   // small pop; a tossed or death drop is thrown along `dir` and must be walked
   // over. Both are the sinks the World's spawnDrop seam feeds.
-  Entity* spawnDrop(const Vec3& pos, const std::string& key, int count, int dura);
+  Entity* spawnDrop(const Vec3& pos, const std::string& key, int count, int dura,
+                    std::int32_t tint = -1);
   Entity* spawnTossed(const Vec3& pos, const Vec3& dir, const std::string& key, int count,
                       int dura);
 

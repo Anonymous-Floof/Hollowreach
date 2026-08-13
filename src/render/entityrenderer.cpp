@@ -377,6 +377,16 @@ bool EntityRenderer::modelFor(const game::Entity& e, Model& out) {
         out.textured = true;
         out.yOff = 0.06f;
         out.scale = m->kind == ItemModelKind::Shape ? 0.44f : 0.58f;
+        // A dyed drop wears its colour on the ground. Folded into the per-model tint
+        // that already exists — the one the hit flash uses — rather than into a new
+        // uniform or a second cached mesh: item meshes are keyed by item key, so a
+        // per-vertex colour would fork the cache once per shade anybody ever mixed.
+        // A drop never flashes, so the two uses cannot collide.
+        if (e.data.tint >= 0) {
+          out.tint[0] = static_cast<float>((e.data.tint >> 16) & 0xFF) / 255.0f;
+          out.tint[1] = static_cast<float>((e.data.tint >> 8) & 0xFF) / 255.0f;
+          out.tint[2] = static_cast<float>(e.data.tint & 0xFF) / 255.0f;
+        }
         return true;
       }
       out.mesh = &unitCube();

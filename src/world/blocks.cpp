@@ -134,6 +134,7 @@ class Builder {
   Builder& toggle() { def_.toggle = true; return *this; }
   Builder& tall() { def_.tall = true; return *this; }
   Builder& sleep() { def_.sleep = true; return *this; }
+  Builder& dyeable() { def_.dyeable = true; return *this; }
   Builder& anchor() { def_.anchor = true; return *this; }
   Builder& shore() { def_.shore = true; return *this; }
 
@@ -235,8 +236,10 @@ BlockRegistry::BlockRegistry() {
       .pick(tier::kWood).drops("bricks");
   Builder(B, "polished", "Polished Stone").cube().solidOpaque().tex("polished").hard(1.6f)
       .pick(tier::kWood).drops("polished");
-  Builder(B, "wool", "White Wool").cube().solidOpaque().tex("wool").hard(0.5f).drops("wool");
-  Builder(B, "glass", "Glass").cube().solidClear().tex("glass").hard(0.4f).drops("glass");
+  Builder(B, "wool", "White Wool").cube().solidOpaque().tex("wool").hard(0.5f).drops("wool")
+      .dyeable();
+  Builder(B, "glass", "Glass").cube().solidClear().tex("glass").hard(0.4f).drops("glass")
+      .dyeable();
   Builder(B, "water", "Water").render(RenderKind::Liquid).tex("water").unbreakable(99)
       .dropsNothing();
   Builder(B, "emberlight", "Torch").cross().tex("torch").hard(0.1f).drops("emberlight")
@@ -299,8 +302,12 @@ BlockRegistry::BlockRegistry() {
   // The top slot holds the head (pillow) tile; the mesher swaps in `foot` for the
   // foot cell. `foot` is declared so the atlas paints it.
   Builder(B, "bed", "Bed").render(RenderKind::Bed).solidClear().sleep()
-      .tex3("bed_head_top", "bed_side", "planks").texSlot("foot", "bed_foot_top").hard(0.6f)
-      .axe().drops("bed");
+      // Its own bottom tile rather than the shared  one. A dyeable block
+      // needs every face neutral, and "planks" is the actual planks block's own
+      // texture — neutralising THAT would turn every wooden floor in the game grey.
+      .tex3("bed_head_top", "bed_side", "bed_bottom").texSlot("foot", "bed_foot_top")
+      .hard(0.6f)
+      .axe().drops("bed").dyeable();
   // Soul Anchor: right-click to attune your spawn point. Glows soul-teal.
   Builder(B, "soul_anchor", "Soul Anchor").cube().solidOpaque().anchor()
       .tex3("soul_anchor_top", "soul_anchor_side", "soul_anchor_top").hard(2.5f)
@@ -545,6 +552,34 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "farmland_rich_wet", "Fertilised Farmland").cube().solidOpaque()
       .tex3("farmland_rich_wet", "loam", "loam").hard(0.6f).shovel().drops("loam");
 
+  // --- The Dye update: three more flowers -----------------------------------
+  //
+  // At the END rather than in kPlants above with the other five, and for exactly the
+  // reason the fertilised soil two blocks up is here: ids are handed out in
+  // registration order, so slotting these in beside the poppy would move every block
+  // registered after it — every crop, every station, every stair — and the golden
+  // gate would report the whole world as changed when no terrain had moved at all.
+  //
+  // Five flowers already grew wild and did nothing whatsoever. These three complete
+  // the eight the dyes need: the five that exist cover red, yellow, blue, purple and
+  // white, and the primaries are useless without the secondaries that mix from them.
+  {
+    struct Flower {
+      const char* key;
+      const char* name;
+      float height;
+    };
+    static constexpr Flower kNewFlowers[] = {
+        {"flower_marigold", "Marigold", 0.68f},    // orange
+        {"flower_fernflower", "Fernflower", 0.74f},  // green
+        {"flower_nightcap", "Nightcap", 0.58f},    // black
+    };
+    for (const Flower& f : kNewFlowers) {
+      Builder(B, f.key, f.name).cross().plant(f.height, 0.45f, /*replaceable=*/true)
+          .tex(f.key).hard(0.0f).drops(f.key);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Resolve the texture slots into six independent faces.
   //
@@ -702,6 +737,11 @@ const WellKnownBlocks& wk() {
     // Order is load-bearing: worldgen indexes this array with a hash roll.
     w.flowers = {id("flower_poppy"), id("flower_daisy"), id("flower_cornflower"),
                  id("flower_dandelion"), id("flower_violet")};
+    // The same five in the same order, then the three the Dye update added. Both the
+    // order AND the prefix are load-bearing — see the note in blocks.h.
+    w.flowersV7 = {id("flower_poppy"),     id("flower_daisy"),      id("flower_cornflower"),
+                   id("flower_dandelion"), id("flower_violet"),     id("flower_marigold"),
+                   id("flower_fernflower"), id("flower_nightcap")};
 
     w.farmland = id("farmland");
     w.farmlandRich = id("farmland_rich");

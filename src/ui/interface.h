@@ -31,6 +31,7 @@
 #include "ui/notify.h"
 #include "ui/settingsui.h"
 #include "ui/text.h"
+#include "ui/paletteui.h"
 #include "ui/timewheel.h"
 #include "ui/ui2d.h"
 #include "ui/widgets.h"
@@ -70,6 +71,8 @@ enum class Screen {
   // The bed's 24-hour dial. A screen rather than a HUD widget because it takes the
   // cursor and pauses the world the same way a chest does.
   TimeWheel,
+  // The Dyer's Palette: a hue wheel over a paused world.
+  Palette,
 };
 
 // Everything a screen asks App to do. Assigned once at startup.
@@ -177,6 +180,7 @@ class Interface {
   Atlas& atlas() { return atlas_; }
   Gallery& gallery() { return gallery_; }
   TimeWheel& timeWheel() { return timeWheel_; }
+  PaletteUI& palette() { return palette_; }
   RecipeBook& recipeBook() { return recipeBook_; }
   Ui2D& ui() { return ui_; }
   Text& text() { return text_; }
@@ -224,6 +228,7 @@ class Interface {
   RecipeBook recipeBook_;
   Gallery gallery_;
   TimeWheel timeWheel_;
+  PaletteUI palette_;
   bool pendingPicker_ = false;
   Backdrop backdrop_;
   TweenStore tweens_;

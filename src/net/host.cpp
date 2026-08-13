@@ -823,11 +823,12 @@ void Host::onHit(PeerState& st, const HitMsg& m, double now) {
   std::vector<GiveMsg> awards;
   const world::World::DropSink previous = game_.world->dropSink();
   game_.world->setDropSink([&awards](float, float, float, const std::string& key, int count,
-                                     int dura) {
+                                     int dura, std::int32_t tint) {
     GiveMsg award;
     award.key = key;
     award.count = count;
     award.dura = dura;
+    award.tint = tint;
     awards.push_back(std::move(award));
   });
   def->interact(*target, ctx, game::InteractButton::Left);

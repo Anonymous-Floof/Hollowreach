@@ -230,6 +230,37 @@ class World {
   // comparing 48 KB of pixels.
   std::uint32_t paintingRevision() const { return paintingRevision_; }
 
+  // --- dyed cells ------------------------------------------------------------
+  //
+  // Per-cell colour. It is keyed by position rather than packed into the cell's
+  // metadata, and that is forced rather than preferred: `meta` is eight bits, beds
+  // already spend theirs on orientation, and 24 bits of colour has nowhere to go.
+  // The edit map has no room either — it packs `id | meta << 16` into a uint32 with
+  // eight bits to spare, which is a 255-entry palette, and the Dye update promised
+  // an endless one.
+  //
+  // So it sits beside edits_ and behaves like both of its neighbours: replayed onto
+  // generated chunks the way edits_ is (which is what makes a dyed world still
+  // regenerable from its seed), and saved in a section of its own the way
+  // paintings_ is (which is what keeps it off any existing section's layout).
+  using TintMap = std::unordered_map<game::BlockEntityKey, std::uint32_t>;
+  // 0xRRGGBB. White is the identity for the multiply the shaders already do, so an
+  // undyed cell and one dyed pure white render the same — which is the truth.
+  static constexpr std::uint32_t kUntinted = 0x00FFFFFFu;
+  std::uint32_t tintAt(int wx, int wy, int wz) const;
+  void setTint(int wx, int wy, int wz, std::uint32_t rgb);
+  void clearTint(int wx, int wy, int wz);
+  // Mirrors one cell of the map into its chunk's band and dirties the mesh.
+  void writeTintCell(int wx, int wy, int wz, std::uint32_t rgb);
+  // The colour a break here should pass to its drop, or -1. Only when the drop is
+  // the block itself — see the definition.
+  std::int32_t dyedDrop(int wx, int wy, int wz, const std::string& dropKey) const;
+  const TintMap& tints() const { return tints_; }
+  // Installs a loaded set. Like setEdits, this MUST happen before chunks stream in:
+  // generateChunk paints these onto fresh terrain, and a chunk built before the map
+  // arrived is a chunk of undyed blocks that nothing later goes back to correct.
+  void setTints(TintMap tints) { tints_ = std::move(tints); }
+
   // --- persistence -----------------------------------------------------------
   // Player edits, keyed by chunk then flat cell index, packed as id | meta << 16.
   // These are the only part of a world that cannot be regenerated from the seed,
@@ -256,8 +287,10 @@ class World {
   // and the entity system is a later milestone, so the World owns only the seam:
   // whatever sink is installed receives them. With no sink the call is a no-op,
   // which is exactly what a headless tool wants.
+  // `tint` is 0xRRGGBB, or -1 for undyed — the same convention ItemStack uses, so a
+  // drop can be turned back into a stack without a translation step.
   using DropSink = std::function<void(float x, float y, float z, const std::string& key,
-                                      int count, int dura)>;
+                                      int count, int dura, std::int32_t tint)>;
   void setDropSink(DropSink sink) { dropSink_ = std::move(sink); }
   // Readable so a caller can swap in its own for the length of one call and put
   // the old one back — which is how the multiplayer host credits a guest with
@@ -285,7 +318,7 @@ class World {
   // Applies an edit that came from the network without echoing it back out.
   void applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta);
   void spawnDrop(float wx, float wy, float wz, const std::string& key, int count = 1,
-                 int dura = -1) const;
+                 int dura = -1, std::int32_t tint = -1) const;
 
   // --- fluids ---
   // Surface height of a water cell in blocks, or 0 when it is not water. A cell
@@ -366,6 +399,8 @@ class World {
   void submitMesh(LoadedChunk& lc);
   // Applies the saved edits for a chunk that has just come back from generation.
   void applyEdits(LoadedChunk& lc);
+  // And the dye colours, from the same call, for the same reason.
+  void applyTints(LoadedChunk& lc);
   // Drains the completion queues. Returns true if anything was installed, which is
   // how the inline path knows there may be more work to hand out.
   bool installResults(double deadlineMs);
@@ -427,6 +462,7 @@ class World {
   std::unordered_map<game::BlockEntityKey, game::BlockEntity> blockEntities_;
   std::unordered_map<game::BlockEntityKey, game::Painting> paintings_;
   std::uint32_t paintingRevision_ = 0;
+  TintMap tints_;
   DropSink dropSink_;
   EditSink editSink_;
   LootSink lootSink_;

@@ -369,11 +369,13 @@ void encode(ByteWriter& w, const GiveMsg& m) {
   w.str(m.key);
   w.i32(m.count);
   w.i32(m.dura);
+  w.i32(m.tint);
 }
 bool decode(ByteReader& r, GiveMsg& m) {
   m.key = r.str();
   m.count = r.i32();
   m.dura = r.i32();
+  m.tint = r.i32();
   return r.ok() && okStr(m.key, kMaxItemKey) && !m.key.empty() && m.count >= 1 &&
          m.count <= 999 && m.dura >= -1 && m.dura <= 99999;
 }

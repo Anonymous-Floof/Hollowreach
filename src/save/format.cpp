@@ -65,6 +65,10 @@ constexpr std::uint32_t kTagWorldMode = makeTag('W', 'M', 'O', 'D');
 // that does not know a kind can seek past it and carry on. BENT could not do that
 // and now never has to.
 constexpr std::uint32_t kTagStations = makeTag('S', 'T', 'A', 'T');
+// Dyed cells. Its own section for the plainest of the usual reasons: it is new state
+// with no home in any existing one, and an older build that skips it opens the world
+// with every dyed block back at its neutral colour rather than failing to open it.
+constexpr std::uint32_t kTagTints = makeTag('T', 'I', 'N', 'T');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -88,17 +92,29 @@ void writeStack(ByteWriter& w, const game::ItemStack& s) {
     w.str("");
     w.i32(0);
     w.i32(-1);
+    w.i32(-1);
     return;
   }
   w.str(s.key);
   w.i32(s.count);
   w.i32(s.dura);
+  w.i32(s.tint);
 }
-game::ItemStack readStack(ByteReader& r) {
+// `ver` is the FILE's version, not this build's, and it is threaded in rather than
+// assumed for a reason worth stating: a v1 stack has no colour field, and reading
+// four bytes that are not there would eat the NEXT stack's key length and desync
+// every remaining stack in the section. The failure would not look like a version
+// problem — it would look like an inventory full of garbage.
+//
+// This is also why there is no v1 -> v2 entry in migrate.cpp. The reader produces a
+// correct, undyed v1 stack on its own; a migration pass afterwards would have
+// nothing left to fix.
+game::ItemStack readStack(ByteReader& r, std::uint16_t ver) {
   game::ItemStack s;
   s.key = r.str();
   s.count = r.i32();
   s.dura = r.i32();
+  s.tint = ver >= 2 ? r.i32() : -1;
   if (s.key.empty() || s.count <= 0) s.clear();
   return s;
 }
@@ -203,14 +219,14 @@ void encodeInventory(ByteWriter& w, const game::Inventory& inv) {
   w.u16(static_cast<std::uint16_t>(inv.selected()));
 }
 
-void decodeInventory(ByteReader& r, game::Inventory& inv) {
+void decodeInventory(ByteReader& r, game::Inventory& inv, std::uint16_t ver) {
   const std::size_t slots = r.u16();
   if (slots * 10 > r.remaining()) {
     r.fail();
     return;
   }
   for (std::size_t i = 0; i < slots && r.ok(); ++i) {
-    const game::ItemStack s = readStack(r);
+    const game::ItemStack s = readStack(r, ver);
     if (i < game::kInventorySlots) inv.slots()[i] = s;
   }
   const std::size_t armor = r.u16();
@@ -219,7 +235,7 @@ void decodeInventory(ByteReader& r, game::Inventory& inv) {
     return;
   }
   for (std::size_t i = 0; i < armor && r.ok(); ++i) {
-    const game::ItemStack s = readStack(r);
+    const game::ItemStack s = readStack(r, ver);
     if (i < game::kArmorSlots) inv.armor()[i] = s;
   }
   inv.setSelected(static_cast<int>(r.u16()));
@@ -379,7 +395,8 @@ void encodeStations(
 }
 
 void decodeStations(ByteReader& r,
-                    std::unordered_map<game::BlockEntityKey, game::BlockEntity>& into) {
+                    std::unordered_map<game::BlockEntityKey, game::BlockEntity>& into,
+                    std::uint16_t ver) {
   const std::uint32_t count = r.u32();
   if (!r.ok() || count > 65536u) {
     r.fail();
@@ -394,17 +411,17 @@ void decodeStations(ByteReader& r,
     game::BlockEntity be;
     be.kind = static_cast<game::BlockEntityKind>(r.u8());
     if (game::isKitchen(be.kind)) {
-      be.input = readStack(r);
-      be.fuel = readStack(r);
-      be.output = readStack(r);
-      be.container = readStack(r);
+      be.input = readStack(r, ver);
+      be.fuel = readStack(r, ver);
+      be.output = readStack(r, ver);
+      be.container = readStack(r, ver);
       be.fuelLeft = r.f32();
       be.fuelMax = r.f32();
       be.progress = r.f32();
       const std::uint16_t n = r.u16();
       if (n <= game::kPotSlots) {
         be.slots.resize(n);
-        for (game::ItemStack& s : be.slots) s = readStack(r);
+        for (game::ItemStack& s : be.slots) s = readStack(r, ver);
       }
       if (r.ok()) into[game::blockEntityKey(x, y, z)] = std::move(be);
     }
@@ -461,8 +478,44 @@ void decodePaintings(ByteReader& r,
   }
 }
 
+// Dyed cells: position and a packed 0xRRGGBB each.
+//
+// Sorted before writing, exactly as the paintings and stations sections are, because
+// an unordered_map's iteration order is not stable across runs and the save has to
+// re-encode byte-identically for the round-trip test to mean anything.
+void encodeTints(ByteWriter& w,
+                 const std::unordered_map<game::BlockEntityKey, std::uint32_t>& map) {
+  std::vector<game::BlockEntityKey> keys;
+  keys.reserve(map.size());
+  for (const auto& [key, rgb] : map) keys.push_back(key);
+  std::sort(keys.begin(), keys.end());
+
+  w.u32(static_cast<std::uint32_t>(keys.size()));
+  for (const game::BlockEntityKey key : keys) {
+    int x = 0, y = 0, z = 0;
+    game::unpackBlockEntityKey(key, x, y, z);
+    w.i32(x);
+    w.i32(y);
+    w.i32(z);
+    w.u32(map.at(key) & 0x00FFFFFFu);
+  }
+}
+
+void decodeTints(ByteReader& r,
+                 std::unordered_map<game::BlockEntityKey, std::uint32_t>& out) {
+  const std::uint32_t count = r.readCount();
+  for (std::uint32_t i = 0; i < count && r.ok(); ++i) {
+    const int x = r.i32();
+    const int y = r.i32();
+    const int z = r.i32();
+    const std::uint32_t rgb = r.u32() & 0x00FFFFFFu;
+    if (r.ok()) out[game::blockEntityKey(x, y, z)] = rgb;
+  }
+}
+
 void decodeBlockEntities(ByteReader& r,
-                         std::unordered_map<game::BlockEntityKey, game::BlockEntity>& out) {
+                         std::unordered_map<game::BlockEntityKey, game::BlockEntity>& out,
+                         std::uint16_t ver) {
   const std::uint32_t count = r.readCount();
   for (std::uint32_t i = 0; i < count && r.ok(); ++i) {
     const int x = r.i32();
@@ -473,9 +526,9 @@ void decodeBlockEntities(ByteReader& r,
 
     if (kind == game::BlockEntityKind::Forge) {
       game::BlockEntity be = game::makeForge();
-      be.input = readStack(r);
-      be.fuel = readStack(r);
-      be.output = readStack(r);
+      be.input = readStack(r, ver);
+      be.fuel = readStack(r, ver);
+      be.output = readStack(r, ver);
       be.fuelLeft = r.f32();
       be.fuelMax = r.f32();
       be.progress = r.f32();
@@ -488,7 +541,7 @@ void decodeBlockEntities(ByteReader& r,
         return;
       }
       for (std::size_t k = 0; k < slots && r.ok(); ++k) {
-        const game::ItemStack s = readStack(r);
+        const game::ItemStack s = readStack(r, ver);
         if (k < be.slots.size()) be.slots[k] = s;
       }
       if (r.ok()) out[game::blockEntityKey(x, y, z)] = std::move(be);
@@ -514,6 +567,7 @@ void encodeEntities(ByteWriter& w, const std::vector<game::EntitySave>& entities
     w.str(e.key);
     w.i32(e.count);
     w.i32(e.dura);
+    w.i32(e.tint);
     w.f32(e.despawn);
     w.boolean(e.instant);
     w.f32(e.health);
@@ -521,7 +575,7 @@ void encodeEntities(ByteWriter& w, const std::vector<game::EntitySave>& entities
   }
 }
 
-void decodeEntities(ByteReader& r, std::vector<game::EntitySave>& out) {
+void decodeEntities(ByteReader& r, std::vector<game::EntitySave>& out, std::uint16_t ver) {
   const std::uint32_t count = r.readCount();
   for (std::uint32_t i = 0; i < count && r.ok(); ++i) {
     game::EntitySave e;
@@ -533,6 +587,9 @@ void decodeEntities(ByteReader& r, std::vector<game::EntitySave>& out) {
     e.key = r.str();
     e.count = r.i32();
     e.dura = r.i32();
+    // Version-gated for the same reason readStack is: a v1 entity has no colour
+    // field, and reading one would eat its despawn timer and every field after it.
+    e.tint = ver >= 2 ? r.i32() : -1;
     e.despawn = r.f32();
     e.instant = r.boolean();
     e.health = r.f32();
@@ -610,7 +667,7 @@ void encodeGuests(ByteWriter& w, const std::vector<GuestSave>& guests) {
   }
 }
 
-void decodeGuests(ByteReader& r, std::vector<GuestSave>& out) {
+void decodeGuests(ByteReader& r, std::vector<GuestSave>& out, std::uint16_t ver) {
   const std::uint32_t count = r.readCount();
   if (count > 64) {
     r.fail();
@@ -621,7 +678,7 @@ void decodeGuests(ByteReader& r, std::vector<GuestSave>& out) {
     g.playerId = r.str();
     g.name = r.str();
     decodePlayer(r, g.player);
-    decodeInventory(r, g.inventory);
+    decodeInventory(r, g.inventory, ver);
     g.hasSpawn = r.boolean();
     g.spawn = readVec3(r);
     if (r.ok()) out.push_back(std::move(g));
@@ -689,6 +746,9 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   encodeBlockEntities(blockEntities, save.blockEntities);
   ByteWriter stations;
   encodeStations(stations, save.blockEntities);
+
+  ByteWriter tints;
+  encodeTints(tints, save.tints);
   ByteWriter paintings;
   encodePaintings(paintings, save.paintings);
   ByteWriter entities;
@@ -719,6 +779,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagEdits, edits);
   appendSection(payload, kTagBlockEntities, blockEntities);
   appendSection(payload, kTagStations, stations);
+  appendSection(payload, kTagTints, tints);
   appendSection(payload, kTagEntities, entities);
   appendSection(payload, kTagExplored, explored);
   appendSection(payload, kTagWaypoints, waypoints);
@@ -760,7 +821,7 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
     switch (tag) {
       case kTagMeta: decodeMeta(body, out.meta); break;
       case kTagPlayer: decodePlayer(body, out.player); break;
-      case kTagInventory: decodeInventory(body, out.inventory); break;
+      case kTagInventory: decodeInventory(body, out.inventory, version); break;
       case kTagPalette: {
         const std::size_t count = body.u16();
         if (count * 2 > body.remaining()) {
@@ -782,15 +843,16 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
         }
         decodeEdits(body, palette, out.edits);
         break;
-      case kTagBlockEntities: decodeBlockEntities(body, out.blockEntities); break;
+      case kTagBlockEntities: decodeBlockEntities(body, out.blockEntities, version); break;
       // Same map: the stations rejoin the forges and chests once both sections are
       // read, so nothing downstream has to know they were stored apart.
-      case kTagStations: decodeStations(body, out.blockEntities); break;
+      case kTagStations: decodeStations(body, out.blockEntities, version); break;
+      case kTagTints: decodeTints(body, out.tints); break;
       case kTagPaintings: decodePaintings(body, out.paintings); break;
-      case kTagEntities: decodeEntities(body, out.entities); break;
+      case kTagEntities: decodeEntities(body, out.entities, version); break;
       case kTagExplored: decodeExplored(body, out.explored); break;
       case kTagWaypoints: decodeWaypoints(body, out.waypoints); break;
-      case kTagGuests: decodeGuests(body, out.guests); break;
+      case kTagGuests: decodeGuests(body, out.guests, version); break;
       case kTagRest: out.hoursAwake = body.f32(); break;
       case kTagWorldMode: out.createdCreative = body.boolean(); break;
       case kTagWorldSettings: {
@@ -811,7 +873,16 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
         break;
     }
     if (!body.ok()) {
-      if (error) *error = "corrupt section";
+      // Name the section. "corrupt section" on its own is true and useless — every
+      // section decodes through this one line, so the message identified one of
+      // fifteen possible culprits and left the rest to guesswork.
+      if (error) {
+        const char tagChars[5] = {static_cast<char>(tag & 0xFF),
+                                  static_cast<char>((tag >> 8) & 0xFF),
+                                  static_cast<char>((tag >> 16) & 0xFF),
+                                  static_cast<char>((tag >> 24) & 0xFF), '\0'};
+        *error = std::string("corrupt section ") + tagChars;
+      }
       return false;
     }
   }

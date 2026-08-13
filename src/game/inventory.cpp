@@ -11,7 +11,7 @@ int Inventory::stackMax(const std::string& key) const {
   return it ? it->maxStack : 64;
 }
 
-int Inventory::give(const std::string& key, int count, int dura) {
+int Inventory::give(const std::string& key, int count, int dura, std::int32_t tint) {
   const ItemDef* item = getItem(key);
   if (!item) return count;
 
@@ -20,12 +20,14 @@ int Inventory::give(const std::string& key, int count, int dura) {
     dura = item->durability;
   }
 
+  const ItemStack incoming {key, count, dura, tint};
   const int max = item->maxStack;
   if (max > 1) {
     // Top up partial stacks first, so picking up a drop does not fragment the bag.
+    // canMerge rather than a key compare: a red wool must walk past a blue one.
     for (std::size_t i = 0; i < slots_.size() && count > 0; ++i) {
       ItemStack& s = slots_[i];
-      if (s.empty() || s.key != key || s.count >= max) continue;
+      if (s.empty() || !canMerge(s, incoming) || s.count >= max) continue;
       const int add = std::min(max - s.count, count);
       s.count += add;
       count -= add;
@@ -35,7 +37,7 @@ int Inventory::give(const std::string& key, int count, int dura) {
     const int i = firstEmpty();
     if (i < 0) break;
     const int put = max > 1 ? std::min(max, count) : 1;
-    slots_[i] = ItemStack {key, put, dura};
+    slots_[i] = ItemStack {key, put, dura, tint};
     count -= put;
   }
   return count;

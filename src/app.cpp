@@ -135,6 +135,9 @@ int App::run(const AppOptions& options) {
   }
 
   ui::settings().load(paths::settingsFile());
+  // Straight after, because the globally saved colours ARE a setting — they live in
+  // the same file and mean nothing without it having been read first.
+  loadGlobalFavourites();
   // Who is trusted, banned, or whitelisted. Beside settings.json rather than in a
   // world, because being an operator is a fact about a person — see cmd/access.h.
   // A missing file is a fresh install with nobody trusted and nobody barred.
@@ -770,6 +773,7 @@ void App::syncScreen() {
     case AppState::Packs: interface_.setScreen(ui::Screen::Packs); break;
     case AppState::PaintingPick: interface_.openPaintingPicker(); break;
     case AppState::TimeWheel: interface_.setScreen(ui::Screen::TimeWheel); break;
+    case AppState::Palette: interface_.setScreen(ui::Screen::Palette); break;
   }
 }
 
@@ -953,6 +957,24 @@ void App::wireInterface() {
     } else {
       applyPainting(x, y, z, std::move(art));
     }
+  };
+  // The palette. Its slot and both favourite lists are App's, handed to the screen
+  // by pointer — the screen draws them and reports changes, and this is what writes
+  // them anywhere.
+  interface_.palette().attach(&inventory_, &paletteSlot_);
+  interface_.palette().worldFavourites = &paletteWorldFavourites_;
+  interface_.palette().globalFavourites = &paletteGlobalFavourites_;
+  interface_.palette().onClose = [this] { closeCurrentScreen(); };
+  interface_.palette().onFavouritesChanged = [this](bool global) {
+    // A world list rides out with the next world save like everything else; a global
+    // one has no such moment, so it is written the instant it changes.
+    if (global) saveGlobalFavourites();
+  };
+  interactHooks_.onPalette = [this] {
+    interface_.palette().open();
+    state_ = AppState::Palette;
+    window_.setPointerCaptured(false);
+    return true;
   };
   interface_.timeWheel().onCancel = [this] { closeCurrentScreen(); };
   interface_.timeWheel().onConfirm = [this](float target) {
@@ -1254,6 +1276,33 @@ void App::resumePlaying() {
 // One place for "the Escape / close-button path", because each screen returns somewhere
 // different: settings goes back where it was opened from, the overlays go back to the
 // world, and the pause menu resumes.
+void App::saveGlobalFavourites() {
+  std::string joined;
+  for (const std::uint32_t c : paletteGlobalFavourites_) {
+    if (!joined.empty()) joined.push_back('|');
+    joined += ui::toHex(c);
+  }
+  ui::settings().setText("paletteFavourites", joined);
+  ui::settings().save();
+}
+
+void App::loadGlobalFavourites() {
+  paletteGlobalFavourites_.clear();
+  const std::string& joined = ui::settings().text("paletteFavourites");
+  std::size_t start = 0;
+  while (start <= joined.size()) {
+    const std::size_t bar = joined.find('|', start);
+    const std::string piece = joined.substr(start, bar == std::string::npos ? bar : bar - start);
+    std::uint32_t rgb = 0;
+    // Anything unparseable is dropped rather than defaulting to black. A settings
+    // file edited by hand should not be able to inject a colour nobody chose.
+    if (ui::parseHex(piece, rgb)) paletteGlobalFavourites_.push_back(rgb);
+    if (bar == std::string::npos) break;
+    start = bar + 1;
+  }
+  if (paletteGlobalFavourites_.size() > 7) paletteGlobalFavourites_.resize(7);
+}
+
 void App::closeCurrentScreen() {
   switch (state_) {
     case AppState::Settings:
@@ -1265,6 +1314,7 @@ void App::closeCurrentScreen() {
     case AppState::Map:
     case AppState::PaintingPick:
     case AppState::TimeWheel:
+    case AppState::Palette:
       resumePlaying();
       break;
     case AppState::Gallery:
@@ -1300,6 +1350,10 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
   // is built. Installing them afterwards would leave the spawn chunks unmodified.
   if (loaded) {
     world_->setEdits(loaded->edits);
+    // Beside setEdits and for the same reason spelled out above: applyEdits replays
+    // both onto freshly generated terrain, so a colour installed after the first
+    // chunk lands is a colour that chunk was never meshed with.
+    world_->setTints(loaded->tints);
     world_->setExplored(loaded->explored);
     world_->blockEntities() = loaded->blockEntities;
     world_->installPaintings(loaded->paintings);
@@ -1307,7 +1361,7 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
 
   entities_.clear();
   world_->setDropSink([this](float x, float y, float z, const std::string& key, int count,
-                             int dura) {
+                             int dura, std::int32_t tint) {
     // A guest owns no entities, so it cannot make one here. Everything that
     // reaches this sink on a guest is something the local player just broke —
     // mining, or a bucket that would not fit back in the bag — so it goes
@@ -1318,11 +1372,11 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     // Whatever will not fit goes to the host as a real thrown item, so a full bag
     // spills onto the floor in front of everyone rather than deleting the ore.
     if (netGuest()) {
-      const int left = inventory_.give(key, count, dura);
+      const int left = inventory_.give(key, count, dura, tint);
       if (left > 0) netClient_.sendToss(Vec3{x, y, z}, Vec3{0, 0, 0}, key, left, dura);
       return;
     }
-    entities_.spawnDrop(Vec3{x, y, z}, key, count, dura);
+    entities_.spawnDrop(Vec3{x, y, z}, key, count, dura, tint);
   });
   world_->setLootSink([this](int x, int y, int z, bool rich) {
     // A guest fills nothing. It regenerates the same terrain locally, so it sees
@@ -2928,7 +2982,8 @@ void App::renderWorld() {
     render::CpuScope cs(renderer_.profiler(), render::CpuPhase::Submit);
     renderer_.render(*world_, camera_, sky_, window_.width(), window_.height(),
                      showSelection ? &selection : nullptr,
-                     inventory_.selectedSlot().key, underwater_, clock_.simTime());
+                     inventory_.selectedSlot().key, inventory_.selectedSlot().tint,
+                     underwater_, clock_.simTime());
   }
   renderer_.profiler().endFrame(clock_.rawDt() * 1000.0);
 
@@ -3141,6 +3196,7 @@ bool App::applyStartScreen(const std::string& name) {
       {"map", AppState::Map, ui::MenuPage::Main, world::Station::None, false},
       {"gallery", AppState::Gallery, ui::MenuPage::Main, world::Station::None, false},
       {"packs", AppState::Packs, ui::MenuPage::Main, world::Station::None, false},
+      {"palette", AppState::Palette, ui::MenuPage::Main, world::Station::None, false},
   };
   // Chat is not in the table because it is not a Screen at all — it draws over a
   // live world and App keeps that world running underneath it. It is here for
@@ -3177,6 +3233,16 @@ bool App::applyStartScreen(const std::string& name) {
     state_ = e.state;
     syncScreen();
     if (e.state == AppState::Menu) interface_.menu().setPage(e.page);
+    if (e.state == AppState::Palette) {
+      // Seeded for the same reason the kitchens are: an empty wheel over an empty
+      // slot shows the widget and not the feature.
+      paletteSlot_ = game::ItemStack {"wool", 8, -1};
+      inventory_.give("dye_blue", 3);
+      inventory_.give("dye_red", 2);
+      paletteWorldFavourites_ = {0xd23a34u, 0x4a6fe0u, 0x4fae53u};
+      paletteGlobalFavourites_ = {0xf2c53au, 0x9a5ac2u};
+      interface_.palette().open();
+    }
     if (e.isStation) {
       // Every station screen needs a block entity to show. A scratch one lives here
       // rather than in the world, because the point is to capture the layout, not to

@@ -86,7 +86,17 @@ inline constexpr int pocketCeiling(int ver) { return seaLevel(ver) - kPocketCeil
 // in chunks generated AFTER the move, so an explored world grows them at its
 // frontier and not at home. That is the same behaviour dungeons had at v5 and is a
 // property of re-derivation, not a bug to fix.
-inline constexpr int kGenVersion = 6;
+// v7 adds three flower species — marigold, fernflower, nightcap — and likewise adds
+// nothing else. It touches the same one function, and touches it in the narrowest
+// way available: the flower roll draws the same hashes with the same seeds in the
+// same order, and only the number of species it scales them by changes. Nothing else
+// in pickFoliage, and nothing outside it, is version-gated at all.
+//
+// That narrowness is the point. The three new blocks are registered at the END of the
+// block table, so no existing id moved either — which is what lets the golden gate
+// prove the claim rather than take it on trust: v1-v6 must show ZERO changed values,
+// and only v7 may be new.
+inline constexpr int kGenVersion = 7;
 
 enum class Biome : std::uint8_t { Meadow = 0, Forest = 1, Birch = 2, Desert = 3, Snow = 4 };
 inline constexpr int kBiomeCount = 5;

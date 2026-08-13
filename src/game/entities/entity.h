@@ -64,6 +64,11 @@ struct EntityData {
   std::string key;
   int count = 1;
   int dura = -1;
+  // 0xRRGGBB, or -1. Mirrors ItemStack::tint deliberately: a drop is a stack lying
+  // on the ground, and the two are converted into each other on every pickup and
+  // every toss, so a field that existed on one and not the other would be a colour
+  // lost at whichever crossing forgot it.
+  std::int32_t tint = -1;
   float despawn = 600.0f;  // 10 minutes
   float pickupDelay = 0.4f;
   float bob = 0.0f;

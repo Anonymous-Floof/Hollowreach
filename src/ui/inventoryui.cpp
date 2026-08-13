@@ -51,13 +51,15 @@ void InventoryUI::close() {
     mode_ = InventoryMode::Closed;
     return;
   }
+  // The whole stack goes back, colour included. Handing over the three fields by
+  // name is how a dyed item silently became an undyed one on every screen close.
   if (!cursor_.empty()) {
-    inv_->give(cursor_.key, cursor_.count, cursor_.dura);
+    inv_->give(cursor_);
     cursor_.clear();
   }
   if (mode_ == InventoryMode::Inventory || mode_ == InventoryMode::Workbench) {
     for (game::ItemStack& s : craft_) {
-      if (!s.empty()) inv_->give(s.key, s.count, s.dura);
+      if (!s.empty()) inv_->give(s);
     }
     craft_.clear();
   }
@@ -86,7 +88,7 @@ InventoryUI::FillResult InventoryUI::autoFill(const game::Recipe& recipe) {
   // finding every cell occupied. Done before anything is taken, which also means
   // ingredients already laid out are available to the new recipe.
   for (game::ItemStack& s : craft_) {
-    if (!s.empty()) inv_->give(s.key, s.count, s.dura);
+    if (!s.empty()) inv_->give(s);
     s.clear();
   }
 
@@ -147,7 +149,7 @@ InventoryUI::FillResult InventoryUI::autoFill(const game::Recipe& recipe) {
   }
 
   if (!ok) {
-    for (auto& [cell, stack] : taken) inv_->give(stack.key, stack.count, stack.dura);
+    for (auto& [cell, stack] : taken) inv_->give(stack);
     return FillResult::Missing;
   }
   for (auto& [cell, stack] : taken) {
@@ -242,7 +244,7 @@ void InventoryUI::clickSlot(SlotId id, int button) {
   if (isOutput(id.container)) {
     // An output slot is take-only: nothing can be placed in it, and a partial stack
     // on the cursor can only top itself up from it.
-    if (!slot->empty() && (cursor_.empty() || (cursor_.key == slot->key &&
+    if (!slot->empty() && (cursor_.empty() || (game::canMerge(cursor_, *slot) &&
                                                stackable(cursor_.key)))) {
       if (cursor_.empty()) {
         cursor_ = *slot;
@@ -262,16 +264,16 @@ void InventoryUI::clickSlot(SlotId id, int button) {
     if (cursor_.empty()) {
       if (!slot->empty()) {
         const int half = (slot->count + 1) / 2;  // Math.ceil(count / 2)
-        cursor_ = {slot->key, half, slot->dura};
+        cursor_ = {slot->key, half, slot->dura, slot->tint};
         slot->count -= half;
         if (slot->count <= 0) slot->clear();
       }
     } else {
       if (!accepts(id, cursor_.key)) return;
       if (slot->empty()) {
-        *slot = {cursor_.key, 1, cursor_.dura};
+        *slot = {cursor_.key, 1, cursor_.dura, cursor_.tint};
         if (--cursor_.count <= 0) cursor_.clear();
-      } else if (slot->key == cursor_.key && stackable(cursor_.key) &&
+      } else if (game::canMerge(*slot, cursor_) && stackable(cursor_.key) &&
                  slot->count < stackMax(cursor_.key)) {
         ++slot->count;
         if (--cursor_.count <= 0) cursor_.clear();
@@ -292,12 +294,14 @@ void InventoryUI::clickSlot(SlotId id, int button) {
   } else if (slot->empty()) {
     *slot = cursor_;
     cursor_.clear();
-  } else if (slot->key == cursor_.key && stackable(cursor_.key)) {
+  } else if (game::canMerge(*slot, cursor_) && stackable(cursor_.key)) {
     const int add = std::min(stackMax(cursor_.key) - slot->count, cursor_.count);
     slot->count += add;
     cursor_.count -= add;
     if (cursor_.count <= 0) cursor_.clear();
   } else {
+    // Two different colours of the same block land here rather than in the merge
+    // above, and swapping is exactly right: they are different items to the player.
     std::swap(*slot, cursor_);
   }
 }
@@ -307,7 +311,9 @@ void InventoryUI::takeResult() {
   if (!match) return;
   const game::ItemDef* item = game::getItem(match.outKey);
   if (!cursor_.empty()) {
-    if (cursor_.key != match.outKey || !stackable(match.outKey)) return;
+    // A crafted result is never dyed, so a dyed stack on the cursor cannot take it
+    // however well the keys match.
+    if (cursor_.key != match.outKey || cursor_.dyed() || !stackable(match.outKey)) return;
     if (cursor_.count + match.outCount > stackMax(match.outKey)) return;
   }
   game::consumeGrid(craft_, craftSize_, *match.recipe);
@@ -398,7 +404,7 @@ void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>&
         if (isOutput(t.container)) continue;
         game::ItemStack* dest = slotAt({t.container, i});
         if (!dest || dest->empty()) continue;
-        if (dest->key != stack.key || dest->count >= max) continue;
+        if (!game::canMerge(*dest, stack) || dest->count >= max) continue;
         if (!accepts({t.container, i}, stack.key)) continue;
         const int add = std::min(max - dest->count, stack.count);
         dest->count += add;
@@ -414,7 +420,7 @@ void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>&
       if (!dest || !dest->empty()) continue;
       if (!accepts({t.container, i}, stack.key)) continue;
       const int put = stacks ? std::min(max, stack.count) : 1;
-      *dest = {stack.key, put, stack.dura};
+      *dest = {stack.key, put, stack.dura, stack.tint};
       stack.count -= put;
     }
   }
@@ -517,7 +523,11 @@ bool InventoryUI::canAcceptInInventory(const std::string& key, int count) const 
   int room = 0;
   for (const game::ItemStack& s : inv_->slots()) {
     if (s.empty()) room += max;
-    else if (s.key == key && stackable(key)) room += std::max(0, max - s.count);
+    // A DYED stack of the same key is not room for an undyed one. Every caller of
+    // this asks about something just crafted or smelted, which is never dyed, so the
+    // question is really "is there room for an undyed <key>" — and counting a red
+    // wool as space for a white one would promise room that give() then refuses.
+    else if (s.key == key && !s.dyed() && stackable(key)) room += std::max(0, max - s.count);
     if (room >= count) return true;
   }
   return room >= count;
@@ -555,7 +565,7 @@ void InventoryUI::scrollSlot(SlotId id, int direction) {
 
   if (direction > 0) {
     if (slot->empty()) return;
-    game::ItemStack one {slot->key, 1, slot->dura};
+    game::ItemStack one {slot->key, 1, slot->dura, slot->tint};
     std::vector<Target> targets;
     if (id.container == Container::Inv) {
       if (!invSourceTargets(*slot, id.index, targets)) return;
@@ -583,7 +593,7 @@ void InventoryUI::scrollSlot(SlotId id, int direction) {
     bool done = false;
     for (int i : t.indices) {
       game::ItemStack* src = slotAt({t.container, i});
-      if (!src || src->empty() || src->key != slot->key) continue;
+      if (!src || src->empty() || !game::canMerge(*src, *slot)) continue;
       --src->count;
       if (src->count <= 0) src->clear();
       ++slot->count;
@@ -625,7 +635,7 @@ void InventoryUI::finishDrag() {
     if (!accepts(id, cursor_.key)) continue;
     const game::ItemStack* s = slotAt(id);
     if (!s) continue;
-    if (s->empty() || (s->key == cursor_.key && s->count < max)) eligible.push_back(id);
+    if (s->empty() || (game::canMerge(*s, cursor_) && s->count < max)) eligible.push_back(id);
   }
   if (eligible.empty()) return;
 
@@ -640,7 +650,7 @@ void InventoryUI::finishDrag() {
     const int have = s->empty() ? 0 : s->count;
     const int add = std::min({per, max - have, cursor_.count});
     if (add <= 0) continue;
-    if (s->empty()) *s = {cursor_.key, add, cursor_.dura};
+    if (s->empty()) *s = {cursor_.key, add, cursor_.dura, cursor_.tint};
     else s->count += add;
     cursor_.count -= add;
   }
@@ -656,6 +666,11 @@ widget::StackVisual InventoryUI::visualFor(const game::ItemStack& stack) const {
   if (icons_ && icons_->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
     v.icon.texture = icons_->texture();
   }
+  // The dye, multiplied over the sprite by the UI shader's textured-quad mode. This
+  // is the ONE place every item icon in the interface is built — slots, the cursor,
+  // the recipe book, the hotbar — so a dyed item is the right colour everywhere by
+  // construction rather than at each of the four call sites remembering.
+  if (stack.dyed()) v.icon.tint = rgb(static_cast<std::uint32_t>(stack.tint));
   v.count = stack.count;
   const int maxDura = game::maxDurability(stack.key);
   if (stack.wears() && maxDura > 0) {

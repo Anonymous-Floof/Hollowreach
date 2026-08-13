@@ -287,12 +287,14 @@ int topSolidY(const world::World& world, int wx, int wz) { return world.topSolid
 
 }  // namespace
 
-Entity* EntityManager::spawnDrop(const Vec3& pos, const std::string& key, int count, int dura) {
+Entity* EntityManager::spawnDrop(const Vec3& pos, const std::string& key, int count, int dura,
+                                 std::int32_t tint) {
   Entity* e = spawn(EntityType::Drop, pos);
   if (!e) return nullptr;
   e->data.key = key;
   e->data.count = count;
   e->data.dura = dura;
+  e->data.tint = tint;
   e->data.instant = true;
   if (const EntityDef* def = defOf(EntityType::Drop); def && def->spawn) def->spawn(*e);
   e->vel = Vec3{R(-1.0f, 1.0f), 2.2f, R(-1.0f, 1.0f)};
@@ -485,6 +487,7 @@ std::vector<EntitySave> EntityManager::serialize() const {
     s.vel = e.vel;
     s.yaw = e.yaw;
     s.key = e.data.key;
+    s.tint = e.data.tint;
     s.count = e.data.count;
     s.dura = e.data.dura;
     s.despawn = e.data.despawn;
@@ -506,6 +509,7 @@ void EntityManager::load(const std::vector<EntitySave>& saved) {
     e->vel = s.vel;
     e->yaw = s.yaw;
     e->data.key = s.key;
+    e->data.tint = s.tint;
     e->data.count = s.count;
     e->data.dura = s.dura;
     e->data.despawn = s.despawn;

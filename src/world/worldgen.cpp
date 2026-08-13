@@ -458,11 +458,20 @@ BlockId pickFoliage(const NoiseSet& n, std::uint32_t seed, int wx, int wz, Block
     // would shift this grid across the whole negative half of every world.
     const int gx = static_cast<int>(floorDiv(wx, 12));
     const int gz = static_cast<int>(floorDiv(wz, 12));
+    // Eight species from v7, five before it. Gated on the SPECIES COUNT rather than
+    // by adding a separate roll, which is what keeps a v6 world byte-identical: the
+    // same hashes are drawn in the same order with the same seeds, and only the
+    // number they are scaled by changes. A world made before v7 therefore still
+    // grows exactly the meadow it always did.
+    const std::size_t species = ver >= 7 ? w.flowersV7.size() : w.flowers.size();
+    const auto flowerAt = [&w, ver](std::size_t i) {
+      return ver >= 7 ? w.flowersV7[i] : w.flowers[i];
+    };
     const double rk = hash2i(seed ^ 0x0f0du, gx, gz);
-    const BlockId dominant = w.flowers[static_cast<std::size_t>(truncToInt(rk * 5))];
+    const BlockId dominant = flowerAt(static_cast<std::size_t>(truncToInt(rk * species)));
     if (hash2i(seed ^ 0x0f0eu, wx + 17, wz + 83) < 0.72) return dominant;
     const double pick = hash2i(seed ^ 0x0f0cu, wx + 211, wz + 149);
-    return w.flowers[static_cast<std::size_t>(truncToInt(pick * 5))];
+    return flowerAt(static_cast<std::size_t>(truncToInt(pick * species)));
   }
 
   // Grasses: density tracks moisture, ferns favour wet ground, the odd shrub.

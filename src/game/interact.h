@@ -51,6 +51,9 @@ struct InteractHooks {
   std::function<bool(const ItemDef&)> onEat;
   // Used a wayshard; returns false when there is no open sky to warp to.
   std::function<bool()> onWarp;
+  // A palette was right-clicked: open the colour screen. Never consumes the item —
+  // the palette is a tool, not a reagent.
+  std::function<bool()> onPalette;
   // Used the held item ON a block: a hoe tilling soil, a crop being sown.
   //
   // Right-clicking a Tool did nothing whatsoever before this existed — Food, Bucket
