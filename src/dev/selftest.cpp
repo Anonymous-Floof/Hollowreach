@@ -567,6 +567,28 @@ void testPlacing() {
     }
     checkf(agree == total, "and the slot and the Dye button agree on every one (%d/%d)", agree,
            total);
+
+    // The cap is ENFORCED, not announced. Shift-clicking a full stack of wool used to
+    // put all sixty-four in the slot and then explain that sixteen was the limit,
+    // which is a screen arguing with itself.
+    game::Inventory bag;
+    game::ItemStack dyeSlot;
+    ui::InventoryUI panel;
+    panel.attach(&bag, nullptr);
+    panel.attachPalette(nullptr, &dyeSlot);
+    panel.open(ui::InventoryMode::Palette, nullptr);
+    checkf(panel.slotCapacity(ui::Container::Dye, "wool") == game::kDyePerApplication,
+           "the palette's slot holds exactly one dye's worth (%d)",
+           panel.slotCapacity(ui::Container::Dye, "wool"));
+    checkf(panel.slotCapacity(ui::Container::Inv, "wool") == 64,
+           "while a bag slot still holds a full stack (%d)",
+           panel.slotCapacity(ui::Container::Inv, "wool"));
+    // An item that stacks to less than the cap keeps its own smaller limit rather
+    // than being raised to sixteen.
+    checkf(panel.slotCapacity(ui::Container::Dye, "dyed_chest_ferralite") == 1,
+           "and armour, which does not stack, still holds one (%d)",
+           panel.slotCapacity(ui::Container::Dye, "dyed_chest_ferralite"));
+    panel.close();
   }
 
   // The query the warp is built on. The pocket makeWorld carves runs kY-2..kY+2 in

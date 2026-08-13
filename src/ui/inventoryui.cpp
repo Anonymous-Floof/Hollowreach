@@ -5,6 +5,7 @@
 
 #include "audio/sfx.h"
 #include "game/crafting.h"
+#include "game/dyeing.h"
 #include "game/items.h"
 
 namespace hr::ui {
@@ -17,6 +18,10 @@ constexpr int kTagSlot = 1;
 constexpr int kTagBook = 9001;
 // The palette's wheel: a box the layout reserves and the screen paints into.
 constexpr int kTagWheel = 9002;
+// The readouts beside the wheel: swatch, hex, cost, favourites, buttons.
+constexpr int kTagPaletteSide = 9003;
+// Wide enough for "Costs 1 Orange Dye  (you have 12)" and the three buttons.
+constexpr float kPaletteSideWidth = 292.0f;
 
 // One tag value per container, so a node's tag/index pair round-trips back to a SlotId.
 int containerTag(Container c) { return kTagSlot * 100 + static_cast<int>(c); }
@@ -238,6 +243,12 @@ int InventoryUI::stackMax(const std::string& key) const {
 
 bool InventoryUI::stackable(const std::string& key) const { return stackMax(key) > 1; }
 
+int InventoryUI::slotCapacity(Container container, const std::string& key) const {
+  const int max = stackMax(key);
+  if (container != Container::Dye) return max;
+  return std::min(max, game::kDyePerApplication);
+}
+
 // ---------------------------------------------------------------------------
 // Click handling (js/ui/inventoryui.js:155-206)
 // ---------------------------------------------------------------------------
@@ -287,7 +298,7 @@ void InventoryUI::clickSlot(SlotId id, int button) {
         *slot = {cursor_.key, 1, cursor_.dura, cursor_.tint};
         if (--cursor_.count <= 0) cursor_.clear();
       } else if (game::canMerge(*slot, cursor_) && stackable(cursor_.key) &&
-                 slot->count < stackMax(cursor_.key)) {
+                 slot->count < slotCapacity(id.container, cursor_.key)) {
         ++slot->count;
         if (--cursor_.count <= 0) cursor_.clear();
       }
@@ -305,10 +316,16 @@ void InventoryUI::clickSlot(SlotId id, int button) {
   } else if (!accepts(id, cursor_.key)) {
     // Cannot place here; the cursor keeps its stack.
   } else if (slot->empty()) {
-    *slot = cursor_;
-    cursor_.clear();
+    // Only as much as this slot will hold. Dropping a stack of sixty-four wool into
+    // the palette leaves sixteen there and fifty-six on the cursor, rather than
+    // sixty-four in a slot that then refuses to dye any of them.
+    const int fits = std::min(cursor_.count, slotCapacity(id.container, cursor_.key));
+    *slot = {cursor_.key, fits, cursor_.dura, cursor_.tint};
+    cursor_.count -= fits;
+    if (cursor_.count <= 0) cursor_.clear();
   } else if (game::canMerge(*slot, cursor_) && stackable(cursor_.key)) {
-    const int add = std::min(stackMax(cursor_.key) - slot->count, cursor_.count);
+    const int add =
+        std::min(slotCapacity(id.container, cursor_.key) - slot->count, cursor_.count);
     slot->count += add;
     cursor_.count -= add;
     if (cursor_.count <= 0) cursor_.clear();
@@ -414,7 +431,9 @@ bool InventoryUI::invSourceTargets(const game::ItemStack& stack, int index,
 
 void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>& targets) {
   const bool stacks = stackable(stack.key);
-  const int max = stackMax(stack.key);
+  // Per TARGET, not once for the whole sweep: the palette's slot holds less than the
+  // bag's, so one number for every destination would let a shift-click put a full
+  // stack somewhere that cannot take one.
   // Two sweeps: top up matching stacks first, then fill empty slots. Doing it in one
   // pass would scatter a stack across empty slots while a partial one went untouched.
   if (stacks) {
@@ -424,6 +443,7 @@ void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>&
         if (isOutput(t.container)) continue;
         game::ItemStack* dest = slotAt({t.container, i});
         if (!dest || dest->empty()) continue;
+        const int max = slotCapacity(t.container, stack.key);
         if (!game::canMerge(*dest, stack) || dest->count >= max) continue;
         if (!accepts({t.container, i}, stack.key)) continue;
         const int add = std::min(max - dest->count, stack.count);
@@ -439,7 +459,8 @@ void InventoryUI::depositInto(game::ItemStack& stack, const std::vector<Target>&
       game::ItemStack* dest = slotAt({t.container, i});
       if (!dest || !dest->empty()) continue;
       if (!accepts({t.container, i}, stack.key)) continue;
-      const int put = stacks ? std::min(max, stack.count) : 1;
+      const int put =
+          stacks ? std::min(slotCapacity(t.container, stack.key), stack.count) : 1;
       *dest = {stack.key, put, stack.dura, stack.tint};
       stack.count -= put;
     }
@@ -682,21 +703,7 @@ void InventoryUI::finishDrag() {
 // ---------------------------------------------------------------------------
 
 widget::StackVisual InventoryUI::visualFor(const game::ItemStack& stack) const {
-  widget::StackVisual v;
-  if (icons_ && icons_->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
-    v.icon.texture = icons_->texture();
-  }
-  // The dye, multiplied over the sprite by the UI shader's textured-quad mode. This
-  // is the ONE place every item icon in the interface is built — slots, the cursor,
-  // the recipe book, the hotbar — so a dyed item is the right colour everywhere by
-  // construction rather than at each of the four call sites remembering.
-  if (stack.dyed()) v.icon.tint = rgb(static_cast<std::uint32_t>(stack.tint));
-  v.count = stack.count;
-  const int maxDura = game::maxDurability(stack.key);
-  if (stack.wears() && maxDura > 0) {
-    v.duraFraction = static_cast<float>(stack.dura) / static_cast<float>(maxDura);
-  }
-  return v;
+  return widget::stackVisual(stack, icons_);
 }
 
 void InventoryUI::slotNode(SlotId id, const game::ItemStack* stack, widget::SlotKind kind,
@@ -964,10 +971,32 @@ void InventoryUI::palettePanel(const UiEvent& event) {
     wheel.height = 240;
     doc_.custom(wheel, kTagWheel);
   }
-  doc_.begin(Doc::column(10, Align::Center));
-  const SlotId dye {Container::Dye, 0};
-  slotNode(dye, slotAt(dye), widget::SlotKind::Normal, haveHover_ && hovered_ == dye);
-  doc_.end();
+  // The slot, captioned and given a column of its own. Without the caption it is an
+  // unexplained box between a colour wheel and a row of swatches, and without the
+  // width it sits close enough to the favourites to read as one of them.
+  {
+    Style col;
+    col = Doc::column(6, Align::Center);
+    col.width = 84;
+    col.margin = Edges(0, 8, 0, 8);
+    doc_.begin(col);
+    const SlotId dye {Container::Dye, 0};
+    slotNode(dye, slotAt(dye), widget::SlotKind::Normal, haveHover_ && hovered_ == dye);
+    doc_.label("to dye", widget::muted(11));
+    doc_.end();
+  }
+  // The readouts' box. RESERVED here rather than simply drawn beside the wheel,
+  // which is what the first version did — the swatch, the hex, the cost line, both
+  // favourite rows and the three buttons were all painted at fixed offsets from the
+  // wheel, so the panel measured itself around the wheel alone and everything to the
+  // right of it hung off the edge of the card. A node the layout can see is what
+  // makes the panel grow to hold its own contents.
+  {
+    Style side;
+    side.width = kPaletteSideWidth;
+    side.height = 240;
+    doc_.custom(side, kTagPaletteSide);
+  }
   doc_.end();
 
   doc_.end();
@@ -1191,7 +1220,7 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   // sees it. Dragging a hue handle across a slot would otherwise pick a stack up
   // halfway round the ring.
   if (mode_ == InventoryMode::Palette && palette_ != nullptr &&
-      palette_->updateIn(event, paletteWheel_, *inv_, dyeSlot_)) {
+      palette_->updateIn(event, paletteWheel_, paletteSide_, *inv_, dyeSlot_)) {
     build(ui, text, event, tweens);
     return;
   }
@@ -1367,11 +1396,11 @@ void InventoryUI::draw(Ui2D& ui, Text& text) {
   if (mode_ == InventoryMode::Palette && palette_ != nullptr) {
     for (int i = 0; i < doc_.count(); ++i) {
       const Node& n = doc_.node(i);
-      if (n.tag != kTagWheel || n.content != Content::Custom) continue;
-      paletteWheel_ = n.rect;
-      palette_->drawInto(ui, text, n.rect, inv_, dyeSlot_);
-      break;
+      if (n.content != Content::Custom) continue;
+      if (n.tag == kTagWheel) paletteWheel_ = n.rect;
+      if (n.tag == kTagPaletteSide) paletteSide_ = n.rect;
     }
+    palette_->drawInto(ui, text, paletteWheel_, paletteSide_, inv_, dyeSlot_);
   }
 
   // The absolutely-positioned parts of a slot: the count and the durability bar sit

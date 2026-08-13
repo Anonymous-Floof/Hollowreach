@@ -236,7 +236,7 @@ BlockRegistry::BlockRegistry() {
       .pick(tier::kWood).drops("bricks");
   Builder(B, "polished", "Polished Stone").cube().solidOpaque().tex("polished").hard(1.6f)
       .pick(tier::kWood).drops("polished");
-  Builder(B, "wool", "White Wool").cube().solidOpaque().tex("wool").hard(0.5f).drops("wool")
+  Builder(B, "wool", "Wool").cube().solidOpaque().tex("wool").hard(0.5f).drops("wool")
       .dyeable();
   Builder(B, "glass", "Glass").cube().solidClear().tex("glass").hard(0.4f).drops("glass")
       .dyeable();

@@ -714,6 +714,21 @@ void drawBar(Ui2D& ui, const Rect& r, float fraction, Rgba fill, Rgba track, flo
   ui.fillRect({r.x, r.y, r.w * f, r.h}, fill, radius);
 }
 
+StackVisual stackVisual(const game::ItemStack& stack, const render::IconAtlas* icons) {
+  StackVisual v;
+  if (icons && icons->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
+    v.icon.texture = icons->texture();
+  }
+  // The dye, multiplied over the sprite by the UI shader's textured-quad mode.
+  if (stack.dyed()) v.icon.tint = rgb(static_cast<std::uint32_t>(stack.tint));
+  v.count = stack.count;
+  const int maxDura = game::maxDurability(stack.key);
+  if (stack.wears() && maxDura > 0) {
+    v.duraFraction = static_cast<float>(stack.dura) / static_cast<float>(maxDura);
+  }
+  return v;
+}
+
 void drawStack(Ui2D& ui, Text& text, const Rect& slot, const StackVisual& v) {
   if (v.icon.texture != 0) {
     ui.setTexture(v.icon.texture);

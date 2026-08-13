@@ -335,8 +335,12 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
     iconKeys_.push_back(e.outKey);
     iconIsOutput_.push_back(true);
     outCounts_.push_back(e.outCount);
+    // Wide enough for the longest name the game actually has. "Colourable Diamond
+    // Chestplate" is 29 characters and the Farming update's meals are not far behind,
+    // and at 120 every one of them was cut to an ellipsis — the book listed recipes
+    // by a prefix of their name, which for the four pies was the same prefix.
     Style nameBox;
-    nameBox.maxWidth = 120;
+    nameBox.maxWidth = 210;
     nameBox.ellipsis = true;
     nameBox.grow = 1;
     doc_.label(e.name, widget::rbName(), nameBox);
@@ -425,7 +429,7 @@ void RecipeBook::cardNode(const Family& family, int familyIndex) {
   if (e.outCount > 1) label = std::to_string(e.outCount) + "\xC3\x97 " + e.name;
   // .rb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
   Style nameBox;
-  nameBox.maxWidth = 130;
+  nameBox.maxWidth = 220;
   nameBox.ellipsis = true;
   doc_.label(label, widget::rbName(), nameBox);
 

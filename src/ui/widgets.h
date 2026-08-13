@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "core/input.h"
+#include "game/inventory.h"
+#include "render/iconatlas.h"
 #include "ui/dom.h"
 #include "ui/text.h"
 #include "ui/theme.h"
@@ -242,6 +244,16 @@ struct StackVisual {
   float duraFraction = -1.0f;  // < 0 hides the bar
 };
 void drawStack(Ui2D& ui, Text& text, const Rect& slot, const StackVisual& v);
+
+// Everything the interface needs to draw one stack: its icon, its dye, its count and
+// its wear.
+//
+// HERE rather than in InventoryUI, which is where it used to live with a comment
+// claiming it was "the ONE place every item icon in the interface is built ... the
+// hotbar". The hotbar built its own, so a dyed item was the right colour in the bag
+// and stubbornly white in the hand — the claim was aspirational and nothing enforced
+// it. A free function both screens call is what makes it true.
+StackVisual stackVisual(const game::ItemStack& stack, const render::IconAtlas* icons);
 
 // A segmented bar (.fuel-bar, .slot-dura, the break-progress pip).
 void drawBar(Ui2D& ui, const Rect& r, float fraction, Rgba fill, Rgba track,

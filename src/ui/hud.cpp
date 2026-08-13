@@ -230,16 +230,7 @@ void Hud::drawHotbar(Ui2D& ui, Text& text, const HudFrame& frame, float bottom) 
 
     const game::ItemStack& stack = inv.slots()[i];
     if (stack.empty()) continue;
-    widget::StackVisual v;
-    if (frame.icons && frame.icons->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
-      v.icon.texture = frame.icons->texture();
-    }
-    v.count = stack.count;
-    const int maxDura = game::maxDurability(stack.key);
-    if (stack.wears() && maxDura > 0) {
-      v.duraFraction = static_cast<float>(stack.dura) / static_cast<float>(maxDura);
-    }
-    widget::drawStack(ui, text, slot, v);
+    widget::drawStack(ui, text, slot, widget::stackVisual(stack, frame.icons));
   }
   (void)bottom;
 }

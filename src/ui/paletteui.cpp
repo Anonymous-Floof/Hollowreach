@@ -510,10 +510,13 @@ struct SidePanel {
   float hexY = 0, costY = 0, worldY = 0, globalY = 0, x = 0;
 };
 
-SidePanel sideFor(const Rect& box) {
+// Everything measured from the box the LAYOUT gave us, so the panel that contains
+// it has already been sized to fit. Measuring from the wheel instead is what put the
+// buttons off the edge of the card.
+SidePanel sideFor(const Rect& side) {
   SidePanel p;
-  p.x = box.right() + 74.0f;
-  const float y = box.y + 24.0f;
+  p.x = side.x;
+  const float y = side.y + 6.0f;
   p.swatch = {p.x, y, 52, 52};
   p.hexY = y + 16.0f;
   p.costY = y + 62.0f;
@@ -527,10 +530,10 @@ SidePanel sideFor(const Rect& box) {
 
 }  // namespace
 
-void PaletteUI::drawInto(Ui2D& ui, Text& text, const Rect& box, const game::Inventory* inv,
-                         const game::ItemStack* slot) {
+void PaletteUI::drawInto(Ui2D& ui, Text& text, const Rect& box, const Rect& side,
+                         const game::Inventory* inv, const game::ItemStack* slot) {
   const Dial d = dialFor(box);
-  const SidePanel p = sideFor(box);
+  const SidePanel p = sideFor(side);
 
   for (int i = 0; i < kHueSegments; ++i) {
     const float t0 = static_cast<float>(i) / kHueSegments;
@@ -608,10 +611,10 @@ void PaletteUI::drawInto(Ui2D& ui, Text& text, const Rect& box, const game::Inve
   button(ui, text, p.saveGlobal, "Save all", hover_ == kTagSaveGlobal, true, false);
 }
 
-bool PaletteUI::updateIn(const UiEvent& event, const Rect& box, game::Inventory& inv,
-                         game::ItemStack* slot) {
+bool PaletteUI::updateIn(const UiEvent& event, const Rect& box, const Rect& side,
+                         game::Inventory& inv, game::ItemStack* slot) {
   const Dial d = dialFor(box);
-  const SidePanel p = sideFor(box);
+  const SidePanel p = sideFor(side);
   const float mx = event.mouseX, my = event.mouseY;
 
   const auto inside = [&](const Rect& r) {

@@ -169,6 +169,16 @@ class InventoryUI {
   // only part of that screen worth asserting without a window.
   static bool dyeSlotAccepts(const std::string& key);
 
+  // What ONE slot of this container will hold. The item's own maximum everywhere
+  // except the palette, which takes a dye's worth and no more.
+  //
+  // Public alongside dyeSlotAccepts and for the same reason: every path that puts
+  // something into a slot — a drop, a merge, both halves of the shift-click sweep —
+  // goes through this one function, so the cap is ENFORCED rather than announced.
+  // It used to be announced: a shift-clicked stack of sixty-four landed in the slot
+  // and the screen then explained that sixteen was the limit.
+  int slotCapacity(Container container, const std::string& key) const;
+
  private:
   struct SlotId {
     Container container = Container::None;
@@ -242,6 +252,7 @@ class InventoryUI {
   game::ItemStack* dyeSlot_ = nullptr;
   PaletteUI* palette_ = nullptr;
   Rect paletteWheel_;  // reserved by the layout, painted and hit-tested after it
+  Rect paletteSide_;   // and the readouts beside it
   const game::Diet* diet_ = nullptr;
 
   InventoryMode mode_ = InventoryMode::Closed;

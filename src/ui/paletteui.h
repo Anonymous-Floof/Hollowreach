@@ -61,11 +61,11 @@ class PaletteUI {
   // These two are what that screen calls: paint everything into the box the layout
   // reserved, and take a click inside it. `slot` is the item being coloured and may
   // be null; `inv` pays for the dye.
-  void drawInto(Ui2D& ui, Text& text, const Rect& box, const game::Inventory* inv,
-                const game::ItemStack* slot);
+  void drawInto(Ui2D& ui, Text& text, const Rect& box, const Rect& side,
+                const game::Inventory* inv, const game::ItemStack* slot);
   // Returns true when the click belonged to the wheel, so the slot layer skips it.
-  bool updateIn(const UiEvent& event, const Rect& box, game::Inventory& inv,
-                game::ItemStack* slot);
+  bool updateIn(const UiEvent& event, const Rect& box, const Rect& side,
+                game::Inventory& inv, game::ItemStack* slot);
 
   // Typed characters and editing keys, routed here while the hex field has focus.
   bool wantsText() const { return editingHex_; }
