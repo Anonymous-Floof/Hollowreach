@@ -745,6 +745,17 @@ game::InteractHooks App::makeInteractHooks() {
     netClient_.sendHit(e.netId, inventory_.selectedSlot().key, false);
     return true;
   };
+  // The palette opens its own screen. HERE, with the rest of them, and not in
+  // wireInterface where it was first written: `interactHooks_ = makeInteractHooks()`
+  // assigns the whole struct, so anything bolted onto interactHooks_ outside this
+  // function is silently wiped the next time it runs. The symptom was a palette that
+  // did nothing at all when right-clicked, with no error anywhere.
+  hooks.onPalette = [this] {
+    interface_.palette().open();
+    state_ = AppState::Palette;
+    window_.setPointerCaptured(false);
+    return true;
+  };
   hooks.entities = &entities_;
   hooks.entityContext = &entityContext_;
   return hooks;
@@ -970,12 +981,6 @@ void App::wireInterface() {
     // A world list rides out with the next world save like everything else; a global
     // one has no such moment, so it is written the instant it changes.
     if (global) saveGlobalFavourites();
-  };
-  interactHooks_.onPalette = [this] {
-    interface_.palette().open();
-    state_ = AppState::Palette;
-    window_.setPointerCaptured(false);
-    return true;
   };
   interface_.timeWheel().onCancel = [this] { closeCurrentScreen(); };
   interface_.timeWheel().onConfirm = [this](float target) {

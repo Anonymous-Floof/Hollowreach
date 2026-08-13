@@ -502,6 +502,43 @@ void testPlacing() {
     check(bag.countOf("wayshard") == 2, "a wayshard that warps is spent");
   }
 
+  // --- the palette opens on a right-click, and is never consumed ---------------
+  //
+  // Right-clicking a palette did nothing at all when this was first wired, and no
+  // test could see it: the hook was assigned in wireInterface and then wiped by
+  // `interactHooks_ = makeInteractHooks()`, which assigns the whole struct. Nothing
+  // about the item, the screen or the interact branch was wrong.
+  //
+  // This asserts the CONTRACT that made it invisible — that a right-click with a
+  // palette in hand calls the hook, and does not spend the item — so the branch
+  // itself is covered. Which function App happens to install the hook in is App's
+  // business; what this pins down is that Interact asks for it at all.
+  {
+    game::Interact art;
+    game::Inventory bag;
+    bag.give("palette", 1);
+    bag.setSelected(0);
+
+    int opened = 0;
+    game::InteractHooks hooks = silentHooks();
+    hooks.onPalette = [&opened] {
+      ++opened;
+      return true;
+    };
+    frame(in, false, true);
+    art.update(0.016f, in, player, *world, bag, hooks);
+    checkf(opened == 1, "right-clicking a palette opens its screen (%d)", opened);
+    check(bag.countOf("palette") == 1, "and does not consume it — it is a tool, not a reagent");
+
+    // Again with a block under the cursor. A palette is used on ITSELF, so pointing
+    // at something must not swallow the click.
+    world->setBlock(static_cast<int>(kOriginX), kY - 1, static_cast<int>(kOriginZ),
+                    world::wk().greystone, 0);
+    frame(in, false, true);
+    art.update(0.016f, in, player, *world, bag, hooks);
+    checkf(opened == 2, "and opens just the same when aiming at a block (%d)", opened);
+  }
+
   // The query the warp is built on. The pocket makeWorld carves runs kY-2..kY+2 in
   // an otherwise open column far above the terrain, so the ground is the real
   // surface, well below, and never the air the player is standing in.
