@@ -752,6 +752,7 @@ game::InteractHooks App::makeInteractHooks() {
   // did nothing at all when right-clicked, with no error anywhere.
   hooks.onPalette = [this] {
     interface_.palette().open();
+    interface_.openPalette();
     state_ = AppState::Palette;
     window_.setPointerCaptured(false);
     return true;
@@ -784,7 +785,7 @@ void App::syncScreen() {
     case AppState::Packs: interface_.setScreen(ui::Screen::Packs); break;
     case AppState::PaintingPick: interface_.openPaintingPicker(); break;
     case AppState::TimeWheel: interface_.setScreen(ui::Screen::TimeWheel); break;
-    case AppState::Palette: interface_.setScreen(ui::Screen::Palette); break;
+    case AppState::Palette: interface_.setScreen(ui::Screen::Inventory); break;
   }
 }
 
@@ -974,6 +975,8 @@ void App::wireInterface() {
   // by pointer — the screen draws them and reports changes, and this is what writes
   // them anywhere.
   interface_.palette().attach(&inventory_, &paletteSlot_);
+  // And the inventory screen, which owns the slot the player actually fills.
+  interface_.inventory().attachPalette(&interface_.palette(), &paletteSlot_);
   interface_.palette().worldFavourites = &paletteWorldFavourites_;
   interface_.palette().globalFavourites = &paletteGlobalFavourites_;
   interface_.palette().onClose = [this] { closeCurrentScreen(); };
@@ -3243,11 +3246,14 @@ bool App::applyStartScreen(const std::string& name) {
       // Seeded for the same reason the kitchens are: an empty wheel over an empty
       // slot shows the widget and not the feature.
       paletteSlot_ = game::ItemStack {"wool", 8, -1};
+      inventory_.give("glass", 12);
+      inventory_.give("dyed_chest_ferralite", 1);
       inventory_.give("dye_blue", 3);
       inventory_.give("dye_red", 2);
       paletteWorldFavourites_ = {0xd23a34u, 0x4a6fe0u, 0x4fae53u};
       paletteGlobalFavourites_ = {0xf2c53au, 0x9a5ac2u};
       interface_.palette().open();
+      interface_.openPalette();
     }
     if (e.isStation) {
       // Every station screen needs a block entity to show. A scratch one lives here

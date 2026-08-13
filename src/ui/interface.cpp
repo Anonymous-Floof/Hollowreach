@@ -110,6 +110,11 @@ void Interface::setScreen(Screen s) {
   if (previous == Screen::Inventory && s != Screen::Inventory) closeInventory();
 }
 
+void Interface::openPalette() {
+  inventoryUI_.open(InventoryMode::Palette, nullptr);
+  setScreen(Screen::Inventory);
+}
+
 void Interface::openStation(world::Station station) {
   game::BlockEntity* be = callbacks.currentStation ? callbacks.currentStation() : nullptr;
   switch (station) {
@@ -345,13 +350,6 @@ void Interface::draw(const Window& window, Input& input, const UiFrame& frame) {
         // frame of the wrong thing.
         if (screen_ == Screen::TimeWheel) timeWheel_.draw(ui_, text_, *frame.sky);
       }
-      break;
-    case Screen::Palette:
-      palette_.update(ui_, text_, event);
-      // Same guard the wheel above needs: Done closes the screen from inside
-      // update(), and drawing the card over a world that is already back would be
-      // one frame of the wrong thing.
-      if (screen_ == Screen::Palette) palette_.draw(ui_, text_);
       break;
     case Screen::Boot:
     case Screen::None:

@@ -28,6 +28,7 @@
 #include "game/inventory.h"
 #include "render/iconatlas.h"
 #include "ui/dom.h"
+#include "ui/paletteui.h"
 #include "ui/text.h"
 #include "ui/ui2d.h"
 #include "ui/widgets.h"
@@ -83,7 +84,14 @@ game::ItemStack takeFromStack(game::ItemStack& stack, bool whole);
 float bagPanelWidth();
 
 // Which panel set is showing. Matches js/ui/inventoryui.js's `mode`.
-enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest, Cutting, Stove, Pot };
+enum class InventoryMode { Closed, Inventory, Workbench, Forge, Chest, Cutting, Stove, Pot,
+                           // The Dyer's Palette. A mode here rather than a screen of its own
+                           // because the one thing it needs is a slot the player can PUT
+                           // something in, and every gesture that fills a slot — drag,
+                           // shift-click, sweep, Q-drop, 1-9 swap — lives in this class.
+                           // It was built standalone first and had no way to fill its slot
+                           // at all.
+                           Palette };
 
 // The containers a slot can belong to.
 enum class Container {
@@ -104,6 +112,9 @@ enum class Container {
   CookContainer,  // the bowl
   CookFuel,
   CookOut,
+  // The palette's single slot. Its own container rather than reusing CookIn, so
+  // `accepts` can refuse anything that cannot take a dye.
+  Dye,
 };
 
 class InventoryUI {
@@ -117,6 +128,10 @@ class InventoryUI {
   std::function<void()> onOpenRecipeBook;
 
   void open(InventoryMode mode, game::BlockEntity* station);
+  void attachPalette(PaletteUI* palette, game::ItemStack* slot) {
+    palette_ = palette;
+    dyeSlot_ = slot;
+  }
   // Returns the crafting grid and the cursor stack to the inventory. Forge and chest
   // contents stay in their block entity, which is what makes them persist.
   void close();
@@ -145,6 +160,14 @@ class InventoryUI {
   // it looks like the recipe was laid out and quietly is not.
   enum class FillResult { Ok, NoGrid, TooBig, Missing };
   FillResult autoFill(const game::Recipe& recipe);
+
+  // Whether the palette's slot will take this item.
+  //
+  // Public and static because it is ONE rule enforced in two places — a drop onto
+  // the slot, and a shift-click aimed at it — and two copies of it is two chances
+  // for the slot to accept something the Dye button then refuses. It is also the
+  // only part of that screen worth asserting without a window.
+  static bool dyeSlotAccepts(const std::string& key);
 
  private:
   struct SlotId {
@@ -205,6 +228,7 @@ class InventoryUI {
   // the other two show a single input; everything else about the layout is the same,
   // so writing it three times would only be three places to fix a spacing bug.
   void kitchenPanel(const UiEvent& event);
+  void palettePanel(const UiEvent& event);
   // The five diet bars. On the inventory screen rather than the HUD: it is a thing
   // you check when deciding what to eat, not while running from something.
   void dietPanel(const UiEvent& event);
@@ -213,6 +237,11 @@ class InventoryUI {
   game::Inventory* inv_ = nullptr;
   const render::IconAtlas* icons_ = nullptr;
   game::BlockEntity* station_ = nullptr;
+  // The palette's slot and its colour model, both owned by App. This class supplies
+  // the one thing PaletteUI could not: a slot the bag can move an item into.
+  game::ItemStack* dyeSlot_ = nullptr;
+  PaletteUI* palette_ = nullptr;
+  Rect paletteWheel_;  // reserved by the layout, painted and hit-tested after it
   const game::Diet* diet_ = nullptr;
 
   InventoryMode mode_ = InventoryMode::Closed;

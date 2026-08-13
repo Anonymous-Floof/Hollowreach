@@ -15,6 +15,8 @@ namespace {
 constexpr int kTagSlot = 1;
 // Well clear of the container tags, which occupy kTagSlot*100 .. +100.
 constexpr int kTagBook = 9001;
+// The palette's wheel: a box the layout reserves and the screen paints into.
+constexpr int kTagWheel = 9002;
 
 // One tag value per container, so a node's tag/index pair round-trips back to a SlotId.
 int containerTag(Container c) { return kTagSlot * 100 + static_cast<int>(c); }
@@ -202,6 +204,8 @@ game::ItemStack* InventoryUI::slotAt(SlotId id) {
       return station_ ? &station_->fuel : nullptr;
     case Container::CookOut:
       return station_ ? &station_->output : nullptr;
+    case Container::Dye:
+      return dyeSlot_;
     case Container::Result:
     case Container::None:
       return nullptr;
@@ -213,7 +217,16 @@ const game::ItemStack* InventoryUI::slotAt(SlotId id) const {
   return const_cast<InventoryUI*>(this)->slotAt(id);
 }
 
+bool InventoryUI::dyeSlotAccepts(const std::string& key) {
+  const game::ItemDef* item = game::getItem(key);
+  return item != nullptr && item->dyeable;
+}
+
 bool InventoryUI::accepts(SlotId id, const std::string& key) const {
+  // The palette slot takes only what can actually be coloured. Refusing here rather
+  // than at the moment of dyeing is what makes the rule visible: the item will not
+  // go in, instead of going in and then being told no.
+  if (id.container == Container::Dye) return dyeSlotAccepts(key);
   if (id.container != Container::Armor) return true;
   const game::ItemDef* item = game::getItem(key);
   return item && item->type == game::ItemType::Armor && item->armorSlot == id.index;
@@ -358,6 +371,13 @@ bool InventoryUI::invSourceTargets(const game::ItemStack& stack, int index,
       return true;
     }
     return false;
+  }
+  // The palette. One slot, and only dyeable things may land in it — a shift-click
+  // with a pickaxe should leave the pickaxe alone rather than shuffling it about.
+  if (mode_ == InventoryMode::Palette) {
+    if (!dyeSlotAccepts(stack.key)) return false;
+    out = {{Container::Dye, {0}}};
+    return true;
   }
   // The kitchens. Without this a shift-click lands in whichever slot happens to be
   // empty first, which for a station with four different KINDS of slot is close to
@@ -911,6 +931,49 @@ void InventoryUI::dietPanel(const UiEvent& event) {
   (void)event;
 }
 
+// The Dyer's Palette. The wheel and everything around it is PaletteUI's; what this
+// adds is the one thing that class could not have on its own — a slot the bag can
+// move an item into, with drag, shift-click, sweep and Q-drop already working.
+//
+// The wheel is a `custom` node: the layout reserves the box, and update() paints and
+// hit-tests it afterwards. Same seam the gallery's thumbnails use.
+void InventoryUI::palettePanel(const UiEvent& event) {
+  doc_.begin(widget::invPanel());
+  {
+    Style head = Doc::row(10, Justify::SpaceBetween, Align::Center);
+    doc_.begin(head);
+    doc_.label("Dyer's Palette", widget::invTitle());
+    doc_.end();
+  }
+  {
+    TextStyle sub = widget::settingValue();
+    sub.color = col(Role::Muted);
+    Style box;
+    box.margin = Edges(2, 0, 10, 0);
+    doc_.begin(box);
+    doc_.label("Put wool, glass, a bed or colourable armour in the slot, then pick a colour.",
+               sub);
+    doc_.end();
+  }
+
+  doc_.begin(Doc::row(14, Justify::Start, Align::Center));
+  // The wheel's box. 240 square is the whole of PaletteUI's dial plus its handle.
+  {
+    Style wheel;
+    wheel.width = 240;
+    wheel.height = 240;
+    doc_.custom(wheel, kTagWheel);
+  }
+  doc_.begin(Doc::column(10, Align::Center));
+  const SlotId dye {Container::Dye, 0};
+  slotNode(dye, slotAt(dye), widget::SlotKind::Normal, haveHover_ && hovered_ == dye);
+  doc_.end();
+  doc_.end();
+
+  doc_.end();
+  (void)event;
+}
+
 void InventoryUI::kitchenPanel(const UiEvent& event) {
   const bool isPot = mode_ == InventoryMode::Pot;
   const bool isStove = mode_ == InventoryMode::Stove;
@@ -1097,6 +1160,7 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
     case InventoryMode::Pot:
       if (station_) kitchenPanel(event);
       break;
+    case InventoryMode::Palette: palettePanel(event); break;
     case InventoryMode::Closed: break;
   }
   doc_.end();
@@ -1122,6 +1186,15 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
 
   mouseX_ = event.mouseX;
   mouseY_ = event.mouseY;
+
+  // The wheel gets first refusal on a click inside its box, BEFORE the slot layer
+  // sees it. Dragging a hue handle across a slot would otherwise pick a stack up
+  // halfway round the ring.
+  if (mode_ == InventoryMode::Palette && palette_ != nullptr &&
+      palette_->updateIn(event, paletteWheel_, *inv_, dyeSlot_)) {
+    build(ui, text, event, tweens);
+    return;
+  }
 
   // The forge's block entity is refreshed by the caller every frame; if it vanished
   // (the block was mined while the screen was open) fall back to the plain bag rather
@@ -1287,6 +1360,19 @@ void InventoryUI::draw(Ui2D& ui, Text& text) {
   // .screen.dim { background: col(Role::WashScreen) }
   ui.fillRect({0, 0, ui.width(), ui.height()}, col(Role::WashScreen));
   doc_.paint(ui);
+
+  // The palette's wheel, into the box the layout reserved for it. Painted after the
+  // document because it is not a document primitive — the same seam the gallery uses
+  // for its thumbnails.
+  if (mode_ == InventoryMode::Palette && palette_ != nullptr) {
+    for (int i = 0; i < doc_.count(); ++i) {
+      const Node& n = doc_.node(i);
+      if (n.tag != kTagWheel || n.content != Content::Custom) continue;
+      paletteWheel_ = n.rect;
+      palette_->drawInto(ui, text, n.rect, inv_, dyeSlot_);
+      break;
+    }
+  }
 
   // The absolutely-positioned parts of a slot: the count and the durability bar sit
   // over the icon, and the layout engine has no absolute positioning by design.

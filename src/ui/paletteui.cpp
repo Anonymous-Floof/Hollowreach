@@ -479,4 +479,213 @@ void PaletteUI::draw(Ui2D& ui, Text& text) {
   button(ui, text, lay.done, "Done", hover_ == kTagDone, true, false);
 }
 
+
+// --- embedded in the inventory screen ----------------------------------------
+
+namespace {
+
+// The wheel's geometry inside a reserved box, so drawing and hit-testing cannot
+// disagree about where the ring is.
+struct Dial {
+  float cx = 0, cy = 0, outer = 0, inner = 0;
+  Rect square;
+};
+
+Dial dialFor(const Rect& box) {
+  Dial d;
+  d.cx = box.centerX();
+  d.cy = box.centerY();
+  d.outer = std::min(box.w, box.h) * 0.5f - 2.0f;
+  d.inner = d.outer - 24.0f;
+  const float half = d.inner * 0.68f;
+  d.square = {d.cx - half, d.cy - half, half * 2, half * 2};
+  return d;
+}
+
+// Where the readouts sit relative to the dial. One function, so draw and hit-test
+// cannot drift apart — the standalone screen kept two copies of these numbers and
+// the cost line ended up printed through the favourites heading.
+struct SidePanel {
+  Rect swatch, apply, saveWorld, saveGlobal;
+  float hexY = 0, costY = 0, worldY = 0, globalY = 0, x = 0;
+};
+
+SidePanel sideFor(const Rect& box) {
+  SidePanel p;
+  p.x = box.right() + 74.0f;
+  const float y = box.y + 24.0f;
+  p.swatch = {p.x, y, 52, 52};
+  p.hexY = y + 16.0f;
+  p.costY = y + 62.0f;
+  p.worldY = y + 88.0f;
+  p.globalY = y + 142.0f;
+  p.apply = {p.x, y + 196.0f, 104, 32};
+  p.saveWorld = {p.x + 112.0f, y + 196.0f, 76, 32};
+  p.saveGlobal = {p.x + 196.0f, y + 196.0f, 76, 32};
+  return p;
+}
+
+}  // namespace
+
+void PaletteUI::drawInto(Ui2D& ui, Text& text, const Rect& box, const game::Inventory* inv,
+                         const game::ItemStack* slot) {
+  const Dial d = dialFor(box);
+  const SidePanel p = sideFor(box);
+
+  for (int i = 0; i < kHueSegments; ++i) {
+    const float t0 = static_cast<float>(i) / kHueSegments;
+    const float t1 = static_cast<float>(i + 1) / kHueSegments;
+    ringQuad(ui, d.cx, d.cy, d.inner, d.outer, t0 * kPi * 2.0f, t1 * kPi * 2.0f,
+             packed(hsvToRgb(t0, 1.0f, 1.0f)));
+  }
+  {
+    const float a = h_ * kPi * 2.0f;
+    const float r = (d.inner + d.outer) * 0.5f;
+    const float hx = d.cx + std::sin(a) * r, hy = d.cy - std::cos(a) * r;
+    ui.fillRect({hx - 7, hy - 7, 14, 14}, col(Role::Text), 7.0f);
+    ui.fillRect({hx - 5, hy - 5, 10, 10}, packed(hsvToRgb(h_, 1.0f, 1.0f)), 5.0f);
+  }
+  {
+    const float cw = d.square.w / kSquareCells;
+    const float ch = d.square.h / kSquareCells;
+    for (int y = 0; y < kSquareCells; ++y) {
+      for (int x = 0; x < kSquareCells; ++x) {
+        const float s = (static_cast<float>(x) + 0.5f) / kSquareCells;
+        const float v = 1.0f - (static_cast<float>(y) + 0.5f) / kSquareCells;
+        ui.fillRect({d.square.x + x * cw, d.square.y + y * ch, cw + 0.5f, ch + 0.5f},
+                    packed(hsvToRgb(h_, s, v)));
+      }
+    }
+    ui.strokeRect(d.square, col(Role::Edge), 1.0f);
+    const float sx = d.square.x + s_ * d.square.w;
+    const float sy = d.square.y + (1.0f - v_) * d.square.h;
+    ui.strokeRect({sx - 6, sy - 6, 12, 12}, col(Role::Text), 2.0f, 6.0f);
+  }
+
+  ui.fillRect(p.swatch, packed(colour()), 6.0f);
+  ui.strokeRect(p.swatch, col(Role::Edge), 1.0f, 6.0f);
+  label(ui, text, {p.x + 62, p.hexY, 120, 20}, toHex(colour()), col(Role::Text), 14.0f,
+        TextAlign::Left);
+
+  std::string line;
+  Rgba tone = col(Role::Muted);
+  const bool dyeable = slot != nullptr && game::isDyeable(*slot);
+  if (slot == nullptr || slot->empty()) {
+    line = "The slot is empty";
+  } else if (!dyeable) {
+    line = slot->key + " cannot be dyed";
+  } else if (slot->count > game::kDyePerApplication) {
+    line = "Too many: one dye colours " + std::to_string(game::kDyePerApplication);
+  } else if (inv != nullptr) {
+    const game::DyeCost cost = game::dyeCostFor(*inv, colour());
+    const game::ItemDef* def = game::getItem(cost.dyeKey);
+    line = "Costs 1 " + std::string(def ? def->name : cost.dyeKey) + "  (you have " +
+           std::to_string(cost.have) + ")";
+    tone = cost.affordable ? col(Role::Text) : col(Role::Danger);
+  }
+  label(ui, text, {p.x, p.costY, 280, 18}, line, tone, 12.0f, TextAlign::Left);
+
+  const auto favRow = [&](float y, const std::vector<std::uint32_t>* list, const char* title) {
+    label(ui, text, {p.x, y, 240, 16}, title, col(Role::Muted), 12.0f, TextAlign::Left);
+    if (list == nullptr || list->empty()) {
+      label(ui, text, {p.x, y + 20, 200, 16}, "none yet", col(Role::Muted), 12.0f,
+            TextAlign::Left);
+      return;
+    }
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const Rect sw {p.x + static_cast<float>(i) * 28.0f, y + 20, 24.0f, 24.0f};
+      ui.fillRect(sw, packed((*list)[i]), 4.0f);
+      ui.strokeRect(sw, col(Role::Edge), 1.0f, 4.0f);
+    }
+  };
+  favRow(p.worldY, worldFavourites, "Saved in this world");
+  favRow(p.globalY, globalFavourites, "Saved everywhere");
+
+  const bool canApply = dyeable && inv != nullptr && slot->count <= game::kDyePerApplication &&
+                        game::dyeCostFor(*inv, colour()).affordable;
+  button(ui, text, p.apply, "Dye", hover_ == kTagApply, canApply, true);
+  button(ui, text, p.saveWorld, "Save here", hover_ == kTagSaveWorld, true, false);
+  button(ui, text, p.saveGlobal, "Save all", hover_ == kTagSaveGlobal, true, false);
+}
+
+bool PaletteUI::updateIn(const UiEvent& event, const Rect& box, game::Inventory& inv,
+                         game::ItemStack* slot) {
+  const Dial d = dialFor(box);
+  const SidePanel p = sideFor(box);
+  const float mx = event.mouseX, my = event.mouseY;
+
+  const auto inside = [&](const Rect& r) {
+    return mx >= r.x && mx <= r.right() && my >= r.y && my <= r.bottom();
+  };
+
+  hover_ = 0;
+  if (inside(p.apply)) {
+    hover_ = kTagApply;
+  } else if (inside(p.saveWorld)) {
+    hover_ = kTagSaveWorld;
+  } else if (inside(p.saveGlobal)) {
+    hover_ = kTagSaveGlobal;
+  }
+
+  const float dx = mx - d.cx, dy = my - d.cy;
+  const float dist = std::sqrt(dx * dx + dy * dy);
+
+  if (event.leftDown) {
+    if (drag_ == Drag::None) {
+      if (dist <= d.outer + 6.0f && dist >= d.inner - 6.0f) {
+        drag_ = Drag::Hue;
+      } else if (inside(d.square)) {
+        drag_ = Drag::Square;
+      }
+    }
+    if (drag_ == Drag::Hue) {
+      const float a = std::atan2(dx, -dy) / (kPi * 2.0f);
+      h_ = a - std::floor(a);
+      return true;
+    }
+    if (drag_ == Drag::Square) {
+      s_ = std::clamp((mx - d.square.x) / d.square.w, 0.0f, 1.0f);
+      v_ = std::clamp(1.0f - (my - d.square.y) / d.square.h, 0.0f, 1.0f);
+      return true;
+    }
+  } else {
+    drag_ = Drag::None;
+  }
+
+  if (!event.leftClick) return false;
+
+  if (hover_ == kTagApply) {
+    if (slot != nullptr) game::applyDye(inv, *slot, colour());
+    return true;
+  }
+  const auto remember = [this](std::vector<std::uint32_t>* list, bool global) {
+    if (list == nullptr) return;
+    const std::uint32_t c = colour();
+    list->erase(std::remove(list->begin(), list->end(), c), list->end());
+    list->insert(list->begin(), c);
+    if (list->size() > 7) list->resize(7);
+    if (onFavouritesChanged) onFavouritesChanged(global);
+  };
+  if (hover_ == kTagSaveWorld) {
+    remember(worldFavourites, false);
+    return true;
+  }
+  if (hover_ == kTagSaveGlobal) {
+    remember(globalFavourites, true);
+    return true;
+  }
+
+  // A saved swatch, in either row.
+  const auto pick = [&](float y, const std::vector<std::uint32_t>* list) {
+    if (list == nullptr || my < y + 20 || my > y + 44) return false;
+    const int i = static_cast<int>((mx - p.x) / 28.0f);
+    if (mx < p.x || i < 0 || i >= static_cast<int>(list->size())) return false;
+    rgbToHsv((*list)[static_cast<std::size_t>(i)], h_, s_, v_);
+    return true;
+  };
+  if (pick(p.worldY, worldFavourites)) return true;
+  if (pick(p.globalY, globalFavourites)) return true;
+  return false;
+}
+
 }  // namespace hr::ui

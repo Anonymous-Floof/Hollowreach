@@ -539,6 +539,36 @@ void testPlacing() {
     checkf(opened == 2, "and opens just the same when aiming at a block (%d)", opened);
   }
 
+  // --- and the slot it opens onto can actually be filled -----------------------
+  //
+  // The screen was built standalone first, with a slot drawn but no bag under it and
+  // no slot input at all: the palette opened onto a slot nothing could ever be put
+  // into. It is a mode of the inventory screen now, which is what gives it the bag,
+  // the drag, the shift-click and the rest. This asserts the gate that mode adds —
+  // that the slot takes what can be dyed and refuses what cannot.
+  {
+    check(ui::InventoryUI::dyeSlotAccepts("wool"), "the palette's slot accepts wool");
+    check(ui::InventoryUI::dyeSlotAccepts("glass"), "and glass");
+    check(ui::InventoryUI::dyeSlotAccepts("bed"), "and a bed");
+    check(ui::InventoryUI::dyeSlotAccepts("dyed_chest_ferralite"), "and colourable armour");
+    check(!ui::InventoryUI::dyeSlotAccepts("chest_ferralite"), "but not plain armour");
+    check(!ui::InventoryUI::dyeSlotAccepts("greystone"), "nor stone");
+    check(!ui::InventoryUI::dyeSlotAccepts("pick_ferralite"), "nor a pickaxe");
+
+    // The same answer game::isDyeable gives, which is what the Dye button asks. If
+    // these two ever disagree the slot accepts something the button then refuses.
+    int agree = 0, total = 0;
+    for (const char* key : {"wool", "glass", "bed", "dyed_chest_ferralite", "chest_ferralite",
+                            "greystone", "pick_ferralite", "carrot"}) {
+      ++total;
+      if (ui::InventoryUI::dyeSlotAccepts(key) == game::isDyeable(game::ItemStack{key, 1, -1})) {
+        ++agree;
+      }
+    }
+    checkf(agree == total, "and the slot and the Dye button agree on every one (%d/%d)", agree,
+           total);
+  }
+
   // The query the warp is built on. The pocket makeWorld carves runs kY-2..kY+2 in
   // an otherwise open column far above the terrain, so the ground is the real
   // surface, well below, and never the air the player is standing in.

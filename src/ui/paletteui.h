@@ -54,6 +54,19 @@ class PaletteUI {
   void update(Ui2D& ui, Text& text, const UiEvent& event);
   void draw(Ui2D& ui, Text& text);
 
+  // --- embedded in the inventory screen ---------------------------------------
+  //
+  // The palette is a mode of InventoryUI, because the one thing it needs is a slot
+  // the bag can move something into and every gesture that fills a slot lives there.
+  // These two are what that screen calls: paint everything into the box the layout
+  // reserved, and take a click inside it. `slot` is the item being coloured and may
+  // be null; `inv` pays for the dye.
+  void drawInto(Ui2D& ui, Text& text, const Rect& box, const game::Inventory* inv,
+                const game::ItemStack* slot);
+  // Returns true when the click belonged to the wheel, so the slot layer skips it.
+  bool updateIn(const UiEvent& event, const Rect& box, game::Inventory& inv,
+                game::ItemStack* slot);
+
   // Typed characters and editing keys, routed here while the hex field has focus.
   bool wantsText() const { return editingHex_; }
   void onChar(unsigned int codepoint);

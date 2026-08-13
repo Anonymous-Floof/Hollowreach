@@ -71,8 +71,6 @@ enum class Screen {
   // The bed's 24-hour dial. A screen rather than a HUD widget because it takes the
   // cursor and pauses the world the same way a chest does.
   TimeWheel,
-  // The Dyer's Palette: a hue wheel over a paused world.
-  Palette,
 };
 
 // Everything a screen asks App to do. Assigned once at startup.
@@ -188,6 +186,9 @@ class Interface {
   // Opens the inventory in the mode a station calls for. Station::None is the plain
   // bag with its 2x2 grid.
   void openStation(world::Station station);
+  // The palette is a mode of the inventory screen rather than a screen of its own,
+  // because the slot has to be fillable and every gesture that fills one lives there.
+  void openPalette();
   void closeInventory();
   bool pausePointerOverButton() const { return menu_.pauseHovering(); }
 
