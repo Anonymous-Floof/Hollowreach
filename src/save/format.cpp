@@ -725,6 +725,16 @@ bool openPayload(const std::uint8_t* data, std::size_t size, std::uint16_t& vers
 
 }  // namespace
 
+void captureWorld(const world::World& world, WorldSave& out) {
+  out.meta.seed = world.seed();
+  out.meta.genVersion = world.genVersion();
+  out.edits = world.edits();
+  out.explored.assign(world.explored().begin(), world.explored().end());
+  out.blockEntities = world.blockEntities();
+  out.paintings = world.paintings();
+  out.tints = world.tints();
+}
+
 std::vector<std::uint8_t> encode(const WorldSave& save) {
   // Edits are encoded first because doing so is what fills the palette, and the
   // palette section has to precede them in the file so a single-pass decoder has it

@@ -149,6 +149,16 @@ struct WorldSave {
 // saving the same world twice produces byte-identical files. That is what makes
 // "save, reload, save again, compare" a real round-trip test rather than a
 // field-by-field one that can miss whatever it forgot to compare.
+// Copies everything a World contributes to a save.
+//
+// Extracted out of App::saveWorld so it can be TESTED. The list is easy to add to
+// and easy to forget, and forgetting one line is completely silent: `tints` was
+// missing from it for most of the Dye update, so every dyed world saved its blocks
+// and none of their colours, and nothing in the suite could see it — the save tests
+// build a WorldSave by hand and never go near the assembly. Sabotage said so out
+// loud: deleting the line changed no test.
+void captureWorld(const world::World& world, WorldSave& out);
+
 std::vector<std::uint8_t> encode(const WorldSave& save);
 
 // Decodes, running any migrations needed. Returns false and fills `error` on a bad

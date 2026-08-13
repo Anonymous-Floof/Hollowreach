@@ -306,7 +306,8 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       const world::BlockRegistry& blocks = world::BlockRegistry::get();
       for (const EditMsg& e : m.list) {
         if (e.id >= blocks.count()) continue;
-        game_.world->applyRemoteEdit(e.x, e.y, e.z, static_cast<world::BlockId>(e.id), e.meta);
+        game_.world->applyRemoteEdit(e.x, e.y, e.z, static_cast<world::BlockId>(e.id), e.meta,
+                                     e.tint);
       }
       break;
     }

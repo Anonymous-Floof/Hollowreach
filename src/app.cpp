@@ -2321,15 +2321,9 @@ save::WorldSave App::buildSave() {
   out.createdCreative = createdCreative_;
   out.meta.hasSpawn = hasSpawn_;
   out.meta.spawn = spawn_;
-  if (world_) {
-    out.meta.seed = world_->seed();
-    out.meta.genVersion = world_->genVersion();
-    out.edits = world_->edits();
-    out.explored.assign(world_->explored().begin(), world_->explored().end());
-    out.blockEntities = world_->blockEntities();
-    out.paintings = world_->paintings();
-    out.tints = world_->tints();
-  }
+  // One call rather than seven assignments, so the list lives somewhere a test can
+  // reach it. See save::captureWorld.
+  if (world_) save::captureWorld(*world_, out);
   // The world-scoped saved colours. Not world_->something(): the list belongs to
   // the player's use of the palette in this world, and the World does not know the
   // palette exists.

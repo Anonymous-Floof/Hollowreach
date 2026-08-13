@@ -1345,6 +1345,7 @@ void Host::flushEdits() {
   const std::size_t take = std::min<std::size_t>(pendingEdits_.size(), 512);
   batch.list.assign(pendingEdits_.begin(), pendingEdits_.begin() + take);
   pendingEdits_.erase(pendingEdits_.begin(), pendingEdits_.begin() + take);
+
   broadcast(MsgType::Edits, batch);
 }
 

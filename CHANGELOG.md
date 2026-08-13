@@ -41,6 +41,48 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.15.0] - 2026-08-13
+
+### Added
+- **The Dyer's Palette, and a colour wheel that means it.** Craft it from one of
+  every dye — which means one of every flower, so it is the reward for having
+  walked the map rather than for having emptied one meadow. Hold it, right-click
+  anywhere, and pick any colour in the 24-bit space from a hue ring and a
+  saturation/value field, or type a hex code straight in. It never wears out.
+
+  Colours can be **saved in two places, and the difference is the point**: a
+  swatch kept *in this world* travels with the world file, and one kept
+  *everywhere* sits beside your settings and follows you into every world you
+  ever make.
+
+- **Eight dyes, from eight flowers.** Poppy, marigold, dandelion, fernflower,
+  cornflower, violet, daisy and nightcap — three of them new, filling the gaps
+  between the primaries the existing five already covered. One flower makes two
+  dye. The five that were already growing wild had no use whatsoever until now.
+
+- **Dyeable wool, glass and beds.** Put one in the palette and give it any colour
+  you like. Applying a dye costs **one dye per sixteen items**, charged at
+  whichever of the eight is nearest the colour you mixed — so a wall of one
+  colour is cheap and a gradient is a project.
+
+- **Colourable armour, in every tier.** Craft any piece together with a wool to
+  get its colourable twin — a *Colourable Iron Chestplate* protects exactly as
+  well as an iron one and takes any colour you give it. Plain armour still looks
+  like the metal it is made of, which is why this is a separate craft rather than
+  a flag on the existing pieces.
+
+### Changed
+- **Wool, glass and beds are painted neutral now**, which is what lets a dye land
+  on them at full strength instead of mixing with a colour that was already there.
+  The most visible consequence: a bed's frame and blanket are greys rather than
+  wood and red, so an undyed bed reads as a plain one rather than a red one.
+
+- Worlds save at **format version 2** and multiplayer at **protocol 13**. A world
+  written by 2.15.0 will not open in an older build, and an older build cannot
+  join a 2.15.0 host — both refuse at the door rather than misreading a colour as
+  something else. Worlds made before this open normally and simply have nothing
+  dyed in them.
+
 ## [2.14.0] - 2026-08-12
 
 ### Added

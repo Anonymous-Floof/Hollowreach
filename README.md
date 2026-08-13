@@ -54,6 +54,7 @@ nothing that phones home.
 - [Controls](#controls)
 - [The gameplay loop](#the-gameplay-loop)
 - [Farming and cooking](#farming-and-cooking)
+- [Dyeing](#dyeing)
 - [Multiplayer](#multiplayer)
   - [Chat and commands](#chat-and-commands)
     - [Who may run what](#who-may-run-what)
@@ -130,7 +131,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1231 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1298 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -534,6 +535,37 @@ inventory screen.
 
 `--find-crop` prints the wild crops near a seed's spawn and points at the densest
 patch, the way `--find-dungeon` does for dungeons.
+
+## Dyeing
+
+Eight flowers grow wild, and each one grinds into a dye: **poppy** red, **marigold**
+orange, **dandelion** yellow, **fernflower** green, **cornflower** blue, **violet**
+purple, **daisy** white and **nightcap** black. One flower makes two dye.
+
+One of every dye crafts the **Dyer's Palette**, which is the whole feature in one
+item. Hold it and right-click anywhere — it does not need a block to be pointed at —
+and a colour screen opens: a hue ring, a saturation and value field inside it, and a
+hex box if you would rather type `#4a6fe0` than hunt for it. The palette never wears
+out, and needing one of every dye means needing one of every flower, so it is earned
+by having travelled rather than by having found a good meadow.
+
+Put anything dyeable in the slot and pick a colour. **Wool, glass and beds** can be
+dyed, and so can **Colourable armour** — craft any piece together with a wool to get
+its colourable twin, in every tier. A Colourable Iron Chestplate protects exactly as
+well as a plain one; the plain one still looks like iron, which is why the two are
+separate items rather than one item with a flag.
+
+**A dye colours sixteen items at a time**, and you are charged whichever of the eight
+is nearest the colour you mixed — the screen names it and tells you how many you have
+before you commit. A wall in one colour is cheap; a gradient is a project.
+
+Colours can be saved in two places and the difference matters. **Saved in this world**
+keeps a swatch in the world file, with that build. **Saved everywhere** keeps it
+beside your settings, so it follows you into every world you ever make.
+
+Anything dyed keeps its colour everywhere it goes: in the inventory, as a dropped
+item on the ground, in the hand, placed in the world, through a save, and across the
+network to everyone else playing.
 
 ## Multiplayer
 

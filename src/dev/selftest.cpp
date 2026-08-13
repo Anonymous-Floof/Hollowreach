@@ -765,6 +765,69 @@ void testDyeing() {
     check(inv.countOf("dye_red") == 4, "and costs nothing either");
   }
 
+  // COLOUR IS PART OF IDENTITY, and every place two stacks are compared has to agree
+  // about that. This is the check that keeps the rest honest: without it a red wool
+  // and a blue one are "the same item", and the merge that follows silently destroys
+  // one of the two dyes that were paid for.
+  {
+    game::Inventory inv;
+    inv.give("wool", 8, -1, 0xd23a34);
+    inv.give("wool", 8, -1, 0x4a6fe0);
+    int occupied = 0;
+    for (const game::ItemStack& s : inv.slots()) {
+      if (!s.empty()) ++occupied;
+    }
+    checkf(occupied == 2, "two differently dyed stacks do not merge (%d slots used)",
+           occupied);
+
+    // And the other half, which matters just as much: the SAME colour must still
+    // stack, or a dyed wall costs a slot per block.
+    game::Inventory same;
+    same.give("wool", 8, -1, 0xd23a34);
+    same.give("wool", 8, -1, 0xd23a34);
+    int used = 0;
+    for (const game::ItemStack& s : same.slots()) {
+      if (!s.empty()) ++used;
+    }
+    checkf(used == 1, "and two of the same colour do (%d slots used)", used);
+  }
+
+  // What a World actually contributes to a save. This exists because the save tests
+  // build a WorldSave BY HAND and so cannot see the assembly at all — `out.tints` was
+  // missing from it for most of this update and every save-format test stayed green.
+  {
+    auto w = makeWorld();
+    const world::BlockId wool = world::blocks().idOf("wool");
+    w->setBlock(6, kY, 6, wool, 0);
+    w->setTint(6, kY, 6, 0x9a5ac2u);
+
+    save::WorldSave out;
+    save::captureWorld(*w, out);
+    checkf(out.tints.size() == 1, "a captured world carries its dyed cells (%d)",
+           static_cast<int>(out.tints.size()));
+    const auto it = out.tints.find(game::blockEntityKey(6, kY, 6));
+    check(it != out.tints.end() && it->second == 0x9a5ac2u, "with the right colour");
+    check(!out.edits.empty(), "and its edits, which is what it was always doing");
+    check(out.meta.seed == w->seed(), "and the seed it was generated from");
+  }
+
+  // applyRemoteEdit's colour handling, with no transport anywhere near it. The
+  // network test that covers this end to end could not say WHICH half was wrong.
+  {
+    auto w = makeWorld();
+    const world::BlockId wool = world::blocks().idOf("wool");
+    w->setBlock(4, kY, 4, wool, 0);
+    w->setTint(4, kY, 4, 0x4fae53u);
+    check(w->tintAt(4, kY, 4) == 0x4fae53u, "a cell can be dyed");
+
+    // The same block again, with no colour. This is what a guest stripping a dye
+    // sends, and the cell must come back neutral.
+    w->applyRemoteEdit(4, kY, 4, wool, 0, -1);
+    checkf(w->tintAt(4, kY, 4) == world::World::kUntinted,
+           "and a remote edit with no colour takes it off again (0x%06X)",
+           w->tintAt(4, kY, 4));
+  }
+
   // The seam for the player model. Nothing draws armour on a body yet, so this is
   // asserted at the level it exists at: given what somebody is wearing, what colour
   // is each piece.
@@ -776,6 +839,16 @@ void testDyeing() {
     check(tints[0] == -1, "an empty head slot reports no colour");
     check(tints[1] == 0x4a6fe0, "a dyed chestplate reports its colour");
     check(tints[3] == -1, "and a plain piece reports none rather than white");
+
+    // A piece in the WRONG slot, which is the only arrangement where "where it was
+    // put" and "where it belongs" disagree. The UI stops this happening today, so
+    // without it the defensive lookup is untestable — and an untestable defence is
+    // one nobody can tell has stopped working.
+    game::Inventory odd;
+    odd.armor()[2] = game::ItemStack {"dyed_helmet_copper", 1, 120, 0xe8862a};
+    const std::array<std::int32_t, 4> misplaced = game::armourTints(odd);
+    check(misplaced[0] == 0xe8862a, "a misplaced helmet reports at the head, where it belongs");
+    check(misplaced[2] == -1, "and not at the slot it happened to be sitting in");
   }
 
   // A DYEABLE BLOCK'S TILE MUST BE NEUTRAL, or every colour mixed from it comes out
@@ -8250,6 +8323,37 @@ void testNetSession() {
       checkf(hostWorld->tintAt(dx, dy, dz) == world::World::kUntinted,
              "and a plain block placed there afterwards is not still wearing it (0x%06X)",
              hostWorld->tintAt(dx, dy, dz));
+
+      // The case the check above does NOT reach, and the sabotage run is what said
+      // so: setBlock erases the dye of whatever it replaced, so when the block
+      // CHANGES the clear is redundant and removing it changes nothing. The branch
+      // only earns its place when the block stays put and the colour is taken off
+      // it — which is what stripping a dye does.
+      //
+      // On a FRESH cell, with a pump between every step. The first version of this
+      // reused the cell above after five edits and asked the wrong question: the
+      // host's echo of an earlier edit had already cleared the guest's own copy, so
+      // clearTint erased nothing, offered nothing, and the test failed for a reason
+      // that had nothing to do with what it was checking.
+      const int ex = 13, ey = kY - 2, ez = 11;
+      guestWorld->setBlock(ex, ey, ez, wool, 0);
+      pump(30);
+      guestWorld->setTint(ex, ey, ez, 0x4fae53u);
+      checkf(guestWorld->tintAt(ex, ey, ez) == 0x4fae53u,
+             "guest holds it immediately after setTint (0x%06X)",
+             guestWorld->tintAt(ex, ey, ez));
+      pump(30);
+      checkf(hostWorld->tintAt(ex, ey, ez) == 0x4fae53u,
+             "a colour can be put on a block that is already there (0x%06X)",
+             hostWorld->tintAt(ex, ey, ez));
+      checkf(guestWorld->tintAt(ex, ey, ez) == 0x4fae53u,
+             "the guest still holds it before stripping (0x%06X)",
+             guestWorld->tintAt(ex, ey, ez));
+      guestWorld->clearTint(ex, ey, ez);
+      pump(30);
+      checkf(hostWorld->tintAt(ex, ey, ez) == world::World::kUntinted,
+             "and taken off again without the block moving (0x%06X)",
+             hostWorld->tintAt(ex, ey, ez));
     }
 
     // A dyed stack through a container, which is the WireSlot half.

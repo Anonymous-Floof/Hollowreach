@@ -698,6 +698,71 @@ rows competing for a ten-row list**, and the base material always loses. If it
 becomes a real annoyance the fix is in the scorer — prefer a candidate with fewer
 underscores when the query has none — not in the content.
 
+## Colour, and the two channels that were already there
+
+The Dye update needed per-instance state, which this codebase deliberately had none
+of: `ItemStack` is `{key, count, dura}` and there is no NBT anywhere. It cost far less
+than that made it sound, for one reason worth remembering.
+
+**Both tint channels already existed and resolved to white.** `TerrainVertex` has had
+an `aTint` attribute since the port, wired end to end as `tex.rgb * vTint` in the
+deferred path, the forward path and the water shader — put there by `colormap.h`
+against the day a resource pack shipped greyscale grass. `IconRef` has had an `Rgba
+tint` for as long as the DOM layer has. So a dyed block and a dyed icon needed **no
+renderer change, no shader change and no vertex format change**. The whole of the work
+was deciding where the number lives and getting it to the places that already knew
+what to do with it.
+
+Where it lives, in three answers to three different questions:
+
+- **A stack's colour** is a fourth field on `ItemStack`, which is a save layout change
+  and so the first `kSaveVersion` bump the project has ever taken (1 → 2). `readStack`
+  is version-gated rather than migrated, because a v1 stack decoded correctly IS the
+  answer — a migration pass afterwards would have nothing to fix.
+- **A cell's colour** is a side table on `World`, keyed by position exactly as
+  paintings are, plus a `Banded<std::uint32_t>` mirror in `ChunkData` so the mesher
+  can read it off-thread without touching the map. The side table is the truth; the
+  band is a cache that `applyTints` rebuilds whenever a chunk is generated.
+- **A saved swatch** is in two places on purpose, and that split is the feature: the
+  per-world list is a save section, the global list is a hidden row in settings.json
+  beside the resource-pack list.
+
+### Colour is part of identity, and four places had to agree
+
+`canMerge(a, b)` exists because `a.key == b.key` was the merge test in four places —
+`Inventory::give`, the inventory screen's drop-onto-a-slot, its shift-click sweep, and
+the pickup path. Four copies of `&& a.tint == b.tint` is four chances to leave one
+out, and the one left out is a red wool silently absorbing a blue one. One function,
+and the test asserts both halves: different colours must not merge, and the same
+colour still must.
+
+### The bug that only multiplayer could have
+
+`Interact::tryPlace` writes the cell and colours it *afterwards*, which it has to — a
+bed and a door each write two cells and both want the dye. So the edit that `setBlock`
+offered went out carrying the colour the cell had BEFORE the placement, which is none.
+Every guest saw a plain white block and nothing ever corrected it, while the placer's
+own screen was right the whole time.
+
+`setTint` now offers an edit of its own, because that is the moment the colour is
+actually decided. **The first version of the test for this did not catch it**: it set
+the tint and then placed the block, which is the reverse of what the game does, and
+`setBlock` erases the dye of whatever it replaced. A test written in an order the game
+never uses proves nothing about the game.
+
+### A neutral tile is a requirement, not a preference
+
+The shaders multiply. A dye over the bed's old red blanket was fine, and over its
+brown frame came out mud. `testDyeing` paints every dyeable block's tiles through
+`resource::paintTile` and demands near-greyscale everywhere, which found four separate
+places the bed was still coloured — including its bottom face, which pointed at the
+SHARED `planks` texture. Neutralising that one would have turned every wooden floor in
+the game grey, so the bed got a tile of its own.
+
+That check is the thing to keep. Adding a dyeable block and forgetting to repaint it
+produces a subtly wrong colour rather than anything that looks like a failure, and
+nobody would think to look.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It
