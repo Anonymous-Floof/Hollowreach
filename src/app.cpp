@@ -889,6 +889,7 @@ void App::wireInterface() {
           out.key = slot.key;
           out.count = slot.count;
           out.dura = slot.dura;
+          out.tint = slot.tint;
           return out;
         };
         state.input = wire(be->input);
@@ -1357,6 +1358,7 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     world_->setExplored(loaded->explored);
     world_->blockEntities() = loaded->blockEntities;
     world_->installPaintings(loaded->paintings);
+    paletteWorldFavourites_ = loaded->paletteFavourites;
   }
 
   entities_.clear();
@@ -2221,9 +2223,9 @@ bool App::startHosting(std::uint16_t port) {
   }
   // Every local edit — including the water simulation's own writes, which only
   // the host runs — goes out to the guests.
-  world_->setEditSink([this](int x, int y, int z, world::BlockId id, int meta) {
+  world_->setEditSink([this](int x, int y, int z, world::BlockId id, int meta, int tint) {
     netHost_.onLocalEdit(x, y, z, static_cast<std::uint16_t>(id),
-                         static_cast<std::uint8_t>(meta));
+                         static_cast<std::uint8_t>(meta), tint);
   });
   netHost_.restoreGuests(lastLoadedGuests_);
   advertiser_.start(netHost_.port(),
@@ -2287,9 +2289,9 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
   // startWorld installed the host's rules from the payload; they are not this
   // player's to change.
   ui::settings().setWorldLocked(true);
-  world_->setEditSink([this](int x, int y, int z, world::BlockId id, int meta) {
+  world_->setEditSink([this](int x, int y, int z, world::BlockId id, int meta, int tint) {
     netClient_.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
-                        static_cast<std::uint8_t>(meta));
+                        static_cast<std::uint8_t>(meta), tint);
   });
   interface_.notify().push("Joined " +
                            (data.meta.name.empty() ? std::string("the world") : data.meta.name));
@@ -2326,7 +2328,12 @@ save::WorldSave App::buildSave() {
     out.explored.assign(world_->explored().begin(), world_->explored().end());
     out.blockEntities = world_->blockEntities();
     out.paintings = world_->paintings();
+    out.tints = world_->tints();
   }
+  // The world-scoped saved colours. Not world_->something(): the list belongs to
+  // the player's use of the palette in this world, and the World does not know the
+  // palette exists.
+  out.paletteFavourites = paletteWorldFavourites_;
   if (player_) out.player = player_->state();
   out.inventory = inventory_;
   out.entities = entities_.serialize();

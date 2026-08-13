@@ -106,7 +106,10 @@ namespace hr::net {
 // its number and show a chest's worth of nonsense. The wire LAYOUT is unchanged,
 // which is exactly why this has to be refused rather than tolerated: the same bytes
 // now mean something different. Same reasoning as versions 3, 7 and 10.
-inline constexpr std::uint16_t kNetVersion = 12;
+// 13: the Dye update. WireSlot carries a stack's colour and EditMsg carries a
+// cell's, so both message layouts changed. A v12 guest would read a colour as
+// whatever field came next and fill a chest with nonsense.
+inline constexpr std::uint16_t kNetVersion = 13;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;
@@ -279,6 +282,11 @@ struct EditMsg {
   std::int32_t x = 0, y = 0, z = 0;
   std::uint16_t id = 0;
   std::uint8_t meta = 0;
+  // The cell's dye, -1 for none. It rides on the EDIT rather than in a message of
+  // its own because it is part of what a placement IS: placing a red wool and then
+  // telling everyone it is red a moment later would show a white block first, and
+  // every guest would see the wrong colour flash on every placement.
+  std::int32_t tint = -1;
 };
 
 struct EditsMsg {
@@ -371,6 +379,8 @@ struct WireSlot {
   std::string key;
   std::int32_t count = 0;
   std::int32_t dura = -1;
+  // The dye. -1 for undyed, which is every stack a pre-v13 build ever sent.
+  std::int32_t tint = -1;
 };
 
 // The highest game::BlockEntityKind a state message may name. This read `2` — Forge

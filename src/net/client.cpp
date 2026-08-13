@@ -31,6 +31,7 @@ WireSlot toWire(const game::ItemStack& s) {
   out.key = s.key;
   out.count = s.count;
   out.dura = s.dura;
+  out.tint = s.tint;
   return out;
 }
 
@@ -318,7 +319,8 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
       // A denial and an authoritative edit are the same operation: put the cell
       // back to what the host says it is. A denial especially must not go back out
       // — that is the rejected edit being sent for a second refusal.
-      game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
+      game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta,
+                                   m.tint);
       break;
     }
     case MsgType::Teleport: {
@@ -436,6 +438,7 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
         out.key = s.key;
         out.count = s.count;
         out.dura = s.dura;
+        out.tint = s.tint;
         return out;
       };
       const auto copySlots = [&] {
@@ -498,7 +501,7 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
   }
 }
 
-void Client::sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta) {
+void Client::sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta, int tint) {
   if (state_ != State::Playing) return;
   EditMsg m;
   m.x = x;
@@ -506,6 +509,7 @@ void Client::sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta) 
   m.z = z;
   m.id = id;
   m.meta = meta;
+  m.tint = tint;
   send(MsgType::Edit, m);
 }
 

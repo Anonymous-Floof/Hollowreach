@@ -51,7 +51,7 @@ class Client {
   // A typed line, exactly as typed. Whether it is a sentence or a command is the
   // host's decision, not ours — see MsgType::Chat.
   void sendChat(const std::string& line);
-  void sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta);
+  void sendEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta, int tint);
   void sendHit(int entityId, const std::string& held, bool crit);
   void sendPlayerHit(const std::string& playerId, const std::string& held, bool crit);
   // Puts an item into the world through the host, which owns every entity in it.

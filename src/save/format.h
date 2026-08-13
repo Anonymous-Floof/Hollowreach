@@ -115,6 +115,11 @@ struct WorldSave {
   // version of the same reason: an older build skips the tag and opens the world
   // with its dyed blocks back at neutral, which is a world it can still play.
   world::World::TintMap tints;
+  // The colours the player pressed "save in this world" on. A separate list from
+  // the tints above, and separate on purpose: those are colours that ARE somewhere
+  // in the world, these are colours somebody wants to reach for again. Deleting a
+  // dyed wall must not take the swatch with it.
+  std::vector<std::uint32_t> paletteFavourites;
   std::vector<game::EntitySave> entities;
   std::vector<WaypointSave> waypoints;
   std::vector<GuestSave> guests;

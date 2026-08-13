@@ -69,6 +69,7 @@ constexpr std::uint32_t kTagStations = makeTag('S', 'T', 'A', 'T');
 // with no home in any existing one, and an older build that skips it opens the world
 // with every dyed block back at its neutral colour rather than failing to open it.
 constexpr std::uint32_t kTagTints = makeTag('T', 'I', 'N', 'T');
+constexpr std::uint32_t kTagFavourites = makeTag('F', 'A', 'V', 'C');
 
 // ---- shared field encoders -------------------------------------------------
 
@@ -749,6 +750,9 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
 
   ByteWriter tints;
   encodeTints(tints, save.tints);
+  ByteWriter favourites;
+  favourites.u32(static_cast<std::uint32_t>(save.paletteFavourites.size()));
+  for (const std::uint32_t rgb : save.paletteFavourites) favourites.u32(rgb);
   ByteWriter paintings;
   encodePaintings(paintings, save.paintings);
   ByteWriter entities;
@@ -780,6 +784,7 @@ std::vector<std::uint8_t> encode(const WorldSave& save) {
   appendSection(payload, kTagBlockEntities, blockEntities);
   appendSection(payload, kTagStations, stations);
   appendSection(payload, kTagTints, tints);
+  appendSection(payload, kTagFavourites, favourites);
   appendSection(payload, kTagEntities, entities);
   appendSection(payload, kTagExplored, explored);
   appendSection(payload, kTagWaypoints, waypoints);
@@ -848,6 +853,17 @@ bool decode(const std::uint8_t* data, std::size_t size, WorldSave& out, std::str
       // read, so nothing downstream has to know they were stored apart.
       case kTagStations: decodeStations(body, out.blockEntities, version); break;
       case kTagTints: decodeTints(body, out.tints); break;
+      case kTagFavourites: {
+        const std::uint32_t n = body.readCount();
+        for (std::uint32_t i = 0; i < n && body.ok(); ++i) {
+          out.paletteFavourites.push_back(body.u32() & 0x00FFFFFFu);
+        }
+        // Capped on the way in as well as on the way out. A hand-edited file
+        // claiming four thousand favourites should not be able to make the screen
+        // draw four thousand swatches off the side of the card.
+        if (out.paletteFavourites.size() > 7) out.paletteFavourites.resize(7);
+        break;
+      }
       case kTagPaintings: decodePaintings(body, out.paintings); break;
       case kTagEntities: decodeEntities(body, out.entities, version); break;
       case kTagExplored: decodeExplored(body, out.explored); break;

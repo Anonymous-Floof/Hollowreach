@@ -765,6 +765,19 @@ void testDyeing() {
     check(inv.countOf("dye_red") == 4, "and costs nothing either");
   }
 
+  // The seam for the player model. Nothing draws armour on a body yet, so this is
+  // asserted at the level it exists at: given what somebody is wearing, what colour
+  // is each piece.
+  {
+    game::Inventory inv;
+    inv.armor()[1] = game::ItemStack {"dyed_chest_ferralite", 1, 240, 0x4a6fe0};
+    inv.armor()[3] = game::ItemStack {"boots_copper", 1, 120, -1};
+    const std::array<std::int32_t, 4> tints = game::armourTints(inv);
+    check(tints[0] == -1, "an empty head slot reports no colour");
+    check(tints[1] == 0x4a6fe0, "a dyed chestplate reports its colour");
+    check(tints[3] == -1, "and a plain piece reports none rather than white");
+  }
+
   // A DYEABLE BLOCK'S TILE MUST BE NEUTRAL, or every colour mixed from it comes out
   // wrong — a red dye over the bed's old red blanket was fine and over its blue
   // pillow was black. This is the check that keeps the next dyeable block honest,
@@ -2377,6 +2390,71 @@ void testCooking() {
   // because BENT cannot describe a kind an older reader does not know: it would
   // fail() and lose every entity after it. These check both halves of that claim —
   // that a station round-trips, and that BENT is still clean of them.
+  // --- colour survives a save ------------------------------------------------
+  //
+  // Three separate things carry a colour and all three have to come back: the dye on
+  // a stack in the inventory, the dye on a cell in the world, and the swatches the
+  // player saved in this world.
+  {
+    save::WorldSave s;
+    s.meta.name = "Dyed";
+    s.meta.seed = 4242;
+    s.inventory.give("wool", 8, -1, 0x4a6fe0);
+    s.tints[game::blockEntityKey(3, 71, -5)] = 0xd23a34u;
+    s.tints[game::blockEntityKey(-40, 12, 900)] = 0x2a2333u;
+    s.paletteFavourites = {0x4fae53u, 0xe8862au};
+
+    const std::vector<std::uint8_t> bytes = save::encode(s);
+    save::WorldSave back;
+    std::string err;
+    checkf(save::decode(bytes.data(), bytes.size(), back, &err),
+           "a world full of colour saves and loads (%s)", err.c_str());
+
+    check(back.inventory.slots()[0].tint == 0x4a6fe0,
+          "a dyed stack keeps its colour through the file");
+    checkf(back.tints.size() == 2, "and every dyed cell comes back (%d)",
+           static_cast<int>(back.tints.size()));
+    const auto it = back.tints.find(game::blockEntityKey(3, 71, -5));
+    check(it != back.tints.end() && it->second == 0xd23a34u,
+          "with the right colour at the right position");
+    check(back.paletteFavourites.size() == 2 && back.paletteFavourites[0] == 0x4fae53u,
+          "and the swatches saved in this world");
+
+    check(save::encode(back) == bytes, "and it re-encodes to byte-identical output");
+
+    // A reader that has never heard of the colour sections. Both are new tags, so
+    // both must be skippable — an older build should open this world with its blocks
+    // back at neutral rather than refuse to open it at all.
+    constexpr std::size_t kHeader = 8 + 2 + 2 + 4 + 4;
+    for (const char* tag : {"TINT", "FAVC"}) {
+      std::vector<std::uint8_t> masked = bytes;
+      bool patched = false;
+      for (std::size_t i = kHeader; i + 4 <= masked.size() && !patched; ++i) {
+        if (std::equal(tag, tag + 4, masked.begin() + static_cast<std::ptrdiff_t>(i))) {
+          masked[i] = 'Z';
+          patched = true;
+        }
+      }
+      // The checksum has to be recomputed or the load fails as "corrupt" and the
+      // check passes for entirely the wrong reason — the exact trap the station
+      // section's test fell into first time round.
+      if (patched) {
+        const std::uint32_t crc = crc32(masked.data() + kHeader, masked.size() - kHeader);
+        masked[kHeader - 4] = static_cast<std::uint8_t>(crc);
+        masked[kHeader - 3] = static_cast<std::uint8_t>(crc >> 8);
+        masked[kHeader - 2] = static_cast<std::uint8_t>(crc >> 16);
+        masked[kHeader - 1] = static_cast<std::uint8_t>(crc >> 24);
+      }
+      checkf(patched, "the %s section is findable, so the next check is real", tag);
+      save::WorldSave older;
+      checkf(save::decode(masked.data(), masked.size(), older, &err),
+             "a reader that does not know %s still loads the world (%s)", tag, err.c_str());
+      // And the inventory, which is NOT in either section, is untouched by the loss.
+      check(older.inventory.slots()[0].tint == 0x4a6fe0,
+            "keeping the colours that were not in the section it skipped");
+    }
+  }
+
   {
     save::WorldSave s;
     s.meta.name = "Kitchen";
@@ -7687,10 +7765,11 @@ void testNetSession() {
     // goes wrong on the way back out of the world — which is most of what a guest
     // does — and a guest that only ever calls sendEdit directly is not the guest
     // the game runs.
-    guestWorld->setEditSink([&client](int x, int y, int z, world::BlockId id, int meta) {
-      client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
-                      static_cast<std::uint8_t>(meta));
-    });
+    guestWorld->setEditSink(
+        [&client](int x, int y, int z, world::BlockId id, int meta, int tint) {
+          client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
+                          static_cast<std::uint8_t>(meta), tint);
+        });
   };
 
   if (!client.start("127.0.0.1", host.port(), "pguest000001", "Bob", guestHooks, &error)) {
@@ -7768,7 +7847,7 @@ void testNetSession() {
   {
     const world::BlockId stone = world::wk().greystone;
     hostWorld->setBlock(6, kY, 6, stone, 0);
-    host.onLocalEdit(6, kY, 6, static_cast<std::uint16_t>(stone), 0);
+    host.onLocalEdit(6, kY, 6, static_cast<std::uint16_t>(stone), 0, -1);
     pump(40);
     check(guestWorld->getBlock(6, kY, 6) == stone,
           "a block the host places appears in the guest's world");
@@ -7782,9 +7861,9 @@ void testNetSession() {
   {
     const world::BlockId canvas = world::wk().canvas;
     hostWorld->setBlock(9, kY, 5, world::wk().greystone, 0);
-    host.onLocalEdit(9, kY, 5, static_cast<std::uint16_t>(world::wk().greystone), 0);
+    host.onLocalEdit(9, kY, 5, static_cast<std::uint16_t>(world::wk().greystone), 0, -1);
     hostWorld->setBlock(8, kY, 5, canvas, 1);  // meta 1: the wall is at +x
-    host.onLocalEdit(8, kY, 5, static_cast<std::uint16_t>(canvas), 1);
+    host.onLocalEdit(8, kY, 5, static_cast<std::uint16_t>(canvas), 1, -1);
     pump(40);
 
     game::Painting art;
@@ -7810,13 +7889,13 @@ void testNetSession() {
     // reach by definition — which is the check working, not failing.
     guestPlayer.setPos(Vec3{kOriginX, static_cast<float>(kY), kOriginZ});
     pump(20);
-    client.sendEdit(7, kY, 7, static_cast<std::uint16_t>(stone), 0);
+    client.sendEdit(7, kY, 7, static_cast<std::uint16_t>(stone), 0, -1);
     pump(40);
     check(hostWorld->getBlock(7, kY, 7) == stone,
           "a block the guest places is accepted by the host");
 
     // And one it could not possibly reach is refused, with the real cell sent back.
-    client.sendEdit(900, kY, 900, static_cast<std::uint16_t>(stone), 0);
+    client.sendEdit(900, kY, 900, static_cast<std::uint16_t>(stone), 0, -1);
     pump(40);
     check(hostWorld->getBlock(900, kY, 900) != stone,
           "an edit a thousand blocks away is refused rather than applied");
@@ -7830,10 +7909,10 @@ void testNetSession() {
     for (int i = 0; i < 80; ++i) {
       const int bx = 20 + (i % 8), bz = 20 + (i / 8);
       hostWorld->setBlock(bx, kY, bz, stone, 0);
-      host.onLocalEdit(bx, kY, bz, static_cast<std::uint16_t>(stone), 0);
+      host.onLocalEdit(bx, kY, bz, static_cast<std::uint16_t>(stone), 0, -1);
     }
     pump(60);
-    client.sendEdit(6, kY, 7, static_cast<std::uint16_t>(stone), 0);
+    client.sendEdit(6, kY, 7, static_cast<std::uint16_t>(stone), 0, -1);
     pump(40);
     check(hostWorld->getBlock(6, kY, 7) == stone,
           "and a guest's edit still lands after the host has sent a burst of its own");
@@ -8138,6 +8217,71 @@ void testNetSession() {
             "including the bowl, which had no field on the wire at all");
     }
 
+    // --- colour crosses the wire ---------------------------------------------
+    //
+    // Two separate paths and both matter: a dyed BLOCK a guest places, whose colour
+    // rides on the edit, and a dyed STACK in a container, whose colour rides on the
+    // slot. Each is asserted by looking at what actually arrived rather than by the
+    // absence of a complaint — a refused message is dropped silently by design, so
+    // "no error" is exactly what a broken wire looks like.
+    {
+      const int dx = 13, dy = kY - 2, dz = 9;
+      const world::BlockId wool = world::blocks().idOf("wool");
+      // In the order Interact::tryPlace does it: write the cell, THEN colour it.
+      // Not the other way round — setBlock erases the dye of whatever it replaced,
+      // which is right, and is exactly why the colour cannot ride out on the
+      // setBlock edit and needs setTint to offer one of its own.
+      guestWorld->setBlock(dx, dy, dz, wool, 0);
+      guestWorld->setTint(dx, dy, dz, 0x4a6fe0u);
+      pump(40);
+      checkf(hostWorld->getBlock(dx, dy, dz) == wool,
+             "a dyed block a guest places reaches the host");
+      checkf(hostWorld->tintAt(dx, dy, dz) == 0x4a6fe0u,
+             "wearing the colour it was placed with (0x%06X)",
+             hostWorld->tintAt(dx, dy, dz));
+
+      // And the negative half, which is the one that rots quietly: a plain block put
+      // where a dyed one was must CLEAR the colour, not inherit it. Without that,
+      // mining a red wool and placing glass there gives red glass forever.
+      guestWorld->setBlock(dx, dy, dz, world::kAir, 0);
+      pump(20);
+      guestWorld->setBlock(dx, dy, dz, world::blocks().idOf("greystone"), 0);
+      pump(40);
+      checkf(hostWorld->tintAt(dx, dy, dz) == world::World::kUntinted,
+             "and a plain block placed there afterwards is not still wearing it (0x%06X)",
+             hostWorld->tintAt(dx, dy, dz));
+    }
+
+    // A dyed stack through a container, which is the WireSlot half.
+    {
+      ByteWriter w;
+      net::BeStateMsg state;
+      state.kind = static_cast<std::uint8_t>(game::BlockEntityKind::Chest);
+      state.y = kY;
+      net::WireSlot dyed;
+      dyed.key = "wool";
+      dyed.count = 4;
+      dyed.tint = 0x9a5ac2;
+      state.slots.push_back(dyed);
+      net::encode(w, state);
+      ByteReader rr(w.data().data(), w.data().size());
+      net::BeStateMsg back;
+      const bool ok = net::decode(rr, back);
+      checkf(ok && !back.slots.empty() && back.slots[0].tint == 0x9a5ac2,
+             "a dyed stack survives the wire (%s, tint 0x%06X)", ok ? "decoded" : "REFUSED",
+             ok && !back.slots.empty() ? back.slots[0].tint : 0);
+
+      // A colour outside 24 bits is a peer inventing values, and letting one through
+      // would put an out-of-range tint straight into somebody's save.
+      ByteWriter bad;
+      net::BeStateMsg evil = state;
+      evil.slots[0].tint = 0x7FFFFFFF;
+      net::encode(bad, evil);
+      ByteReader br(bad.data().data(), bad.data().size());
+      net::BeStateMsg parsed;
+      check(!net::decode(br, parsed), "and an impossible colour is refused outright");
+    }
+
     // A chest already standing in the world with nothing behind it, which is what
     // every save written by an older build holds: the block was relayed and
     // stored, the container never was. Reloading could not fix it and neither
@@ -8167,7 +8311,7 @@ void testNetSession() {
     const int hx = 11, hy = kY - 2, hz = 9;
     hostWorld->setBlock(hx, hy, hz, chest, 0);
     hostWorld->getOrCreateBlockEntity(hx, hy, hz, game::BlockEntityKind::Chest);
-    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(chest), 0);
+    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(chest), 0, -1);
     pump(40);
     // What the guest would be holding after opening it once.
     if (game::BlockEntity* seen =
@@ -8175,7 +8319,7 @@ void testNetSession() {
       seen->slots[0] = game::ItemStack{"coal", 5, -1};
     }
     hostWorld->setBlock(hx, hy, hz, world::kAir, 0);
-    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(world::kAir), 0);
+    host.onLocalEdit(hx, hy, hz, static_cast<std::uint16_t>(world::kAir), 0, -1);
     pump(40);
     checkf(guestWorld->getBlockEntity(hx, hy, hz) == nullptr,
            "and a container the host destroys does not linger in the guest's world");
@@ -8480,7 +8624,7 @@ void testRemoteEditSink() {
   auto world = makeWorld();
   const world::BlockId stone = world::wk().greystone;
   int offered = 0;
-  world->setEditSink([&offered](int, int, int, world::BlockId, int) { ++offered; });
+  world->setEditSink([&offered](int, int, int, world::BlockId, int, int) { ++offered; });
 
   world->setBlock(4, kY, 4, stone, 0);
   checkf(offered == 1, "an edit made here is offered to the sink (%d)", offered);
@@ -8581,10 +8725,11 @@ void testNetBigWorld() {
     refs.entities = &guestEntities;
     refs.sky = &guestSky;
     client.attachGame(refs);
-    guestWorld->setEditSink([&client](int x, int y, int z, world::BlockId id, int meta) {
-      client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
-                      static_cast<std::uint8_t>(meta));
-    });
+    guestWorld->setEditSink(
+        [&client](int x, int y, int z, world::BlockId id, int meta, int tint) {
+          client.sendEdit(x, y, z, static_cast<std::uint16_t>(id),
+                          static_cast<std::uint8_t>(meta), tint);
+        });
   };
 
   if (!client.start("127.0.0.1", host.port(), "pguestbig001", "Bob", guestHooks, &error)) {

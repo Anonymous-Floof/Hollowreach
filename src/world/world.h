@@ -252,6 +252,8 @@ class World {
   void clearTint(int wx, int wy, int wz);
   // Mirrors one cell of the map into its chunk's band and dirties the mesh.
   void writeTintCell(int wx, int wy, int wz, std::uint32_t rgb);
+  // Offers a colour change to the edit sink, carrying the block it belongs to.
+  void offerTintEdit(int wx, int wy, int wz, int tint);
   // The colour a break here should pass to its drop, or -1. Only when the drop is
   // the block itself — see the definition.
   std::int32_t dyedDrop(int wx, int wy, int wz, const std::string& dropKey) const;
@@ -301,7 +303,12 @@ class World {
   // as `world.onNetEdit`, and it deliberately fires for water's own writes too: a
   // guest does not simulate water, so the host's spreading cells have to arrive as
   // ordinary edits or the two worlds diverge the first time a bucket is poured.
-  using EditSink = std::function<void(int x, int y, int z, BlockId id, int meta)>;
+  // `tint` is the cell's dye, -1 for none. It rides on the edit rather than being
+  // sent separately because it is part of what the placement IS — announcing the
+  // block and then its colour a moment later would flash the wrong colour on every
+  // guest, on every placement.
+  using EditSink =
+      std::function<void(int x, int y, int z, BlockId id, int meta, int tint)>;
   void setEditSink(EditSink sink) { editSink_ = std::move(sink); }
 
   // A container a generated structure has just put into the world, offered once as
@@ -316,7 +323,7 @@ class World {
   using LootSink = std::function<void(int x, int y, int z, bool rich)>;
   void setLootSink(LootSink sink) { lootSink_ = std::move(sink); }
   // Applies an edit that came from the network without echoing it back out.
-  void applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta);
+  void applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta, int tint = -1);
   void spawnDrop(float wx, float wy, float wz, const std::string& key, int count = 1,
                  int dura = -1, std::int32_t tint = -1) const;
 

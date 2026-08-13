@@ -77,6 +77,7 @@ WireSlot toWire(const game::ItemStack& s) {
   out.key = s.key;
   out.count = s.count;
   out.dura = s.dura;
+  out.tint = s.tint;
   return out;
 }
 
@@ -699,6 +700,14 @@ void Host::denyEdit(PeerState& st, const EditMsg& m) {
   EditMsg back = m;
   back.id = static_cast<std::uint16_t>(game_.world->getBlock(m.x, m.y, m.z));
   back.meta = static_cast<std::uint8_t>(game_.world->getMeta(m.x, m.y, m.z));
+  // kUntinted on the wire as -1. The two spellings of "no dye" have to be kept
+  // apart here rather than further in: a guest receiving 0xFFFFFF would install an
+  // explicit white tint on a cell that has none, and that entry would then be
+  // written into the save forever.
+  {
+    const std::uint32_t t = game_.world->tintAt(m.x, m.y, m.z);
+    back.tint = t == world::World::kUntinted ? -1 : static_cast<std::int32_t>(t);
+  }
   sendTo(st.peer, MsgType::EditDeny, back);
 }
 
@@ -733,7 +742,8 @@ void Host::onEdit(PeerState& st, const EditMsg& m, double now) {
   // everybody twice. Anything the edit sets off later — water finding a new level,
   // a support giving way — runs on a later tick outside this call and still
   // reaches the sink normally, which is what relays the consequences.
-  game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta);
+  game_.world->applyRemoteEdit(m.x, m.y, m.z, static_cast<world::BlockId>(m.id), m.meta,
+                               m.tint);
 
   // A station carries state from the moment it exists, and that state belongs to
   // the host. Interact::tryPlace does exactly this for a block the local player
@@ -1138,6 +1148,7 @@ void Host::restoreGuests(const std::vector<save::GuestSave>& guests) {
         w.key = slot.key;
         w.count = slot.count;
         w.dura = slot.dura;
+        w.tint = slot.tint;
       }
       stored.state.slots.push_back(std::move(w));
     }
@@ -1234,6 +1245,7 @@ void Host::onBeState(PeerState& st, const BeStateMsg& m, double now) {
       out.key = s.key;
       out.count = s.count;
       out.dura = s.dura;
+      out.tint = s.tint;
       return out;
     };
     const auto copySlots = [&] {
@@ -1271,7 +1283,7 @@ void Host::onPlayerState(PeerState& st, const PlayerStateMsg& m) {
   stored.valid = true;
 }
 
-void Host::onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta) {
+void Host::onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta, int tint) {
   if (!transport_.active()) return;
   EditMsg m;
   m.x = x;
@@ -1279,6 +1291,7 @@ void Host::onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta)
   m.z = z;
   m.id = id;
   m.meta = meta;
+  m.tint = tint;
   pendingEdits_.push_back(m);
 }
 

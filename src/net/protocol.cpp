@@ -37,14 +37,19 @@ void writeSlot(ByteWriter& w, const WireSlot& s) {
   w.str(s.key);
   w.i32(s.count);
   w.i32(s.dura);
+  w.i32(s.tint);
 }
 bool readSlot(ByteReader& r, WireSlot& s) {
   s.key = r.str();
   s.count = r.i32();
   s.dura = r.i32();
+  s.tint = r.i32();
   if (!okStr(s.key, kMaxItemKey)) return false;
   if (s.count < 0 || s.count > 999) return false;
   if (s.dura < -1 || s.dura > 99999) return false;
+  // A colour is 24 bits or the absence of one. Anything else is a peer inventing
+  // values, and letting it through would put an out-of-range tint in a save.
+  if (s.tint < -1 || s.tint > 0x00FFFFFF) return false;
   if (s.key.empty()) s.count = 0;
   return true;
 }
@@ -273,6 +278,7 @@ void encode(ByteWriter& w, const EditMsg& m) {
   w.i32(m.z);
   w.u16(m.id);
   w.u8(m.meta);
+  w.i32(m.tint);
 }
 bool decode(ByteReader& r, EditMsg& m) {
   m.x = r.i32();
@@ -280,9 +286,10 @@ bool decode(ByteReader& r, EditMsg& m) {
   m.z = r.i32();
   m.id = r.u16();
   m.meta = r.u8();
+  m.tint = r.i32();
   const auto coord = static_cast<std::int32_t>(kMaxCoord);
   return r.ok() && m.x >= -coord && m.x <= coord && m.z >= -coord && m.z <= coord &&
-         m.y >= 0 && m.y < 512;
+         m.y >= 0 && m.y < 512 && m.tint >= -1 && m.tint <= 0x00FFFFFF;
 }
 
 void encode(ByteWriter& w, const EditsMsg& m) {

@@ -716,16 +716,32 @@ void World::setBlock(int wx, int wy, int wz, BlockId id, int meta) {
 
   water_.onEdit(wx, wy, wz);
   blockUpdates_.onEdit(wx, wy, wz);
-  if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, id, meta & 0xFF);
+  // The colour goes out WITH the edit. tintAt answers kUntinted for a cell that has
+  // none, and the sink's contract is -1 for that — the two must not be conflated, or
+  // a guest installs an explicit white on every plain block anyone places.
+  if (editSink_ && !applyingRemote_) {
+    const std::uint32_t t = tintAt(wx, wy, wz);
+    editSink_(wx, wy, wz, id, meta & 0xFF,
+              t == kUntinted ? -1 : static_cast<int>(t));
+  }
 }
 
-void World::applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta) {
+void World::applyRemoteEdit(int wx, int wy, int wz, BlockId id, int meta, int tint) {
   // Saved and restored rather than simply cleared, so that if a write ever does
   // reach this from inside another one the outer call keeps its silence instead of
   // having it switched off underneath it.
   const bool was = applyingRemote_;
   applyingRemote_ = true;
   setBlock(wx, wy, wz, id, meta);
+  // The colour AFTER the block, and unconditionally either way. Before it, setBlock
+  // would clear it as part of replacing the cell; and skipping the clear when tint
+  // is -1 would leave the previous occupant's dye sitting on a cell that has just
+  // become something else — mine a red wool, place plain glass, get red glass.
+  if (tint >= 0) {
+    setTint(wx, wy, wz, static_cast<std::uint32_t>(tint));
+  } else {
+    clearTint(wx, wy, wz);
+  }
   applyingRemote_ = was;
 }
 
@@ -761,7 +777,10 @@ void World::setWaterCell(int wx, int wy, int wz, BlockId id, int meta) {
   if (lz == 15) dirtyMesh(cx, cz + 1);
 
   water_.onEdit(wx, wy, wz);
-  if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, id, m);
+  if (editSink_ && !applyingRemote_) {
+    const std::uint32_t t = tintAt(wx, wy, wz);
+    editSink_(wx, wy, wz, id, m, t == kUntinted ? -1 : static_cast<int>(t));
+  }
 }
 
 void World::noteCropEdit(int wx, int wy, int wz, BlockId before, BlockId after) {
@@ -843,7 +862,11 @@ void World::setMeta(int wx, int wy, int wz, int meta) {
   if (lz == 15) dirtyMesh(cx, cz + 1);
 
   water_.onEdit(wx, wy, wz);
-  if (editSink_ && !applyingRemote_) editSink_(wx, wy, wz, d.voxels.get(index), meta & 0xFF);
+  if (editSink_ && !applyingRemote_) {
+    const std::uint32_t t = tintAt(wx, wy, wz);
+    editSink_(wx, wy, wz, d.voxels.get(index), meta & 0xFF,
+              t == kUntinted ? -1 : static_cast<int>(t));
+  }
 }
 
 void World::decayLeavesAround(int wx, int wy, int wz) {
@@ -971,11 +994,32 @@ void World::setTint(int wx, int wy, int wz, std::uint32_t rgb) {
   rgb &= 0x00FFFFFFu;
   tints_[game::blockEntityKey(wx, wy, wz)] = rgb;
   writeTintCell(wx, wy, wz, rgb);
+  // And tell the network, because THIS is the moment the colour is decided — not
+  // the setBlock before it.
+  //
+  // Placement writes the cell and colours it afterwards (interact.cpp), which it has
+  // to: the bed and the door each write two cells and both want the dye. So the edit
+  // that setBlock offered went out carrying the colour the cell had BEFORE the
+  // placement, which is none. The block arrived on every guest in plain white and
+  // nothing ever corrected it — the placer's own screen was right the whole time,
+  // which is the shape of bug that gets reported as "colours don't work in
+  // multiplayer, sometimes".
+  offerTintEdit(wx, wy, wz, static_cast<int>(rgb));
+}
+
+// The edit a colour change offers. Carries the block that is actually there, so a
+// receiver applies a complete cell rather than a colour with no subject.
+void World::offerTintEdit(int wx, int wy, int wz, int tint) {
+  if (!editSink_ || applyingRemote_) return;
+  const BlockId id = getBlock(wx, wy, wz);
+  if (id == kAir) return;  // nothing to be the colour of
+  editSink_(wx, wy, wz, id, getMeta(wx, wy, wz) & 0xFF, tint);
 }
 
 void World::clearTint(int wx, int wy, int wz) {
   if (tints_.erase(game::blockEntityKey(wx, wy, wz)) == 0) return;
   writeTintCell(wx, wy, wz, kUntinted);
+  offerTintEdit(wx, wy, wz, -1);
 }
 
 // Writes the band and dirties exactly what a colour change can affect. Neither light

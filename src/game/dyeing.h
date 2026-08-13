@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -63,5 +64,19 @@ bool applyDye(Inventory& inv, ItemStack& slot, std::uint32_t rgb);
 
 // Whether the palette will accept this item at all.
 bool isDyeable(const ItemStack& stack);
+
+// --- the player model, for when there is one ---------------------------------
+//
+// Armour is not drawn on the player yet — it exists in the inventory and in the
+// defence numbers and nowhere else. This is the seam for when it is drawn, and it is
+// here rather than in render/ on purpose: the question "what colour is this player
+// wearing" is about the inventory, and answering it needs no window, no model and no
+// GL context, so it can be settled and tested now.
+//
+// Four entries indexed by ItemDef::armorSlot — 0 head, 1 chest, 2 legs, 3 feet — each
+// the piece's dye or -1 for "draw it in its own colours". A renderer multiplies by
+// it exactly as the icon and the terrain already do, so the whole of the future work
+// is passing this array to a shader that already knows what to do with it.
+std::array<std::int32_t, 4> armourTints(const Inventory& inv);
 
 }  // namespace hr::game

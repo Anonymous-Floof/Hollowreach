@@ -42,7 +42,7 @@ class Host {
   void update(double dt, double now);
 
   // --- things the local player does that guests must be told about ------------
-  void onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta);
+  void onLocalEdit(int x, int y, int z, std::uint16_t id, std::uint8_t meta, int tint);
   void onLocalSfx(const std::string& kind, const Vec3& pos);
   // The host's own vote. Everyone in the world has to want it before the night
   // is skipped, which is the whole point of a vote rather than a button.

@@ -62,6 +62,26 @@ DyeCost dyeCostFor(const Inventory& inv, std::uint32_t rgb) {
   return cost;
 }
 
+std::array<std::int32_t, 4> armourTints(const Inventory& inv) {
+  std::array<std::int32_t, 4> out {-1, -1, -1, -1};
+  const auto& worn = inv.armor();
+  for (std::size_t i = 0; i < worn.size() && i < out.size(); ++i) {
+    // Read through the item definition rather than trusting the slot index, because
+    // the two are not the same thing: armor()[i] is where the player put it, and
+    // armorSlot is where the piece belongs. They agree today because the UI enforces
+    // it, and a renderer that assumed it would draw a helmet on the feet the first
+    // time anything else fills these slots.
+    if (worn[i].empty() || !worn[i].dyed()) continue;
+    const ItemDef* def = getItem(worn[i].key);
+    if (def == nullptr || def->armorSlot < 0 ||
+        def->armorSlot >= static_cast<int>(out.size())) {
+      continue;
+    }
+    out[static_cast<std::size_t>(def->armorSlot)] = worn[i].tint;
+  }
+  return out;
+}
+
 bool applyDye(Inventory& inv, ItemStack& slot, std::uint32_t rgb) {
   rgb &= 0x00FFFFFFu;
   if (!isDyeable(slot)) return false;
