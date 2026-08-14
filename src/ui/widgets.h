@@ -180,7 +180,10 @@ Style selectBox(bool hovered);
 // Slots
 // ---------------------------------------------------------------------------
 
-enum class SlotKind { Normal, Result, Armor };
+// Trash wears the danger colour. docs/ROADMAP.md: colour is reserved for meaning,
+// and the bin is the only slot in the game where a click has a consequence that
+// cannot be undone by clicking again.
+enum class SlotKind { Normal, Result, Armor, Trash };
 // .islot
 Style islot(bool hovered, SlotKind kind = SlotKind::Normal);
 // .hslot / .hslot.sel

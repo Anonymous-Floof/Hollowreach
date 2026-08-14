@@ -41,7 +41,26 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
-## [2.15.1] - 2026-08-14
+## [2.16.0] - 2026-08-14
+
+### Added
+- **A Trash slot in the creative inventory.** Creative has no shortage of items and
+  every shortage of room, and until now the only ways to get rid of something were
+  to throw it on the floor or bury it in a chest. The bin sits beside the bag: click
+  it holding something and that something is gone.
+
+  **It is one level of undo, not a hole.** Whatever you threw away last is still
+  sitting in the slot, and clicking it with an empty hand takes it straight back —
+  right up until you throw away something else, which is the moment the first thing
+  is really gone. The panel says what it is holding, by name, and says so in red.
+
+  It answers **a plain left click and nothing else**. Shift-click, right-click, the
+  scroll nudge, the number keys, Q and drag-across-slots all do nothing to it on
+  purpose: those are the gestures that move a stack without you looking at where it
+  lands, and this is the one slot where that would cost you something.
+
+  The bin is emptied when you leave the world and is never written to the save. Turn
+  creative off with something still in it and you get it back rather than losing it.
 
 ### Fixed
 - **Dyed items lost their colour when dropped.** Anything thrown on the ground —
@@ -60,7 +79,7 @@ what it lets them do, never by the refactor that made it possible.
   would. It closes every other screen; now it closes this one too.
 
 ### Changed
-- **Multiplayer needs everyone on 2.15.1.** Two messages gained a colour field, so
+- **Multiplayer needs everyone on 2.16.0.** Two messages gained a colour field, so
   a 2.15.0 game cannot read them — and because both builds otherwise call
   themselves the same version, the mismatch is now refused at the join screen
   rather than being discovered later as items behaving strangely.
@@ -1282,6 +1301,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.16.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.16.0
 [2.15.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.15.1
 [2.14.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.14.0
 [2.13.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.13.0

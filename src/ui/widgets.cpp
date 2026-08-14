@@ -364,6 +364,12 @@ Style islot(bool hovered, SlotKind kind) {
          : kind == SlotKind::Armor ? col(Role::SlotArmorFill)
                                    : col(Role::SlotFill);
   s.border = hovered ? col(Role::AccentDeep) : col(Role::SlotEdge);
+  if (kind == SlotKind::Trash) {
+    // Red at rest, not only on hover. A slot that looks ordinary until the pointer
+    // is already on it has warned nobody.
+    s.border = hovered ? col(Role::Danger) : col(Role::DangerEdge);
+    s.borderWidth = 3;
+  }
   return s;
 }
 

@@ -496,6 +496,16 @@ class App {
   game::ItemStack paletteSlot_;
   std::vector<std::uint32_t> paletteWorldFavourites_;
   std::vector<std::uint32_t> paletteGlobalFavourites_;
+  // The creative bin's one slot. Here for the same reason the palette's is — it has
+  // to survive the screen closing — and deliberately NOT in the save: it is emptied
+  // when the world is left, so a world file never carries something its owner
+  // believes they threw away. Terraria empties it on leaving a world too.
+  game::ItemStack trashSlot_;
+  // Hands the bin's contents back to the player, for the two moments the slot stops
+  // being reachable: creative switched off, and the world being left. What is in the
+  // bin has NOT been thrown away — the bin is what you might throw away — so it goes
+  // back in the bag, and out onto the floor only if the bag is full.
+  void emptyTrashToPlayer();
 
   // 0..1 strength of the submerged post, eased toward the target each frame.
   float underwater_ = 0.0f;

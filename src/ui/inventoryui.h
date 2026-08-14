@@ -115,6 +115,9 @@ enum class Container {
   // The palette's single slot. Its own container rather than reusing CookIn, so
   // `accepts` can refuse anything that cannot take a dye.
   Dye,
+  // The creative bin. The ONLY slot in the game that destroys what it is given, and
+  // therefore the only one with a rule of its own for every gesture — see bulkSafe.
+  Trash,
 };
 
 class InventoryUI {
@@ -132,6 +135,42 @@ class InventoryUI {
     palette_ = palette;
     dyeSlot_ = slot;
   }
+  // The creative bin's slot, owned by App so that what is in it survives closing and
+  // reopening the screen — the same reason the palette's slot lives there.
+  void attachTrash(game::ItemStack* slot) { trashSlot_ = slot; }
+  // Creative turns the bin on. Off, the panel is not drawn and the container holds
+  // nothing that can be reached, which is why App hands the contents back rather
+  // than leaving them in a slot nobody can see.
+  void setCreative(bool on) { creative_ = on; }
+  bool creative() const { return creative_; }
+
+  // Whether a gesture OTHER than a plain left click on the slot itself may touch
+  // this container.
+  //
+  // The trash is the one slot that destroys what it is given, so it is the one slot
+  // that has to refuse everything convenient: the shift-click sweep, the Q-drop run,
+  // the drag-distribute, the scroll nudge and the 1-9 hotbar swap all move stacks
+  // without the player looking at where they land, and every one of them would
+  // otherwise be a way to lose something without meaning to. One predicate, called
+  // from every one of those paths, because six copies of `!= Container::Trash` is
+  // six chances to leave one out — and the one left out is somebody's stack.
+  static bool bulkSafe(Container container) { return container != Container::Trash; }
+
+  // What a left click on the bin does, given what is on the cursor and what is in
+  // it. The whole rule, in one function, for the same reason dyeSlotAccepts is one:
+  // it is the part of this screen worth asserting without a window, and it is the
+  // part where being wrong destroys something the player owns.
+  //
+  // Holding nothing takes back what is in the bin. Holding something puts it in and
+  // the previous occupant is GONE — that is Terraria's rule and the reason to copy
+  // it: the bin is one level of undo, not a hole. Retrieval is always available
+  // right up until the next thing is thrown away.
+  static void applyTrashClick(game::ItemStack& cursor, game::ItemStack& bin);
+
+  // Whether the bin can be reached at all. Creative-only, and it needs the slot App
+  // owns: called by slotAt, so a gesture cannot find a container the screen is not
+  // drawing — which in this container would mean destroying something off-screen.
+  bool trashReachable() const { return creative_ && trashSlot_ != nullptr; }
   // Returns the crafting grid and the cursor stack to the inventory. Forge and chest
   // contents stay in their block entity, which is what makes them persist.
   void close();
@@ -239,6 +278,8 @@ class InventoryUI {
   // so writing it three times would only be three places to fix a spacing bug.
   void kitchenPanel(const UiEvent& event);
   void palettePanel(const UiEvent& event);
+  // The creative bin, beside the diet bars. Only built when creative is on.
+  void trashPanel(const UiEvent& event);
   // The five diet bars. On the inventory screen rather than the HUD: it is a thing
   // you check when deciding what to eat, not while running from something.
   void dietPanel(const UiEvent& event);
@@ -250,6 +291,11 @@ class InventoryUI {
   // The palette's slot and its colour model, both owned by App. This class supplies
   // the one thing PaletteUI could not: a slot the bag can move an item into.
   game::ItemStack* dyeSlot_ = nullptr;
+  // The creative bin's slot, likewise App's. Never saved: it is emptied when the
+  // world is left, which is what stops a world file quietly carrying something the
+  // player believes they threw away.
+  game::ItemStack* trashSlot_ = nullptr;
+  bool creative_ = false;
   PaletteUI* palette_ = nullptr;
   Rect paletteWheel_;  // reserved by the layout, painted and hit-tested after it
   Rect paletteSide_;   // and the readouts beside it

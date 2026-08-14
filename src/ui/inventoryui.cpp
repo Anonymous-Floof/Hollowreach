@@ -22,6 +22,10 @@ constexpr int kTagWheel = 9002;
 constexpr int kTagPaletteSide = 9003;
 // Wide enough for "Costs 1 Orange Dye  (you have 12)" and the three buttons.
 constexpr float kPaletteSideWidth = 292.0f;
+// The bin's panel. Written down once because three places have to agree about it:
+// the panel, the lines of text inside it — this DOM has no word wrap — and the
+// station row above, which is measured against the whole width of the row below.
+constexpr float kTrashPanelWidth = 160.0f;
 
 // One tag value per container, so a node's tag/index pair round-trips back to a SlotId.
 int containerTag(Container c) { return kTagSlot * 100 + static_cast<int>(c); }
@@ -174,6 +178,21 @@ game::CraftStation InventoryUI::stationKind() const {
 // Container access
 // ---------------------------------------------------------------------------
 
+void InventoryUI::applyTrashClick(game::ItemStack& cursor, game::ItemStack& bin) {
+  if (cursor.empty()) {
+    // Taking it back. Whole, never half: the bin is not a stack to portion out.
+    if (bin.empty()) return;
+    cursor = bin;
+    bin.clear();
+    return;
+  }
+  // And in it goes, over whatever was there. No merge and no swap — a merge would
+  // let a bin quietly accumulate, and a swap would mean nothing could ever actually
+  // be thrown away.
+  bin = cursor;
+  cursor.clear();
+}
+
 game::ItemStack* InventoryUI::slotAt(SlotId id) {
   switch (id.container) {
     case Container::Inv:
@@ -211,6 +230,11 @@ game::ItemStack* InventoryUI::slotAt(SlotId id) {
       return station_ ? &station_->output : nullptr;
     case Container::Dye:
       return dyeSlot_;
+    case Container::Trash:
+      // Gated here rather than only where it is drawn. A container that exists in
+      // the switch but not on the screen is one an off-screen gesture can still
+      // reach, and this is the container where that would destroy something.
+      return trashReachable() ? trashSlot_ : nullptr;
     case Container::Result:
     case Container::None:
       return nullptr;
@@ -232,6 +256,9 @@ bool InventoryUI::accepts(SlotId id, const std::string& key) const {
   // than at the moment of dyeing is what makes the rule visible: the item will not
   // go in, instead of going in and then being told no.
   if (id.container == Container::Dye) return dyeSlotAccepts(key);
+  // The bin takes anything, which is the point of it: an armour slot that refuses a
+  // pickaxe is being helpful, and a bin that refuses one is just a slot.
+  if (id.container == Container::Trash) return true;
   if (id.container != Container::Armor) return true;
   const game::ItemDef* item = game::getItem(key);
   return item && item->type == game::ItemType::Armor && item->armorSlot == id.index;
@@ -264,6 +291,21 @@ void InventoryUI::clickSlot(SlotId id, int button) {
   // Tactile tick when a stack moves. Clicking an empty slot with an empty cursor
   // is silent, which is what stops a drag across the bag from rattling.
   if (!slot->empty() || !cursor_.empty()) audio::sfx::uiSlot();
+
+  // The bin. Terraria's rule, and the reason to copy it is the recovery: what you
+  // threw away last is still sitting there and one click brings it back, right up
+  // until you throw away something else.
+  //
+  // LEFT CLICK AND NOTHING ELSE. Holding something, it goes in and whatever was
+  // already there is gone. Holding nothing, what is there comes back to the cursor
+  // whole. Right click is deliberately not "place one" here: dropping a single item
+  // onto a stack you meant to keep would destroy that stack, which is precisely the
+  // accident this slot is shaped to make hard. Every other gesture is refused in its
+  // own handler, through bulkSafe.
+  if (id.container == Container::Trash) {
+    if (button == 0) applyTrashClick(cursor_, *slot);
+    return;
+  }
 
   if (isOutput(id.container)) {
     // An output slot is take-only: nothing can be placed in it, and a partial stack
@@ -509,6 +551,11 @@ void InventoryUI::dropSlot(SlotId id, bool whole) {
   // A crafting result is not yours until you take it, and dropping the forge's
   // output slot would quietly bin a smelt in progress.
   if (isOutput(id.container) || id.container == Container::Result) return;
+  // Q over the bin would only throw its contents into the world, which loses
+  // nothing — but Q is a RUN: held down it fires again and again as the pointer
+  // sits still, and a gesture that repeats is not a gesture the bin takes part in.
+  // One rule to remember, not one rule with an exception.
+  if (!bulkSafe(id.container)) return;
   game::ItemStack* slot = slotAt(id);
   if (!slot || slot->empty()) return;
   const game::ItemStack leaving = takeFromStack(*slot, whole);
@@ -527,6 +574,9 @@ void InventoryUI::swapWithHotbar(SlotId id, int n) {
   // A result slot is not yours until taken, and the forge's output would be a
   // free smelt. quickMove already refuses these; so does this.
   if (isOutput(id.container) || id.container == Container::Result) return;
+  // A number key is a gesture you make without looking at the slot under the
+  // pointer, so it is not one the bin answers.
+  if (!bulkSafe(id.container)) return;
 
   game::ItemStack* from = slotAt(id);
   game::ItemStack* to = slotAt(target);
@@ -545,6 +595,11 @@ void InventoryUI::quickMove(SlotId id) {
     shiftCraft();
     return;
   }
+  // Shift-clicking a stack in the bag must never find the bin. A sweep is a gesture
+  // aimed at a CONTAINER, not at a slot — the pointer crosses a row and every stack
+  // it touches goes somewhere — and "somewhere" being a bin is how a player empties
+  // their inventory into oblivion in one drag.
+  if (!bulkSafe(id.container)) return;
   game::ItemStack* slot = slotAt(id);
   if (!slot || slot->empty()) return;
 
@@ -601,6 +656,8 @@ void InventoryUI::scrollSlot(SlotId id, int direction) {
     if (direction > 0) quickMove(id);
     return;
   }
+  // A wheel is the easiest thing in the interface to turn by accident.
+  if (!bulkSafe(id.container)) return;
   game::ItemStack* slot = slotAt(id);
   if (!slot) return;
 
@@ -651,6 +708,10 @@ void InventoryUI::scrollSlot(SlotId id, int direction) {
 
 void InventoryUI::addDragCell(SlotId id) {
   if (id.container == Container::Result || id.container == Container::ForgeOut) return;
+  // A drag-distribute spreads one held stack across every cell the pointer crosses.
+  // Crossing the bin on the way somewhere else must not leave part of the stack in
+  // it — the pointer's path is not a decision.
+  if (!bulkSafe(id.container)) return;
   for (const SlotId& seen : drag_.cells) {
     if (seen == id) return;
   }
@@ -944,6 +1005,70 @@ void InventoryUI::dietPanel(const UiEvent& event) {
 //
 // The wheel is a `custom` node: the layout reserves the box, and update() paints and
 // hit-tests it afterwards. Same seam the gallery's thumbnails use.
+// The creative bin, beside the bag rather than up in the station row: it belongs to
+// the inventory, it is used while looking at the inventory, and putting it there is
+// what stops it being one more box in a row of boxes at the top of the screen.
+void InventoryUI::trashPanel(const UiEvent& event) {
+  Style panel = widget::invPanel();
+  // Fixed, and the same number the row above is measured with. This DOM has no
+  // word wrap — only ellipsis — so every line below is written to fit this width,
+  // and a panel that sized itself to its longest sentence would push the bag off
+  // centre and put its own text over the edge of the card.
+  panel.width = kTrashPanelWidth;
+  doc_.begin(panel);
+  doc_.label("Trash", widget::invTitle(), [] {
+    Style s;
+    s.margin = Edges(0, 0, 8, 0);
+    return s;
+  }());
+
+  const SlotId id {Container::Trash, 0};
+  const game::ItemStack* held = slotAt(id);
+  {
+    Style column = Doc::column(6, Align::Center);
+    doc_.begin(column);
+    slotNode(id, held, widget::SlotKind::Trash, haveHover_ && hovered_ == id);
+    doc_.end();
+  }
+
+  // What it is holding, by name, and what happens to it next. The whole safety of
+  // this slot is that the last thing thrown away is still in it and one click brings
+  // it back — which is only true for a player who KNOWS that, so the screen says so
+  // rather than leaving it to be discovered.
+  {
+    Style box = Doc::column(2, Align::Start);
+    box.width = kTrashPanelWidth - px(Scalar::Pad) * 2;
+    box.margin = Edges(10, 0, 0, 0);
+    doc_.begin(box);
+    if (held == nullptr || held->empty()) {
+      doc_.label("Empty.", widget::muted(11));
+      doc_.label("Click here holding", widget::muted(11));
+      doc_.label("something to bin it.", widget::muted(11));
+    } else {
+      // The name is the one line whose length is not ours to choose — "Colourable
+      // Diamond Chestplate" is twenty-nine characters — so it is the one line given
+      // an ellipsis rather than a promise.
+      Style nameBox;
+      nameBox.maxWidth = kTrashPanelWidth - px(Scalar::Pad) * 2;
+      nameBox.ellipsis = true;
+      doc_.begin(nameBox);
+      const game::ItemDef* def = game::getItem(held->key);
+      doc_.label(std::to_string(held->count) + "x " + (def ? def->name : held->key),
+                 widget::muted(11));
+      doc_.end();
+      doc_.label("Click to take it back.", widget::muted(11));
+      TextStyle warn = widget::muted(11);
+      warn.color = col(Role::Danger);
+      doc_.label("Binning anything else", warn);
+      doc_.label("destroys it.", warn);
+    }
+    doc_.end();
+  }
+
+  doc_.end();
+  (void)event;
+}
+
 void InventoryUI::palettePanel(const UiEvent& event) {
   doc_.begin(widget::invPanel());
   {
@@ -1161,7 +1286,14 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
   // and nothing lined up with anything. Measuring the bag once and handing that
   // width to the row above it is what makes the whole assembly read as one object.
   //
-  const float bagWidth = bagPanelWidth();
+  // ...and when the bin is beside the bag, the row below is the bag PLUS the bin, so
+  // that is the width the top row has to match. Measuring it against the bag alone
+  // put the whole station row visibly left of centre — the same misalignment this
+  // comment was written about, arriving again from the other direction.
+  const bool showTrash =
+      creative_ && mode_ == InventoryMode::Inventory && trashSlot_ != nullptr;
+  const float bagWidth =
+      showTrash ? bagPanelWidth() + px(Scalar::GapWide) + kTrashPanelWidth : bagPanelWidth();
 
   // Spread when there are two panels, centred when there is one. A lone crafting
   // grid pushed hard to one end of a bag-wide row would look like a mistake.
@@ -1194,10 +1326,25 @@ void InventoryUI::build(Ui2D& ui, Text& text, const UiEvent& event, TweenStore& 
   }
   doc_.end();
 
-  invPanel(event);
+  // The bin rides beside the bag, which puts it bottom-right of the screen — where
+  // Terraria's is, and where the hand already is after moving something. Only in the
+  // plain bag: a station screen is a place things are being moved THROUGH, and a bin
+  // in the middle of that is a bin somebody drops a stack into on the way past.
+  if (showTrash) {
+    doc_.begin(Doc::row(px(Scalar::GapWide), Justify::Center, Align::Start));
+    invPanel(event);
+    trashPanel(event);
+    doc_.end();
+  } else {
+    invPanel(event);
+  }
 
-  doc_.label("Shift-drag moves stacks \xC2\xB7 Q-drag drops them \xC2\xB7 drag to split \xC2\xB7 "
-             "scroll to nudge \xC2\xB7 E/Esc to close",
+  doc_.label(showTrash
+                 ? "Shift-drag moves stacks \xC2\xB7 Q-drag drops them \xC2\xB7 drag to split "
+                   "\xC2\xB7 scroll to nudge \xC2\xB7 the Trash takes a plain left click only "
+                   "\xC2\xB7 E/Esc to close"
+                 : "Shift-drag moves stacks \xC2\xB7 Q-drag drops them \xC2\xB7 drag to split "
+                   "\xC2\xB7 scroll to nudge \xC2\xB7 E/Esc to close",
              widget::muted(12));
   doc_.end();
   doc_.end();
@@ -1318,7 +1465,14 @@ void InventoryUI::update(Ui2D& ui, Text& text, const UiEvent& event, TweenStore&
   if (sweep_ != Sweep::None && dragging_) finishDrag();
 
   if (sweep_ == Sweep::None && haveHover_) {
-    if (event.leftClick) {
+    // The bin, before any of the branches below can claim the click. A plain left
+    // click and nothing else: not the shift-transfer, not the drag-distribute that
+    // a held stack would otherwise start, and not the right-click place-one. The
+    // other five ways to reach a slot are refused in their own handlers, all of
+    // them through bulkSafe — this is the sixth.
+    if (!bulkSafe(hovered_.container)) {
+      if (event.leftClick && !event.shift) clickSlot(hovered_, 0);
+    } else if (event.leftClick) {
       if (event.shift) {
         quickMove(hovered_);
       } else if (!cursor_.empty() && hovered_.container != Container::Result) {

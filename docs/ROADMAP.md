@@ -810,6 +810,65 @@ one predicate would be the first crack in that boundary. The fix is structural i
 of a list edit for that reason, and E was checked by hand in the real binary — which is
 where a key press lives anyway.
 
+## The creative bin, and why it is the fussiest slot in the game
+
+Creative has no shortage of items and every shortage of room. Before this the only
+ways to get rid of something were to throw it on the floor or bury it in a chest,
+which is how a creative world ends up ringed with piles of dirt.
+
+Terraria's trash slot is the model, and the part worth copying is not the deletion —
+it is the **one level of undo**. What you threw away last is still sitting in the
+slot and one click brings it back, right up until the moment you throw away
+something else. A hole that swallows things needs a confirmation dialog; a slot that
+holds the last thing does not, and a dialog on every discarded stack would make the
+feature useless for the thing it exists to do.
+
+So the rules, all of them deliberate:
+
+- **One slot, creative only.** `trashReachable()` gates it on creative AND on the
+  slot App owns, and `slotAt` asks that rather than testing the flag itself — a
+  container that answers while nothing is drawing it is a container an off-screen
+  gesture can destroy something in.
+- **A plain left click and nothing else.** Not shift-click, not right-click, not the
+  scroll nudge, not the number keys, not the Q-drop run, not the drag-distribute.
+  Every one of those moves a stack *without the player looking at where it lands*,
+  and this is the one slot where that costs something. `bulkSafe(Container)` is the
+  single predicate and the five handlers plus the click branch all consult it — the
+  same shape as `canMerge`, which exists for the same reason.
+- **Replace, never merge and never swap.** Merging would let the bin quietly
+  accumulate; swapping would mean nothing could ever actually be thrown away.
+- **Never saved.** It is emptied when the world is left, so no world file carries
+  something its owner believes they threw away. Switching creative OFF is the other
+  moment the slot stops being reachable, and there the contents are handed *back* —
+  they were never thrown away, and a settings change is not a decision about them.
+- **Red at rest**, not only on hover. A slot that looks ordinary until the pointer is
+  already on it has warned nobody. It is the only saturated colour in the chrome, per
+  the palette rule above: colour is reserved for meaning.
+
+Two things the layout taught, both of which had already been learned once:
+
+`kTrashPanelWidth` is written down once and used three times — the panel, the lines
+of text inside it, and the station row above. This DOM has **no word wrap**, only
+ellipsis, so a panel that sizes itself to its longest sentence puts that sentence
+over the edge of the card; the first build did exactly that. And the station row is
+measured against the *whole* row below it, bag plus bin, or the top half of the
+screen sits visibly left of the bottom half — which is the misalignment the comment
+above `bagPanelWidth` was already written about, arriving from the other direction.
+
+### What is tested, and what is not
+
+`applyTrashClick` and `bulkSafe` are free functions for the same reason
+`dyeSlotAccepts` is: they are the parts worth asserting without a window, and they
+are the parts where being wrong destroys something. Bin, retrieve, replace, no-merge,
+colour-survives and the creative gate are all self-tests, each sabotaged.
+
+What is **not** a self-test is that each of the five gesture handlers actually calls
+`bulkSafe`. `InventoryUI::update` needs a `Ui2D`, which needs a GL context, so the
+gesture paths cannot be driven headless without a refactor that is bigger than this
+feature. They were checked by hand in the running game instead — shift-click, Q,
+scroll, a number key and a drag, one at a time, against a full bin. If those handlers
+are ever reworked, that is the check to do again, and it is a manual one.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

@@ -513,6 +513,11 @@ void App::applySettings() {
   // The recipe book becomes an item picker in a creative world, and goes back to
   // being a recipe book the moment creative is switched off.
   interface_.recipeBook().setCreative(creative);
+  // And the bin appears with it. Switching creative OFF while something is sitting
+  // in the bin has to hand that something back: it was never thrown away, and a slot
+  // that stops being drawn is not a slot anyone can retrieve from.
+  if (!creative) emptyTrashToPlayer();
+  interface_.inventory().setCreative(creative);
 
   window_.setRawMouseMotion(s.flag("rawMouse"));
   interface_.setUiScale(static_cast<float>(s.number("uiScale")) / 100.0f);
@@ -1002,6 +1007,7 @@ void App::wireInterface() {
   // The palette. Its slot and both favourite lists are App's, handed to the screen
   // by pointer — the screen draws them and reports changes, and this is what writes
   // them anywhere.
+  interface_.inventory().attachTrash(&trashSlot_);
   interface_.palette().attach(&inventory_, &paletteSlot_);
   // And the inventory screen, which owns the slot the player actually fills.
   interface_.inventory().attachPalette(&interface_.palette(), &paletteSlot_);
@@ -1338,6 +1344,27 @@ void App::loadGlobalFavourites() {
     start = bar + 1;
   }
   if (paletteGlobalFavourites_.size() > 7) paletteGlobalFavourites_.resize(7);
+}
+
+void App::emptyTrashToPlayer() {
+  if (trashSlot_.empty()) return;
+  const int left = inventory_.give(trashSlot_.key, trashSlot_.count, trashSlot_.dura,
+                                   trashSlot_.tint);
+  if (left <= 0) {
+    trashSlot_.clear();
+    return;
+  }
+  // A full bag. Onto the floor, the same way every other overflow in the game
+  // spills — but only if there is a world to spill into. Without one the item stays
+  // where it is rather than being quietly deleted by a settings change.
+  if (!world_ || !player_) {
+    trashSlot_.count = left;
+    return;
+  }
+  game::ItemStack spill = trashSlot_;
+  spill.count = left;
+  tossStack(spill);
+  trashSlot_.clear();
 }
 
 void App::closeCurrentScreen() {
@@ -2444,6 +2471,12 @@ void App::leaveWorld() {
   ui::settings().endWorld();
   ui::settings().clearVirtualFlags();
   createdCreative_ = false;
+  // The bin does not survive leaving the world, which is Terraria's rule and the
+  // right one: it is never written to the save, so anything still in it would
+  // otherwise reappear in whatever world was opened next. Emptied rather than
+  // handed back, because by here the save has already been written and the bag
+  // below is about to be cleared anyway.
+  trashSlot_.clear();
   audio::director().stop();  // settle the ambience beds before the menu
   entities_.clear();
   world_.reset();

@@ -591,6 +591,100 @@ void testPlacing() {
     panel.close();
   }
 
+  // --- the creative bin ------------------------------------------------------
+  //
+  // The only slot in the game that destroys what it is given, so it is the only one
+  // whose rule is worth writing down twice — once in the code and once here.
+  {
+    std::printf("the creative bin\n");
+
+    // Terraria's rule, which is the one asked for: one level of undo. What you threw
+    // away last is still in there and one click brings it back, right up until the
+    // moment you throw away something else.
+    {
+      game::ItemStack cursor {"planks", 64, -1};
+      game::ItemStack bin;
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      check(cursor.empty() && bin.key == "planks" && bin.count == 64,
+            "a click with a held stack puts the whole thing in the bin");
+
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      check(bin.empty() && cursor.key == "planks" && cursor.count == 64,
+            "and a click with an empty hand takes it back out whole");
+    }
+    {
+      // The destructive half, stated plainly because it is the one that costs
+      // something: the second thing thrown away takes the first with it.
+      game::ItemStack bin {"diamond", 5, -1};
+      game::ItemStack cursor {"dirt", 1, -1};
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      checkf(bin.key == "dirt" && bin.count == 1,
+             "binning something else replaces what was there (%s)", bin.key.c_str());
+      check(cursor.empty(), "and does NOT hand the old one back on the cursor");
+    }
+    {
+      // Not a merge. Two of the same thing must not pile up in the bin, or a bin
+      // holding sixty-four would look like a bin holding one.
+      game::ItemStack bin {"planks", 32, -1};
+      game::ItemStack cursor {"planks", 8, -1};
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      checkf(bin.count == 8, "the bin replaces rather than merging (%d)", bin.count);
+    }
+    {
+      // Colour rides along, so a dyed thing taken back out is the thing that went in.
+      game::ItemStack cursor {"wool", 4, -1, 0xd23a34};
+      game::ItemStack bin;
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      checkf(cursor.tint == 0xd23a34, "what comes back out is what went in (0x%06X)",
+             cursor.tint);
+    }
+    {
+      game::ItemStack cursor;
+      game::ItemStack bin;
+      ui::InventoryUI::applyTrashClick(cursor, bin);
+      check(cursor.empty() && bin.empty(), "clicking an empty bin with an empty hand is a no-op");
+    }
+
+    // EVERY GESTURE THAT MOVES A STACK WITHOUT LOOKING AT WHERE IT LANDS is refused,
+    // and they are all refused through this one predicate: the shift-click sweep, the
+    // Q-drop run, the drag-distribute, the scroll nudge and the 1-9 hotbar swap.
+    check(!ui::InventoryUI::bulkSafe(ui::Container::Trash),
+          "the bin refuses every gesture that is not a plain click");
+    int safe = 0, total = 0;
+    for (const ui::Container c :
+         {ui::Container::Inv, ui::Container::Armor, ui::Container::Craft,
+          ui::Container::Chest, ui::Container::ForgeIn, ui::Container::ForgeFuel,
+          ui::Container::CookIn, ui::Container::CookSlots, ui::Container::CookContainer,
+          ui::Container::CookFuel, ui::Container::Dye}) {
+      ++total;
+      if (ui::InventoryUI::bulkSafe(c)) ++safe;
+    }
+    checkf(safe == total, "and no other container is slowed down by that (%d/%d)", safe, total);
+
+    // Unreachable outside creative. The panel is not drawn there, and a container
+    // that answers when nothing is drawing it is one an off-screen gesture can still
+    // destroy something in.
+    {
+      game::Inventory bag;
+      game::ItemStack bin;
+      ui::InventoryUI panel;
+      panel.attach(&bag, nullptr);
+      panel.attachTrash(&bin);
+      panel.open(ui::InventoryMode::Inventory, nullptr);
+      check(!panel.trashReachable(), "the bin is not there in survival");
+      panel.setCreative(true);
+      check(panel.trashReachable(), "and is in creative");
+      // And with creative on but nothing attached — which is every screen built
+      // before App wires it up — it still refuses to be reached.
+      ui::InventoryUI bare;
+      bare.attach(&bag, nullptr);
+      bare.setCreative(true);
+      check(!bare.trashReachable(), "a bin with no slot behind it is not reachable either");
+      panel.close();
+    }
+  }
+
   // The query the warp is built on. The pocket makeWorld carves runs kY-2..kY+2 in
   // an otherwise open column far above the terrain, so the ground is the real
   // surface, well below, and never the air the player is standing in.
