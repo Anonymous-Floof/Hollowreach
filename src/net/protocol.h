@@ -109,7 +109,14 @@ namespace hr::net {
 // 13: the Dye update. WireSlot carries a stack's colour and EditMsg carries a
 // cell's, so both message layouts changed. A v12 guest would read a colour as
 // whatever field came next and fill a chest with nonsense.
-inline constexpr std::uint16_t kNetVersion = 13;
+// 14: the rest of the Dye update's colours — TossMsg and SnapEntity gained one
+// each, which v2.15.0 shipped without. **This is the case the version number is
+// for, and it was nearly missed.** Both builds would have said "13" and shaken
+// hands, and then every thrown item and every snapshot would have been read four
+// bytes out of step: a colour parsed as a count, a key parsed as a colour. A
+// mismatch that the handshake catches is a message on the join screen; one it does
+// not is a session that connects and then behaves like a haunting.
+inline constexpr std::uint16_t kNetVersion = 14;
 
 // Hard caps.
 inline constexpr std::size_t kMaxMessage = 64 * 1024;

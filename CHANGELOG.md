@@ -41,6 +41,30 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.15.1] - 2026-08-14
+
+### Fixed
+- **Dyed items lost their colour when dropped.** Anything thrown on the ground —
+  with Q, from the inventory screen, from a broken chest, or scattered where you
+  died — came back plain the moment you picked it up. The dye was simply gone, and
+  because a stack that has lost its colour looks exactly like one that never had
+  any, there was nothing to notice until you went looking for the red wool you were
+  sure you had.
+
+  Every route an item can take to the floor and back now carries the colour, and
+  that includes the multiplayer ones: an item you throw, an item the host hands you
+  when you walk over it, and a dyed thing lying on the ground now looks dyed to
+  everyone in the world rather than only to whoever dropped it.
+
+- **E did not close the Dyer's Palette**, though the screen's own footer said it
+  would. It closes every other screen; now it closes this one too.
+
+### Changed
+- **Multiplayer needs everyone on 2.15.1.** Two messages gained a colour field, so
+  a 2.15.0 game cannot read them — and because both builds otherwise call
+  themselves the same version, the mismatch is now refused at the join screen
+  rather than being discovered later as items behaving strangely.
+
 ## [2.15.0] - 2026-08-13
 
 ### Added
@@ -1258,6 +1282,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.15.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.15.1
 [2.14.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.14.0
 [2.13.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.13.0
 [2.12.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.12.1
