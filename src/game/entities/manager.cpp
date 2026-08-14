@@ -302,12 +302,13 @@ Entity* EntityManager::spawnDrop(const Vec3& pos, const std::string& key, int co
 }
 
 Entity* EntityManager::spawnTossed(const Vec3& pos, const Vec3& dir, const std::string& key,
-                                   int count, int dura) {
+                                   int count, int dura, std::int32_t tint) {
   Entity* e = spawn(EntityType::Drop, pos);
   if (!e) return nullptr;
   e->data.key = key;
   e->data.count = count;
   e->data.dura = dura;
+  e->data.tint = tint;
   e->data.instant = false;
   if (const EntityDef* def = defOf(EntityType::Drop); def && def->spawn) def->spawn(*e);
   e->vel = Vec3{dir.x * 5.0f + R(-0.5f, 0.5f), 3.0f + dir.y * 3.0f,

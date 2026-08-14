@@ -335,7 +335,9 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
     case MsgType::Give: {
       GiveMsg m;
       if (decode(r, m) && game_.inventory && game::getItem(m.key)) {
-        const int left = game_.inventory->give(m.key, m.count, m.dura);
+        // m.tint, which the message has carried since it was written and this line
+        // ignored: an award IS a drop the host caught for us, and a drop can be dyed.
+        const int left = game_.inventory->give(m.key, m.count, m.dura, m.tint);
         if (left < m.count) audio::sfx::pickup();
         // A full bag. The host has already destroyed the drop on its side, so
         // anything that would not fit has to go back into the world or it simply
@@ -343,7 +345,8 @@ void Client::onMessage(const std::uint8_t* data, std::size_t size, double now) {
         // handed over when we walked onto it, quietly vanished.
         if (left > 0 && game_.player) {
           const Vec3 p = game_.player->pos();
-          sendToss(Vec3{p.x, p.y + 0.6f, p.z}, Vec3{0, 0, 0}, m.key, left, m.dura);
+          sendToss(Vec3{p.x, p.y + 0.6f, p.z}, Vec3{0, 0, 0},
+                   game::ItemStack{m.key, left, m.dura, m.tint});
         }
       }
       break;
@@ -543,15 +546,15 @@ void Client::sendPlayerHit(const std::string& playerId, const std::string& held,
   send(MsgType::PlayerHit, m);
 }
 
-void Client::sendToss(const Vec3& pos, const Vec3& dir, const std::string& key, int count,
-                      int dura) {
+void Client::sendToss(const Vec3& pos, const Vec3& dir, const game::ItemStack& stack) {
   if (state_ != State::Playing) return;
   TossMsg m;
   m.pos = pos;
   m.dir = dir;
-  m.key = key;
-  m.count = count;
-  m.dura = dura;
+  m.key = stack.key;
+  m.count = stack.count;
+  m.dura = stack.dura;
+  m.tint = stack.tint;
   send(MsgType::Toss, m);
 }
 

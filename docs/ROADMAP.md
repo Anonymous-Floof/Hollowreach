@@ -736,6 +736,33 @@ out, and the one left out is a red wool silently absorbing a blue one. One funct
 and the test asserts both halves: different colours must not merge, and the same
 colour still must.
 
+### A defaulted parameter is where a field goes to die
+
+The dye survived being carried, saved, placed, broken and sent over the wire, and died
+the moment anything was thrown on the ground. `EntityManager::spawnDrop` was taught
+about tint when this update was written; its twin `spawnTossed` was not, and it was
+`spawnTossed` that Q, the death scatter and every full-bag spill go through. Four more
+sites lost it the same way — the host's spill, the host's pickup award, the guest's
+re-toss of what would not fit, and `TossMsg`, which had no colour field at all.
+
+**Every one of them failed silently, and had to.** A stack that has lost its dye is
+indistinguishable from a stack that never had one: there is no invalid state to notice,
+no error to raise, and the item looks exactly like the plain version of itself.
+
+Two things changed so that it cannot recur quietly:
+
+- The twins take **the same arguments**, and `tint` is defaulted on neither. A default
+  of `-1` is what let `spawnDrop`'s own callers keep dropping the colour without
+  writing anything down — the host's container spill did exactly that.
+- Anything that carries a stack around now passes **the whole stack**, not its fields.
+  `App::tossStack`, `App::throwStack` and `Client::sendToss` took `key, count, dura`,
+  which is why adding a fourth field broke all three at once. The next field a stack
+  learns rides through them for free.
+
+The test that matters is the round trip through the real entity — thrown, ticked, and
+picked up off the floor — because every existing colour test held the colour still. It
+found the host's missing award on the first run, which nothing had found by reading.
+
 ### The bug that only multiplayer could have
 
 `Interact::tryPlace` writes the cell and colours it *afterwards*, which it has to — a
@@ -762,6 +789,26 @@ the game grey, so the bed got a tile of its own.
 That check is the thing to keep. Adding a dyeable block and forgetting to repaint it
 produces a subtly wrong colour rather than anything that looks like a failure, and
 nobody would think to look.
+
+### Ask the screen, not a list of states
+
+E did nothing in the palette. The key handler enumerated the states it closed —
+`Inventory`, `RecipeBook` — and the palette is an `AppState` of its own that happens to
+show the inventory screen, so it was never on the list. The list was correct on the day
+it was written and wrong by the end of the same update.
+
+`screenFor(AppState)` now says which screen a state puts up, and `closesWithE` asks it
+rather than naming states. Two states can name the same screen — the palette IS the
+inventory screen in another mode, the painting picker IS the gallery wired to a
+different action — and anything that ought to be true of a screen should be decided by
+the screen. The next state that shows the bag closes with E without anybody
+remembering to add it.
+
+Note what is NOT here: a self-test. Nothing in `selftest.cpp` reaches above the game
+layer into `App`, which owns the window and the GL context, and pulling `app.h` in for
+one predicate would be the first crack in that boundary. The fix is structural instead
+of a list edit for that reason, and E was checked by hand in the real binary — which is
+where a key press lives anyway.
 
 ## Things a future session will otherwise rediscover the hard way
 

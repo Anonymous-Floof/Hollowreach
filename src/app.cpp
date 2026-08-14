@@ -772,21 +772,51 @@ void App::syncScreen() {
   // paused: it would otherwise complete itself on the way back, with nothing
   // having been clicked to cause it.
   if (state_ != AppState::Playing) renderer_.viewmodel().cancelSwing();
-  switch (state_) {
-    case AppState::Boot: interface_.setScreen(ui::Screen::Boot); break;
-    case AppState::Menu: interface_.setScreen(ui::Screen::Menu); break;
-    case AppState::Playing: interface_.setScreen(ui::Screen::None); break;
-    case AppState::Paused: interface_.setScreen(ui::Screen::Pause); break;
-    case AppState::Settings: interface_.setScreen(ui::Screen::Settings); break;
-    case AppState::Inventory: interface_.setScreen(ui::Screen::Inventory); break;
-    case AppState::RecipeBook: interface_.setScreen(ui::Screen::RecipeBook); break;
-    case AppState::Map: interface_.setScreen(ui::Screen::Map); break;
-    case AppState::Gallery: interface_.setScreen(ui::Screen::Gallery); break;
-    case AppState::Packs: interface_.setScreen(ui::Screen::Packs); break;
-    case AppState::PaintingPick: interface_.openPaintingPicker(); break;
-    case AppState::TimeWheel: interface_.setScreen(ui::Screen::TimeWheel); break;
-    case AppState::Palette: interface_.setScreen(ui::Screen::Inventory); break;
+  // The picker is the gallery with one extra flag set, so it goes through the
+  // interface's own opener instead of through setScreen.
+  if (state_ == AppState::PaintingPick) {
+    interface_.openPaintingPicker();
+    return;
   }
+  interface_.setScreen(screenFor(state_));
+}
+
+// Which screen each state puts up.
+//
+// Two states can name the same screen, and that is the point of writing it down
+// rather than leaving it inside syncScreen: the palette IS the inventory screen in
+// another mode, and the picker IS the gallery wired to a different action. Anything
+// that ought to be true of a screen can now be decided by the screen instead of by
+// remembering to name each of its states — which is a thing that was not remembered.
+ui::Screen screenFor(AppState state) {
+  switch (state) {
+    case AppState::Boot: return ui::Screen::Boot;
+    case AppState::Menu: return ui::Screen::Menu;
+    case AppState::Playing: return ui::Screen::None;
+    case AppState::Paused: return ui::Screen::Pause;
+    case AppState::Settings: return ui::Screen::Settings;
+    case AppState::Inventory: return ui::Screen::Inventory;
+    case AppState::RecipeBook: return ui::Screen::RecipeBook;
+    case AppState::Map: return ui::Screen::Map;
+    case AppState::Gallery: return ui::Screen::Gallery;
+    case AppState::Packs: return ui::Screen::Packs;
+    case AppState::PaintingPick: return ui::Screen::Gallery;
+    case AppState::TimeWheel: return ui::Screen::TimeWheel;
+    case AppState::Palette: return ui::Screen::Inventory;
+  }
+  return ui::Screen::None;
+}
+
+// What E shuts as well as opens: the inventory screen in any of its modes — the bag,
+// a station, the palette — and the recipe book, which is the one screen E closes that
+// it did not open.
+//
+// Asked of the SCREEN, not of a list of states. Written as a list it was correct on
+// the day it was written and wrong by the end of the update: the palette arrived as
+// a state of its own, was not added, and E did nothing at all in the one screen where
+// both hands are full and Escape is the last key anyone reaches for.
+bool closesWithE(AppState state) {
+  return screenFor(state) == ui::Screen::Inventory || state == AppState::RecipeBook;
 }
 
 ui::UiFrame App::uiFrame() {
@@ -826,9 +856,7 @@ ui::UiFrame App::uiFrame() {
 void App::wireInterface() {
   interface_.callbacks.resume = [this] { resumePlaying(); };
   interface_.callbacks.quitGame = [this] { running_ = false; };
-  interface_.inventory().onDropStack = [this](const game::ItemStack& s) {
-    tossStack(s.key, s.count, s.dura);
-  };
+  interface_.inventory().onDropStack = [this](const game::ItemStack& s) { tossStack(s); };
   interface_.callbacks.toggleRecipeBook = [this] { toggleRecipeBook(); };
   interface_.chat().onSubmit = [this](const std::string& line) { submitChat(line); };
   // The clipboard belongs to the window, so the chat box borrows it through here.
@@ -1016,7 +1044,7 @@ void App::wireInterface() {
     const int left = inventory_.give(key, want);
     // Spilled rather than swallowed, which is what every other give in the game
     // does with its remainder.
-    if (left > 0 && player_) tossStack(key, left, -1);
+    if (left > 0 && player_) tossStack(game::ItemStack{key, left});
     interface_.notify().push(std::to_string(want - left) + "x " +
                              game::getItem(key)->name);
   };
@@ -1383,7 +1411,10 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
     // spills onto the floor in front of everyone rather than deleting the ore.
     if (netGuest()) {
       const int left = inventory_.give(key, count, dura, tint);
-      if (left > 0) netClient_.sendToss(Vec3{x, y, z}, Vec3{0, 0, 0}, key, left, dura);
+      if (left > 0) {
+        netClient_.sendToss(Vec3{x, y, z}, Vec3{0, 0, 0},
+                            game::ItemStack{key, left, dura, tint});
+      }
       return;
     }
     entities_.spawnDrop(Vec3{x, y, z}, key, count, dura, tint);
@@ -1832,7 +1863,7 @@ cmd::Hooks App::makeCommandHooks() {
       const int left = inventory_.give(key, count, -1);
       // Whatever did not fit goes on the floor rather than nowhere, which is what
       // every other path that hands out items does.
-      if (left > 0) tossStack(key, left, -1);
+      if (left > 0) tossStack(game::ItemStack{key, left});
       return true;
     }
     if (!netHosting() || !netHost_.givePlayer(who.playerId, key, count, -1)) {
@@ -2487,11 +2518,7 @@ void App::respawnPlayer() {
     const Vec3 dir{static_cast<float>(randomUnit()) * 2.0f - 1.0f, 0.2f,
                    static_cast<float>(randomUnit()) * 2.0f - 1.0f};
     const Vec3 from{fell.x, fell.y + 0.6f, fell.z};
-    if (netGuest()) {
-      netClient_.sendToss(from, dir, s.key, s.count, s.dura);
-    } else {
-      entities_.spawnTossed(from, dir, s.key, s.count, s.dura);
-    }
+    throwStack(from, dir, s);
     s.clear();
   };
   for (game::ItemStack& s : inventory_.slots()) toss(s);
@@ -2911,12 +2938,13 @@ void App::handleHotbarInput(Input& in, double dt) {
     for (int i = 0; i < n; ++i) {
       game::ItemStack& s = inventory_.selectedSlot();
       if (s.empty() || !world_ || !player_) break;
-      const std::string key = s.key;
-      const int dura = s.dura;
-      const int count = in.ctrl() ? s.count : 1;
+      // A copy of the slot with only the count changed, so the thrown item is the
+      // held item in every other respect — its wear, and its colour.
+      game::ItemStack out = s;
+      if (!in.ctrl()) out.count = 1;
       if (in.ctrl()) s.clear();
       else inventory_.consumeSelected();
-      tossStack(key, count, dura);
+      tossStack(out);
     }
   }
 }
@@ -2925,18 +2953,30 @@ void App::handleHotbarInput(Input& in, double dt) {
 // and by Q over a slot in the inventory screen. The scatter on death does not come
 // through here: it throws from where the body fell, in a random direction, and
 // borrowing this would have the dropped items appear wherever the corpse was
-// looking.
-void App::tossStack(const std::string& key, int count, int dura) {
-  if (!world_ || !player_ || key.empty() || count <= 0) return;
+// looking. It shares the crossing below with it instead.
+void App::tossStack(const game::ItemStack& stack) {
+  if (!player_) return;
   const Vec3 eye = player_->eye();
   const Vec3 dir = player_->forward();
   const Vec3 from{eye.x + dir.x * 0.4f, eye.y - 0.2f, eye.z + dir.z * 0.4f};
-  if (netGuest()) {
-    netClient_.sendToss(from, dir, key, count, dura);
-  } else {
-    entities_.spawnTossed(from, dir, key, count, dura);
-  }
+  throwStack(from, dir, stack);
   audio::sfx::toss();
+}
+
+// The one place a stack becomes a thrown item. A guest owns no entities, so its
+// throw is a request to the host; a host makes the item itself.
+//
+// The whole stack goes in, and every field of it comes out the other side. This
+// used to take key, count and dura, which is why a dyed item thrown on the floor
+// was a plain one when it was picked up again: nothing here was wrong, the colour
+// simply never arrived, and an undyed item is what an undyed item looks like.
+void App::throwStack(const Vec3& from, const Vec3& dir, const game::ItemStack& stack) {
+  if (!world_ || !player_ || stack.empty()) return;
+  if (netGuest()) {
+    netClient_.sendToss(from, dir, stack);
+  } else {
+    entities_.spawnTossed(from, dir, stack.key, stack.count, stack.dura, stack.tint);
+  }
 }
 
 void App::renderWorld() {
@@ -3071,9 +3111,13 @@ void App::handleGlobalKeys() {
       interface_.openStation(world::Station::None);
       state_ = AppState::Inventory;
       window_.setPointerCaptured(false);
-    } else if (state_ == AppState::Inventory) {
-      resumePlaying();
-    } else if (state_ == AppState::RecipeBook) {
+    } else if (closesWithE(state_)) {
+      // Through closeCurrentScreen rather than resumePlaying, because the recipe
+      // book has somewhere to go back TO. Escape has always run this; E listed the
+      // states it knew about instead, and the palette — which arrived as its own
+      // AppState after that list was written — was not on it. The key did nothing,
+      // in the one screen where the hands are full of an item and Escape is the
+      // least likely thing to be reached for.
       closeCurrentScreen();
     }
   }

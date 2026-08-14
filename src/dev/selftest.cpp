@@ -881,6 +881,79 @@ void testDyeing() {
     checkf(used == 1, "and two of the same colour do (%d slots used)", used);
   }
 
+  // THE FLOOR IS PART OF THE ROUND TRIP. Everything above holds a colour still — in
+  // a bag, in a cell, in a save, on the wire. This is the colour in motion, down the
+  // one path nothing had ever asked about, and it was broken for every dyed item in
+  // the game: `spawnDrop` was taught about tint when this update was written and its
+  // twin `spawnTossed` was not, so a dye survived being carried, saved, placed and
+  // broken, and died the moment it was thrown on the ground.
+  //
+  // It failed silently, which is the whole reason it reached a player: an item that
+  // lost its dye is indistinguishable from an item that never had one.
+  {
+    auto w = makeWorld();
+    game::Player player(kOriginX, static_cast<float>(kY), kOriginZ);
+    game::Inventory inv;
+    game::EntityManager entities;
+    game::EntityContext ctx;
+    ctx.world = w.get();
+    ctx.player = &player;
+    ctx.inventory = &inv;
+    ctx.entities = &entities;
+
+    // What the inventory screen hands over when Q is pressed over a slot.
+    game::ItemStack slot {"wool", 4, -1, 0xd23a34};
+    const game::ItemStack leaving = ui::takeFromStack(slot, true);
+    checkf(leaving.tint == 0xd23a34, "the stack that leaves a slot keeps its colour (0x%06X)",
+           leaving.tint);
+
+    // And what the world makes of it.
+    game::Entity* thrown = entities.spawnTossed(player.pos(), Vec3{0, 0, 0}, leaving.key,
+                                                leaving.count, leaving.dura, leaving.tint);
+    checkf(thrown != nullptr && thrown->data.tint == 0xd23a34,
+           "a thrown item lies on the ground still wearing it (0x%06X)",
+           thrown ? thrown->data.tint : 0);
+
+    // Two seconds of standing over it: past the pickup delay, and near enough to
+    // collect. Following it down means gravity is not what decides this.
+    const int id = thrown ? thrown->id : 0;
+    for (int i = 0; i < 150; ++i) {
+      if (const game::Entity* e = entities.byId(id)) player.setPos(e->pos);
+      entities.tick(1.0f / 60.0f, ctx);
+    }
+    const game::ItemStack* back = nullptr;
+    for (const game::ItemStack& s : inv.slots()) {
+      if (!s.empty()) back = &s;
+    }
+    checkf(back != nullptr && back->count == 4, "picking it back up returns the whole stack");
+    checkf(back != nullptr && back->tint == 0xd23a34,
+           "AND the colour that was paid for (0x%06X)", back ? back->tint : -1);
+  }
+  {
+    // The other half of the same rule, on the ground rather than in the bag: two
+    // piles of wool side by side, one dyed and one plain. Merging them would make
+    // both of them whichever colour the survivor happened to be.
+    auto w = makeWorld();
+    game::Player away(kOriginX + 40.0f, static_cast<float>(kY), kOriginZ);
+    game::Inventory inv;
+    game::EntityManager piles;
+    game::EntityContext ctx;
+    ctx.world = w.get();
+    ctx.player = &away;
+    ctx.inventory = &inv;
+    ctx.entities = &piles;
+
+    const Vec3 spot{kOriginX, static_cast<float>(kY), kOriginZ};
+    piles.spawnTossed(spot, Vec3{0, 0, 0}, "wool", 1, -1, 0xd23a34);
+    piles.spawnTossed(Vec3{spot.x + 0.3f, spot.y, spot.z}, Vec3{0, 0, 0}, "wool", 1, -1, -1);
+    // Tossed rather than instant, and the player far away, so nothing is collected
+    // and what is left standing is the merge rule's answer and nothing else.
+    for (int i = 0; i < 150; ++i) piles.tick(1.0f / 60.0f, ctx);
+    checkf(piles.count() == 2, "a dyed pile and a plain one do not become one (%d left)",
+           piles.count());
+    check(inv.countOf("wool") == 0, "and neither was picked up from across the world");
+  }
+
   // What a World actually contributes to a save. This exists because the save tests
   // build a WorldSave BY HAND and so cannot see the assembly at all — `out.tints` was
   // missing from it for most of this update and every save-format test stayed green.
@@ -3226,8 +3299,8 @@ void testEntities() {
     ctx.entities = &entities;
 
     // Two like drops within merge range become one.
-    entities.spawnDrop(Vec3{6.5f, static_cast<float>(kY), 6.5f}, "greystone", 3, -1);
-    entities.spawnDrop(Vec3{6.9f, static_cast<float>(kY), 6.5f}, "greystone", 4, -1);
+    entities.spawnDrop(Vec3{6.5f, static_cast<float>(kY), 6.5f}, "greystone", 3, -1, -1);
+    entities.spawnDrop(Vec3{6.9f, static_cast<float>(kY), 6.5f}, "greystone", 4, -1, -1);
     // Freeze them where they are: the merge test is about the rule, not physics.
     for (game::Entity& e : entities.all()) e.vel = Vec3{};
     for (int i = 0; i < 40; ++i) entities.tick(1.0f / 60.0f, ctx);
@@ -3237,7 +3310,7 @@ void testEntities() {
     // A tossed drop out of reach waits to be walked over.
     inv.clear();
     entities.spawnTossed(Vec3{20.5f, static_cast<float>(kY), 20.5f}, Vec3{0, 0, 0}, "planks", 2,
-                         -1);
+                         -1, -1);
     for (int i = 0; i < 120; ++i) entities.tick(1.0f / 60.0f, ctx);
     check(inv.countOf("planks") == 0, "a tossed drop is not vacuumed from across the room");
     check(entities.count() == 1, "and it is still lying there");
@@ -3574,7 +3647,7 @@ void testEntities() {
     for (std::size_t i = 0; i < want; ++i) {
       game::Entity* d = entities.spawnDrop(
           Vec3{4000.5f + static_cast<float>(i), static_cast<float>(kY), 4000.5f}, "greystone", 1,
-          -1);
+          -1, -1);
       if (i == 0) firstId = d->id;
       if (i + 1 == want) lastId = d->id;
     }
@@ -3595,7 +3668,7 @@ void testEntities() {
     ctx.entities = &ordinary;
     for (int i = 0; i < 200; ++i) {
       ordinary.spawnDrop(Vec3{4000.5f + static_cast<float>(i), static_cast<float>(kY), 4000.5f},
-                         "greystone", 1, -1);
+                         "greystone", 1, -1, -1);
     }
     const int before = ordinary.count();
     ordinary.tick(1.0f / 60.0f, ctx);
@@ -7704,6 +7777,7 @@ void testGhostArrival() {
     e.pos = Vec3{1, 2, 3};
     e.a = 5;
     e.key = "greystone";
+    e.tint = 0x9a5ac2;
     out.entities.push_back(e);
 
     ByteWriter w;
@@ -7716,6 +7790,58 @@ void testGhostArrival() {
     check(ok && back.seq == 4242, "a snapshot carries its sequence number across the wire");
     check(ok && back.entities.size() == 1 && back.entities.front().key == "greystone",
           "and says what a dropped item is, not merely where");
+    checkf(ok && back.entities.size() == 1 && back.entities.front().tint == 0x9a5ac2,
+           "and what colour it is (0x%06X)",
+           ok && !back.entities.empty() ? back.entities.front().tint : 0);
+
+    // A colour is 24 bits. This one is not, and letting it through would hand the
+    // renderer a value it has no way to draw — and the bound is worth having here in
+    // particular, because a snapshot is a census: one bad entity in it must not be
+    // able to take every good one down with it, so the refusal has to be tested at
+    // the same seam that the acceptance is.
+    net::SnapshotMsg evil = out;
+    evil.entities.front().tint = 0x01000000;
+    ByteWriter bw;
+    net::begin(bw, net::MsgType::Snapshot);
+    encode(bw, evil);
+    ByteReader br(bw.data().data(), bw.data().size());
+    br.skip(1);
+    net::SnapshotMsg parsed;
+    check(!decode(br, parsed), "and a colour wider than 24 bits is refused");
+  }
+
+  // --- and so does a thrown item's -------------------------------------------
+  //
+  // A guest owns no entities, so everything it puts on the floor is this message.
+  // Nothing else in the game carries a dyed item out of a guest's hands.
+  {
+    net::TossMsg out;
+    out.pos = Vec3{4, 5, 6};
+    out.dir = Vec3{0, 1, 0};
+    out.key = "wool";
+    out.count = 3;
+    out.tint = 0xd23a34;
+
+    ByteWriter w;
+    net::begin(w, net::MsgType::Toss);
+    encode(w, out);
+    ByteReader r(w.data().data(), w.data().size());
+    r.skip(1);
+    net::TossMsg back;
+    const bool ok = decode(r, back);
+    checkf(ok && back.tint == 0xd23a34, "a thrown stack carries its colour to the host (0x%06X)",
+           ok ? back.tint : 0);
+    check(ok && back.count == 3 && back.key == "wool", "along with what and how many");
+
+    net::TossMsg evil = out;
+    evil.tint = -2;
+    ByteWriter bw;
+    net::begin(bw, net::MsgType::Toss);
+    encode(bw, evil);
+    ByteReader br(bw.data().data(), bw.data().size());
+    br.skip(1);
+    net::TossMsg parsed;
+    check(!decode(br, parsed), "and a colour that is neither absent nor real is refused");
   }
 
   // --- the snapshot budget can count ------------------------------------------
@@ -8184,7 +8310,8 @@ void testNetSession() {
     guestPlayer.setPos(Vec3{kOriginX + 4.0f, floorY, kOriginZ});
     pumpLive(40);
 
-    hostEntities.spawnDrop(Vec3{kOriginX, static_cast<float>(kY), kOriginZ}, "greystone", 3, -1);
+    hostEntities.spawnDrop(Vec3{kOriginX, static_cast<float>(kY), kOriginZ}, "greystone", 3, -1,
+                           -1);
     pumpLive(90);
 
     const game::Entity* ghost = nullptr;
@@ -8216,6 +8343,37 @@ void testNetSession() {
       if (!e.dead && e.type == game::EntityType::Drop) ++leftover;
     }
     checkf(leftover == 0, "and it leaves the host's world with them (%d still there)", leftover);
+
+    // The same journey for a dyed one, which crosses two seams the plain drop never
+    // touches: the snapshot that shows it lying there, and the award the host sends
+    // when a guest walks onto it. The award has carried a colour since the day it
+    // was written and the guest was throwing it away on arrival — every dyed thing
+    // picked up in multiplayer went into the bag white.
+    guestPlayer.setPos(Vec3{kOriginX + 6.0f, floorY, kOriginZ});
+    pumpLive(30);
+    hostEntities.spawnDrop(Vec3{kOriginX, static_cast<float>(kY), kOriginZ}, "wool", 2, -1,
+                           0x9a5ac2);
+    pumpLive(90);
+
+    const game::Entity* dyedGhost = nullptr;
+    for (const game::Entity& e : guestEntities.all()) {
+      if (e.ghost && e.type == game::EntityType::Drop && !e.dead && e.data.key == "wool") {
+        dyedGhost = &e;
+      }
+    }
+    checkf(dyedGhost != nullptr && dyedGhost->data.tint == 0x9a5ac2,
+           "a dyed item on the host's floor looks dyed on the guest's (0x%06X)",
+           dyedGhost ? dyedGhost->data.tint : -1);
+
+    guestPlayer.setPos(Vec3{kOriginX, floorY, kOriginZ});
+    pumpLive(90);
+    const game::ItemStack* got = nullptr;
+    for (const game::ItemStack& s : guestInventory.slots()) {
+      if (s.key == "wool") got = &s;
+    }
+    checkf(got != nullptr && got->count == 2, "and the guest picks it up");
+    checkf(got != nullptr && got->tint == 0x9a5ac2,
+           "with the colour still on it (0x%06X)", got ? got->tint : -1);
   }
 
   // --- a container a guest puts down is a real container -----------------------
@@ -8621,7 +8779,7 @@ void testNetSession() {
       hostEntities.spawnDrop(Vec3{kOriginX + 40.0f + static_cast<float>(i % 8),
                                   static_cast<float>(kY),
                                   kOriginZ + 40.0f + static_cast<float>(i / 8)},
-                             "coal", 1, -1);
+                             "coal", 1, -1, -1);
     }
     game::Entity* neighbour = hostEntities.spawn(
         game::EntityType::Sheep, Vec3{kOriginX + 2.0f, floorY, kOriginZ});

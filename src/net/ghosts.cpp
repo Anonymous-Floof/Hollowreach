@@ -162,6 +162,7 @@ void Ghosts::feedSnapshot(const SnapshotMsg& snap, double now) {
     g.a = e.a;
     g.b = e.b;
     g.key = e.key;
+    g.tint = e.tint;
     g.seen = true;
     g.track.push(e.pos, e.yaw, 0.0f, now);
   }
@@ -286,6 +287,10 @@ void Ghosts::update(double now, int localMount) {
         // loaf — came out as the same grey cube the renderer falls back to when
         // it cannot identify an item.
         body->data.key = g.key;
+        // And its colour, which the renderer reads off the same struct. A guest
+        // may not pick this up — the host hands the item over itself — so this is
+        // only ever what it looks like lying there, which is reason enough.
+        body->data.tint = g.tint;
         break;
       case game::EntityType::FallingBlock:
         body->data.key = g.key;

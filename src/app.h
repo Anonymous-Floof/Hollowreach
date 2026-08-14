@@ -65,6 +65,12 @@ enum class AppState {
   Palette,
 };
 
+// Which screen a state puts up, and whether E is one of the keys that shuts it.
+// Free functions rather than App members: they are answers about the state machine
+// itself, and nothing about them needs a window, a world or a renderer.
+ui::Screen screenFor(AppState state);
+bool closesWithE(AppState state);
+
 struct AppOptions {
   std::string dataDir;      // --data-dir
   bool listDevices = false; // --gl-info: print adapter details and exit
@@ -250,8 +256,13 @@ class App {
   ui::DropRun dropRun_;
   // Last settings revision applied; see updatePlaying.
   std::uint32_t settingsRevision_ = 0;
-  // Throws one stack into the world, routing through the host for a guest.
-  void tossStack(const std::string& key, int count, int dura);
+  // Throws one stack into the world, out of the player's face along their aim.
+  void tossStack(const game::ItemStack& stack);
+  // The crossing every thrown item passes through, guest or host. Takes the whole
+  // stack rather than its parts on purpose: these two were passed `key, count, dura`
+  // field by field, so when stacks learned a colour every throw in the game quietly
+  // dropped it, and a dyed item came back off the floor white.
+  void throwStack(const Vec3& from, const Vec3& dir, const game::ItemStack& stack);
   // The hooks Interact calls back into. Built once, since they capture `this`.
   game::InteractHooks makeInteractHooks();
   // The hooks the interface calls back into, likewise.

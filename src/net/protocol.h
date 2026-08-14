@@ -239,6 +239,12 @@ struct SnapEntity {
   // redraw every drop in every session between two builds that both think they
   // agree. A string cannot be wrong that way.
   std::string key;
+  // A dropped item's dye, -1 for undyed. Its own field rather than a ride in the
+  // spare `b`, which every other type uses for its hurt flash: `b` is validated
+  // against kMaxCoord, and every colour brighter than 0x1E8480 is larger than that,
+  // so a red wool on the floor would have failed the bounds check and taken the
+  // whole snapshot — every mob and every item in it — down with it.
+  std::int32_t tint = -1;
 };
 
 struct SnapPlayer {
@@ -324,6 +330,11 @@ struct TossMsg {
   std::string key;
   std::int32_t count = 1;
   std::int32_t dura = -1;
+  // The dye, -1 for undyed. A guest owns no entities, so every item it throws — Q,
+  // a full bag spilling, everything it was carrying when it died — becomes a real
+  // one only when this message lands. Without the colour on it, a guest could dye
+  // something and never put it down again without losing the dye.
+  std::int32_t tint = -1;
 };
 
 struct GiveMsg {

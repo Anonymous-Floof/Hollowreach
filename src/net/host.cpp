@@ -782,7 +782,9 @@ void Host::spillBlockEntity(int x, int y, int z) {
   if (game::BlockEntity* be = game_.world->getBlockEntity(x, y, z)) {
     for (const game::ItemStack& s : game::entityContents(*be)) {
       if (!s.empty()) {
-        game_.world->spawnDrop(x + 0.5f, y + 0.5f, z + 0.5f, s.key, s.count, s.dura);
+        // s.tint, not the default. A dyed thing shut inside a chest that is then
+        // broken comes back out of it the colour it went in.
+        game_.world->spawnDrop(x + 0.5f, y + 0.5f, z + 0.5f, s.key, s.count, s.dura, s.tint);
       }
     }
     game_.world->removeBlockEntity(x, y, z);
@@ -992,7 +994,7 @@ void Host::onToss(PeerState& st, const TossMsg& m, double now) {
   if (!st.active || !st.toss.take(now) || !st.havePose || !game_.entities) return;
   if (dist3(st.lastPose, m.pos) > kHitReach) return;
   if (!game::getItem(m.key)) return;
-  game_.entities->spawnTossed(m.pos, m.dir, m.key, m.count, m.dura);
+  game_.entities->spawnTossed(m.pos, m.dir, m.key, m.count, m.dura, m.tint);
 }
 
 // A vote arriving from a guest. The tiredness rule is checked HERE and only for
@@ -1325,6 +1327,7 @@ void Host::collectDrops() {
       give.key = e.data.key;
       give.count = e.data.count;
       give.dura = e.data.dura;
+      give.tint = e.data.tint;
       sendTo(st.peer, MsgType::Give, give);
       // Handed over whole. What will not fit in the guest's bag comes straight
       // back as a toss, which is the same round trip a full inventory takes
@@ -1414,6 +1417,9 @@ void Host::sendSnapshot() {
         // sending it without this left the receiver drawing the renderer's
         // last-resort cube for every item in the world.
         out.key = e.data.key.substr(0, kMaxItemKey);
+        // And what colour it is, for the same reason: a dyed thing lying on the
+        // ground is not described by its key alone.
+        out.tint = e.data.tint;
         break;
       case game::EntityType::FallingBlock:
         // The block it looks like, for the same reason. The id it will put back

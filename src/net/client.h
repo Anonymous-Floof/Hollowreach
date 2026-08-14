@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "game/inventory.h"
 #include "net/ghosts.h"
 #include "net/protocol.h"
 #include "net/session.h"
@@ -55,7 +56,9 @@ class Client {
   void sendHit(int entityId, const std::string& held, bool crit);
   void sendPlayerHit(const std::string& playerId, const std::string& held, bool crit);
   // Puts an item into the world through the host, which owns every entity in it.
-  void sendToss(const Vec3& pos, const Vec3& dir, const std::string& key, int count, int dura);
+  // The whole stack, so nothing it carries is left behind at the crossing — this
+  // took `key, count, dura` and every dyed item a guest threw landed white.
+  void sendToss(const Vec3& pos, const Vec3& dir, const game::ItemStack& stack);
   void sendBoatSpawn(const Vec3& pos);
   void sendBoatMount(int entityId, bool on);
   // `target` is the hour on the 0..1 clock this player would wake at. The host

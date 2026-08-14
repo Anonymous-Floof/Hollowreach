@@ -129,10 +129,17 @@ class EntityManager {
   // A mined block or a spilled container becomes an instant-collect drop with a
   // small pop; a tossed or death drop is thrown along `dir` and must be walked
   // over. Both are the sinks the World's spawnDrop seam feeds.
+  //
+  // `tint` is required by both, and defaulted by neither. It was defaulted on
+  // spawnDrop and absent from spawnTossed, which made every thrown item white: a
+  // dye discarded on the way out looks exactly like a dye that was never there, so
+  // the item came back from the floor as plain wool with no error anywhere. The
+  // twins take the same arguments so the next thing a stack learns to carry cannot
+  // reach one of them and miss the other.
   Entity* spawnDrop(const Vec3& pos, const std::string& key, int count, int dura,
-                    std::int32_t tint = -1);
+                    std::int32_t tint);
   Entity* spawnTossed(const Vec3& pos, const Vec3& dir, const std::string& key, int count,
-                      int dura);
+                      int dura, std::int32_t tint);
 
   // Occasionally place a passive grazer on grass near the player in daylight, or a
   // zombie anywhere dark enough, each under its own cap. Called on a four-second

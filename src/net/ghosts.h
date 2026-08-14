@@ -134,6 +134,8 @@ class Ghosts {
     std::uint8_t type = 0;
     float a = 0, b = 0;
     std::string key;
+    // A dropped item's dye, -1 for undyed. Only a drop has one; see SnapEntity.
+    std::int32_t tint = -1;
     bool seen = false;
   };
 

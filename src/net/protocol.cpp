@@ -177,8 +177,8 @@ bool decode(ByteReader& r, PoseMsg& m) {
 std::size_t snapshotOverhead() { return 1 + 4 + 4 + 4 + 4; }
 
 std::size_t wireSize(const SnapEntity& e) {
-  //     id   type  pos  yaw   a    b   key length + bytes
-  return 4 + 1 + 12 + 4 + 4 + 4 + 2 + e.key.size();
+  //     id   type  pos  yaw   a    b   tint  key length + bytes
+  return 4 + 1 + 12 + 4 + 4 + 4 + 4 + 2 + e.key.size();
 }
 
 std::size_t wireSize(const SnapPlayer& p) {
@@ -197,6 +197,7 @@ void encode(ByteWriter& w, const SnapshotMsg& m) {
     w.f32(e.yaw);
     w.f32(e.a);
     w.f32(e.b);
+    w.i32(e.tint);
     w.str(e.key);
   }
   w.u32(static_cast<std::uint32_t>(m.players.size()));
@@ -225,13 +226,15 @@ bool decode(ByteReader& r, SnapshotMsg& m) {
     e.yaw = r.f32();
     e.a = r.f32();
     e.b = r.f32();
+    e.tint = r.i32();
     e.key = r.str();
     // An empty key is the ordinary case — only a drop and a falling block have one
     // — so it is length that is checked here, not presence. Whether the key names
     // anything this build knows is the receiver's business: an unknown item draws
     // as the fallback cube rather than rejecting a whole snapshot of good entities.
     if (!okPos(e.pos) || !okF(e.yaw, -64, 64) || !okF(e.a, -kMaxCoord, kMaxCoord) ||
-        !okF(e.b, -kMaxCoord, kMaxCoord) || !okStr(e.key, kMaxItemKey)) {
+        !okF(e.b, -kMaxCoord, kMaxCoord) || e.tint < -1 || e.tint > 0x00FFFFFF ||
+        !okStr(e.key, kMaxItemKey)) {
       return false;
     }
   }
@@ -360,6 +363,7 @@ void encode(ByteWriter& w, const TossMsg& m) {
   w.str(m.key);
   w.i32(m.count);
   w.i32(m.dura);
+  w.i32(m.tint);
 }
 bool decode(ByteReader& r, TossMsg& m) {
   m.pos = readVec3(r);
@@ -367,9 +371,11 @@ bool decode(ByteReader& r, TossMsg& m) {
   m.key = r.str();
   m.count = r.i32();
   m.dura = r.i32();
+  m.tint = r.i32();
   return r.ok() && okPos(m.pos) && okF(m.dir.x, -2, 2) && okF(m.dir.y, -2, 2) &&
          okF(m.dir.z, -2, 2) && okStr(m.key, kMaxItemKey) && !m.key.empty() &&
-         m.count >= 1 && m.count <= 999 && m.dura >= -1 && m.dura <= 99999;
+         m.count >= 1 && m.count <= 999 && m.dura >= -1 && m.dura <= 99999 &&
+         m.tint >= -1 && m.tint <= 0x00FFFFFF;
 }
 
 void encode(ByteWriter& w, const GiveMsg& m) {
@@ -384,7 +390,8 @@ bool decode(ByteReader& r, GiveMsg& m) {
   m.dura = r.i32();
   m.tint = r.i32();
   return r.ok() && okStr(m.key, kMaxItemKey) && !m.key.empty() && m.count >= 1 &&
-         m.count <= 999 && m.dura >= -1 && m.dura <= 99999;
+         m.count <= 999 && m.dura >= -1 && m.dura <= 99999 && m.tint >= -1 &&
+         m.tint <= 0x00FFFFFF;
 }
 
 void encode(ByteWriter& w, const DamageMsg& m) {
