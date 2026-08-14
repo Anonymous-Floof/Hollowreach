@@ -81,6 +81,27 @@ const char* reachExplanation(Reach reach);
 // finding — that is how a missing GAA_FLAG_INCLUDE_GATEWAYS was caught.
 std::string defaultGatewayText();
 
+// The first few routers between here and the internet, by walking the TTL up.
+//
+// This is the question UPnP cannot answer and that decides whether ANY of this can
+// work. One private hop is an ordinary home: your router, then the internet. Two is
+// double NAT, and a forward has to be made on both. Three or more, or a hop in
+// 100.64/10, is the provider doing its own NAT — and then there is no public
+// address belonging to this connection at all, so no setting on any router in the
+// house can help.
+//
+// Diagnostic only, and Windows only: it uses the ICMP helper in iphlpapi, which
+// needs no elevation. Elsewhere it returns nothing and the doctor says so rather
+// than guessing.
+struct Hop {
+  std::string address;
+  Reach reach = Reach::Invalid;
+};
+std::vector<Hop> firstHops(int maxHops = 8);
+
+// What the hop list means, as one sentence, or empty when it looks ordinary.
+std::string hopVerdict(const std::vector<Hop>& hops);
+
 // --- NAT-PMP, as bytes -------------------------------------------------------
 //
 // Pure, so the layouts can be asserted without a gateway to talk to.

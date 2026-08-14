@@ -937,6 +937,63 @@ exchange, one HTTP round trip. There is no way to assert against a real router
 from a self-test, and the alternative to leaving it uncovered is pretending
 otherwise.
 
+### The multicast interface trap, met a second time
+
+The first report from a real network was "UPnP is on and it still does not work",
+and it was worth three findings.
+
+**The M-SEARCH went out of an unbound socket.** A datagram to a multicast group
+from an unbound socket leaves by exactly ONE interface, chosen by the routing
+table — and a developer machine has a Hyper-V switch, a VPN and WSL competing for
+that choice. `net/interfaces.h` documents this at length for *broadcast*, which is
+where the project first met it; nobody connected it to multicast, and the search
+was being delivered perfectly into a virtual network with no router in it. It is
+now sent bound to each interface in turn, which is what the beacon has always
+done. **When something on this project cannot find something else on the network,
+suspect the interface before suspecting the protocol.**
+
+**One search type is not enough.** Routers disagree about which `ST` they answer,
+so five are tried. This matters more than it sounds: on the network this was
+debugged against, the only device that answers SSDP *at all* is a television, and
+it answers `ssdp:all` and `upnp:rootdevice` cheerfully. That is why every reply is
+fetched and checked for a WAN service rather than trusted for having arrived.
+
+**And the failure message was hiding the interesting case.** "No UPnP gateway
+answered" covers both a network where nothing speaks UPnP and a network where a
+television answers and the router does not — and the second is the one where
+somebody has just ticked the box in their router and is entitled to be confused.
+The count of devices that replied is in the message now.
+
+### Counting the routers, which is the question that decides everything
+
+None of the above could tell the player the thing they most needed to know, so
+`--net-doctor` now walks the TTL up and prints the first few hops. It costs one
+`IcmpSendEcho` per hop, needs no elevation, and answers in one glance what UPnP
+cannot answer at all:
+
+- one private hop, then the internet — ordinary, and forwarding works;
+- two — double NAT, and a forward is needed on both, of which the game can only
+  ever ask the nearer;
+- three or more, or anything in `100.64/10` — the provider's own NAT, and then
+  **there is no public address belonging to this connection**, so nothing
+  configured anywhere in the house can help.
+
+The network this was built on turned out to be the third case: two routers in the
+house and then two more private hops belonging to the provider. That is worth
+recording because it is the case the feature cannot serve, it is not rare, and the
+only honest answer to it is a relay — Tailscale, ZeroTier — which needs no
+incoming connection at all and is safer than this feature anyway. `hopVerdict`
+says so by name.
+
+`hopVerdict` is a pure function over a list of hops precisely so it can be
+asserted without a network: five sabotages, five caught. The hop *measurement* is
+Windows-only and untested, for the same reason the sockets are.
+
+One thing deliberately NOT done: the hop verdict does not set the doctor's exit
+code. That code means "something here would stop this machine being found", which
+is a question about the local network, and a house behind carrier NAT plays
+together perfectly.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

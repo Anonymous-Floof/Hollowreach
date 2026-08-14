@@ -132,7 +132,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1380 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1386 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -637,6 +637,36 @@ strictly safer than this feature, and you do not need this feature to use it.
 increasingly on fixed lines — there is no address to share and nothing the game
 can do about it. The panel says so plainly rather than handing you an address
 that will never answer.
+
+#### How many routers are in the way
+
+`--net-doctor` walks the first few hops to the internet and prints them, because
+that one list decides whether any of this can work:
+
+```
+  hop 1      192.168.10.1    a private router
+  hop 2      192.168.20.1    a private router
+  hop 3      10.0.4.1  a private router
+  hop 4      10.0.9.7     a private router
+  hop 5      203.0.113.9   the internet
+```
+
+- **One private hop, then the internet** — the ordinary case. Forwarding works.
+- **Two private hops** — double NAT: two routers in your house, one behind the
+  other. A forward has to exist on *both*, the outer one pointing at the inner
+  one's WAN address. The game can only ever ask the nearer of the two, so the
+  outer one is yours to do by hand.
+- **Three or more, or any hop in `100.64.x`–`100.127.x`** — your provider is
+  doing its own NAT. **Then your connection has no public address at all**, and
+  no setting on any router in the house can create one. Nothing is broken; there
+  is simply nothing to forward *from*.
+
+That last case is not rare, and the honest answer to it is a relay: **Tailscale**,
+**ZeroTier** or similar. Everyone installs it, everyone joins the same private
+network, and the game sees ordinary LAN addresses — no ports opened, nothing
+exposed to the internet, and it works through carrier NAT precisely because it
+never needs an incoming connection. It is both the only thing that works here and
+the safer option anyway.
 
 #### If the router will not do it automatically
 

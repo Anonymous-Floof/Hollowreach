@@ -7714,6 +7714,45 @@ void testNet() {
             "the external address is read through whatever namespace prefix arrives");
     }
 
+    // How many routers are in the way, which is the question that decides whether
+    // any of the rest can work. Built from hop lists rather than measured, so the
+    // verdict can be asserted without a network to walk.
+    {
+      const auto hop = [](const char* address) {
+        net::Hop h;
+        h.address = address;
+        h.reach = net::classify(address);
+        return h;
+      };
+      // The ordinary house: one router, then the internet.
+      const std::vector<net::Hop> simple {hop("192.168.1.1"), hop("203.0.113.1")};
+      check(net::hopVerdict(simple).empty(), "one router and then the internet is unremarkable");
+
+      // Two routers: forwardable, but only by hand and on both.
+      const std::vector<net::Hop> doubled {hop("192.168.10.1"), hop("192.168.20.1"),
+                                           hop("203.0.113.1")};
+      check(net::hopVerdict(doubled).find("BOTH") != std::string::npos,
+            "two routers says a forward is needed on both of them");
+
+      // Three private hops is the provider's own network, and no forward can help.
+      const std::vector<net::Hop> carrier {hop("192.168.10.1"), hop("192.168.20.1"),
+                                           hop("10.0.4.1"), hop("10.0.9.7"),
+                                           hop("203.0.113.9")};
+      const std::string verdict = net::hopVerdict(carrier);
+      check(verdict.find("no public address") != std::string::npos,
+            "and a third private hop means the provider is doing its own NAT");
+      check(verdict.find("Tailscale") != std::string::npos,
+            "which names the only thing that actually helps");
+
+      // 100.64/10 says it outright, even at the second hop.
+      const std::vector<net::Hop> declared {hop("192.168.1.1"), hop("100.70.0.1"),
+                                            hop("203.0.113.1")};
+      check(net::hopVerdict(declared).find("no public address") != std::string::npos,
+            "a 100.64 hop is the provider saying so in as many words");
+
+      check(net::hopVerdict({}).empty(), "and no measurement is no verdict");
+    }
+
     // The classifier, which is what stands between a player and an evening spent
     // wondering why nobody can join.
     {

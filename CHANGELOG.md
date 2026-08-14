@@ -65,6 +65,23 @@ what it lets them do, never by the refactor that made it possible.
   If your provider uses carrier-grade NAT, the panel says so instead of handing
   you an address that can never work.
 
+- **`--net-doctor` counts the routers between you and the internet**, which is the
+  one thing that decides whether any of this can work — and it answers in a glance
+  where the router's own settings pages cannot:
+
+  - one private hop and then the internet is the ordinary case, and forwarding
+    works;
+  - two means two routers in your house, one behind the other, and a forward has
+    to exist on both;
+  - three or more, or an address in the `100.64` range, means your provider is
+    doing its own NAT — **your connection has no public address at all**, and no
+    setting on any router in the house can create one.
+
+  That last case is common and nothing is broken when you hit it; there is simply
+  nothing to forward from. README.md explains the relay route (Tailscale,
+  ZeroTier), which needs no open port, works straight through carrier NAT, and is
+  the safer option regardless.
+
 - **The invite code keeps your address off the screen.** The panel and the
   clipboard show `HRW1…` rather than a bare address, so it is not sitting in the
   open in a screenshot or a chat log. To be clear about what that is worth: it is

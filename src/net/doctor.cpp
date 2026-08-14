@@ -139,6 +139,32 @@ int runNetDoctor(std::uint16_t gamePort) {
                   "               plainly on a network, that is a fault in the game\n"
                   "               rather than in the network.\n");
     }
+    // How many routers are in the way, before asking any of them for anything.
+    // This is the check that decides whether the rest of the section can matter:
+    // a connection behind the provider's own NAT has no public address, and no
+    // amount of UPnP anywhere in the house will conjure one.
+    const std::vector<Hop> hops = firstHops();
+    if (hops.empty()) {
+      std::printf("  (could not measure the hops to the internet on this platform)\n");
+    } else {
+      for (std::size_t i = 0; i < hops.size(); ++i) {
+        const char* kind = hops[i].reach == Reach::Public       ? "the internet"
+                           : hops[i].reach == Reach::CarrierNat ? "your provider's NAT"
+                           : hops[i].reach == Reach::PrivateLan ? "a private router"
+                                                                : "";
+        std::printf("  hop %d      %-15s %s\n", static_cast<int>(i) + 1,
+                    hops[i].address.c_str(), kind);
+      }
+      const std::string verdict = hopVerdict(hops);
+      if (!verdict.empty()) {
+        // Reported loudly and deliberately NOT counted as trouble. This program's
+        // exit code means "something here would stop this machine being FOUND",
+        // which is a question about the local network — and none of this affects
+        // it. A house behind carrier NAT plays together perfectly.
+        std::printf("\n  NOTE: %s\n\n", verdict.c_str());
+      }
+    }
+
     PortMapper mapper;
     mapper.begin(gamePort);
     for (int i = 0; i < 400 && mapper.busy(); ++i) {

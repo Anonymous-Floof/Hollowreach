@@ -16,6 +16,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#include <icmpapi.h>
 #else
 #include <cstdio>
 #endif
@@ -359,6 +360,74 @@ std::uint32_t defaultGateway() {
 std::string defaultGatewayText() {
   const std::uint32_t gateway = defaultGateway();
   return gateway == 0 ? std::string() : dotted(gateway);
+}
+
+std::vector<Hop> firstHops(int maxHops) {
+  std::vector<Hop> out;
+#if defined(_WIN32)
+  // 1.1.1.1 purely as something to aim at. Nothing is sent to it: every probe here
+  // expires in the middle and is answered by a router along the way, which is the
+  // only thing being asked for.
+  const HANDLE icmp = IcmpCreateFile();
+  if (icmp == INVALID_HANDLE_VALUE) return out;
+  const IPAddr target = htonl(0x01010101);
+  unsigned char payload[32] = {};
+  std::vector<unsigned char> reply(sizeof(ICMP_ECHO_REPLY) + sizeof payload + 64);
+
+  for (int ttl = 1; ttl <= maxHops; ++ttl) {
+    IP_OPTION_INFORMATION options = {};
+    options.Ttl = static_cast<UCHAR>(ttl);
+    const DWORD got = IcmpSendEcho(icmp, target, payload, sizeof payload, &options,
+                                   reply.data(), static_cast<DWORD>(reply.size()), 1500);
+    if (got == 0) break;  // nothing came back at this distance; stop rather than guess
+    const auto* echo = reinterpret_cast<const ICMP_ECHO_REPLY*>(reply.data());
+    Hop hop;
+    hop.address = dotted(ntohl(echo->Address));
+    hop.reach = classify(hop.address);
+    out.push_back(hop);
+    // The first public hop is the internet, and everything past it is somebody
+    // else's business.
+    if (hop.reach == Reach::Public) break;
+  }
+  IcmpCloseHandle(icmp);
+#else
+  (void)maxHops;
+#endif
+  return out;
+}
+
+std::string hopVerdict(const std::vector<Hop>& hops) {
+  if (hops.empty()) return {};
+  int privateHops = 0;
+  bool carrier = false;
+  bool sawPublic = false;
+  for (const Hop& hop : hops) {
+    if (hop.reach == Reach::Public) {
+      sawPublic = true;
+      break;
+    }
+    if (hop.reach == Reach::CarrierNat) carrier = true;
+    if (hop.reach == Reach::PrivateLan || hop.reach == Reach::CarrierNat) ++privateHops;
+  }
+  // 100.64/10 is the provider saying so in as many words. More than two private
+  // hops says the same thing less directly: a house has one or two routers, and
+  // the ones past that belong to the provider's own network.
+  if (carrier || privateHops >= 3) {
+    return "Your internet provider is doing its own NAT: there are private hops "
+           "beyond your own routers. This connection has no public address, so no "
+           "port forwarding on any router in the house can make it reachable. A "
+           "relay such as Tailscale is the way to play with distant friends here.";
+  }
+  if (privateHops == 2) {
+    return "There are two routers between this machine and the internet. A forward "
+           "has to be made on BOTH — the outer one pointing at the inner one's WAN "
+           "address — and the game can only ever ask the nearer of the two.";
+  }
+  if (!sawPublic) {
+    return "The internet was not reached within the hops checked, which usually "
+           "means more than one router in front of this machine.";
+  }
+  return {};
 }
 
 namespace {
