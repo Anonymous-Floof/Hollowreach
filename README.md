@@ -638,6 +638,37 @@ increasingly on fixed lines — there is no address to share and nothing the gam
 can do about it. The panel says so plainly rather than handing you an address
 that will never answer.
 
+#### If the router will not do it automatically
+
+`--net-doctor` distinguishes the two failures, because they need different
+answers:
+
+- *"no UPnP device answered on this network at all"* — nothing here speaks UPnP.
+- *"N UPnP device(s) answered, but none of them was a router that forwards
+  ports"* — something replied (a television and a printer both will) and your
+  router did not. **If its UPnP setting is switched on and you still see this,
+  the router is not honouring it.** Worth checking: that the setting was actually
+  applied and saved, and that the router's own note about UPnP needing a live WAN
+  service with NAT is satisfied — a modem in bridge mode often is not.
+
+Either way, the manual route always works and is not much harder:
+
+1. In the router's admin pages, find **NAT → Virtual Servers** (some call it Port
+   Forwarding). Not *Port Triggering*, which reacts to outbound traffic, and
+   **not DMZ Host**, which forwards *every* port to one machine and is far more
+   exposure than this needs.
+2. Add one entry: protocol **UDP**, external and internal port **25565**,
+   internal address = the hosting PC's LAN address (`--net-doctor` prints it on
+   the `[use ]` line).
+3. Host as usual, with the game's port-forward setting **off** — it has nothing
+   left to do.
+4. Your friends need your public address, which the router's status page shows as
+   its WAN or Internet address. The Join box takes `address:port` directly, so
+   `203.0.113.7:25565` is all they need.
+
+Everything in the warning above applies just the same to a manual forward — more
+so, because a hand-made entry has no lease and stays until you delete it.
+
 **If a world does not appear in the list**, run this on both machines first:
 
 ```bash

@@ -494,56 +494,146 @@ bool soapCall(const std::string& host, std::uint16_t port, const std::string& pa
 }
 
 // Finds the gateway's device description and the control URL inside it.
-bool discoverIgd(std::string& host, std::uint16_t& port, std::string& controlPath,
-                 std::string& serviceType) {
+// Routers disagree about which search they will answer, so ask several ways.
+// Observed on the router this was developed against: it answers NONE of these,
+// while a television on the same network answers `ssdp:all` and `upnp:rootdevice`
+// happily — which is exactly why the device-type search alone is not enough to
+// conclude anything, and why every reply is checked for a WAN service rather than
+// trusted because it arrived.
+const char* const kSearchTypes[] = {
+    "urn:schemas-upnp-org:device:InternetGatewayDevice:1",
+    "urn:schemas-upnp-org:service:WANIPConnection:1",
+    "urn:schemas-upnp-org:service:WANPPPConnection:1",
+    "upnp:rootdevice",
+    "ssdp:all",
+};
+
+std::string searchText(const char* serviceType) {
+  return std::string(
+             "M-SEARCH * HTTP/1.1\r\n"
+             "HOST: 239.255.255.250:1900\r\n"
+             "MAN: \"ssdp:discover\"\r\n"
+             "MX: 2\r\n"
+             "ST: ") +
+         serviceType + "\r\n\r\n";
+}
+
+// One search out of ONE interface, and every reply it draws, appended to `out`.
+//
+// `bindTo` is why this function exists. A datagram to a multicast group from an
+// unbound socket leaves by exactly one interface, chosen by the routing table —
+// and on a developer machine that is as likely to be a Hyper-V switch, a VPN or
+// WSL as the network the router is on. The M-SEARCH is then delivered perfectly
+// into a network with no router in it, send() succeeds, and nothing answers.
+//
+// net/interfaces.h documents this at length for BROADCAST, which is where it was
+// first met. It is the same trap for multicast, and this code walked straight
+// into it: a machine with a working, UPnP-enabled router reported "no UPnP
+// gateway answered" because the search went out through a virtual switch.
+// Binding the source address is what pins the outgoing interface.
+void searchFrom(std::uint32_t bindTo, const char* serviceType,
+                std::vector<std::string>& out) {
   const ENetSocket s = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
-  if (s == ENET_SOCKET_NULL) return false;
+  if (s == ENET_SOCKET_NULL) return;
   enet_socket_set_option(s, ENET_SOCKOPT_BROADCAST, 1);
+  enet_socket_set_option(s, ENET_SOCKOPT_REUSEADDR, 1);
+  if (bindTo != 0) {
+    ENetAddress bind;
+    bind.host = bindTo;
+    bind.port = 0;
+    if (enet_socket_bind(s, &bind) != 0) {
+      enet_socket_destroy(s);
+      return;
+    }
+  }
 
   ENetAddress to;
   if (enet_address_set_host_ip(&to, "239.255.255.250") != 0) {
     enet_socket_destroy(s);
-    return false;
+    return;
   }
   to.port = 1900;
 
-  static const char* kSearch =
-      "M-SEARCH * HTTP/1.1\r\n"
-      "HOST: 239.255.255.250:1900\r\n"
-      "MAN: \"ssdp:discover\"\r\n"
-      "MX: 2\r\n"
-      "ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n";
-  const std::vector<std::uint8_t> search(kSearch, kSearch + std::strlen(kSearch));
+  const std::string request = searchText(serviceType);
+  ENetBuffer send;
+  send.data = const_cast<char*>(request.data());
+  send.dataLength = request.size();
+  if (enet_socket_send(s, &to, &send, 1) < 0) {
+    enet_socket_destroy(s);
+    return;
+  }
 
-  bool found = false;
-  std::string location;
-  // Several replies may arrive — other UPnP devices answer too — so this keeps
-  // reading until one of them is a gateway with a usable description.
-  for (int attempt = 0; attempt < 2 && !found; ++attempt) {
-    std::vector<std::uint8_t> reply;
-    if (!exchange(s, to, search, kSsdpTimeoutMs, reply)) continue;
-    const std::string text(reinterpret_cast<const char*>(reply.data()), reply.size());
-    if (!ssdpLocation(text, location)) continue;
-    found = true;
+  // EVERY reply, not the first. A house has more UPnP devices than a router —
+  // televisions, printers, media servers — and taking whichever answered fastest
+  // is how the search "succeeds" and then finds no WAN service on a smart TV.
+  for (int i = 0; i < 12; ++i) {
+    enet_uint32 condition = ENET_SOCKET_WAIT_RECEIVE;
+    if (enet_socket_wait(s, &condition, kSsdpTimeoutMs) != 0) break;
+    if ((condition & ENET_SOCKET_WAIT_RECEIVE) == 0) break;
+    char buffer[2048];
+    ENetAddress from;
+    ENetBuffer in;
+    in.data = buffer;
+    in.dataLength = sizeof buffer;
+    const int got = enet_socket_receive(s, &from, &in, 1);
+    if (got <= 0) break;
+    std::string location;
+    if (ssdpLocation(std::string(buffer, static_cast<std::size_t>(got)), location)) {
+      out.push_back(location);
+    }
   }
   enet_socket_destroy(s);
-  if (!found) return false;
+}
 
-  std::string descPath;
-  if (!splitUrl(location, host, port, descPath)) return false;
+// `devicesSeen` is how many UPnP devices answered at all, which is the difference
+// between two failures that look identical and are not: a network where nothing
+// speaks UPnP, and a network where a television answers cheerfully and the router
+// says nothing. The second is the one where the checkbox in the router's settings
+// is ticked and the player is entitled to be confused.
+bool discoverIgd(std::string& host, std::uint16_t& port, std::string& controlPath,
+                 std::string& serviceType, int& devicesSeen) {
+  std::vector<std::string> locations;
+  // Every interface the machine has a real network on, then an unbound search as
+  // well — a machine whose interface list comes back empty still gets one try.
+  // Stops at the first search type that produces anything, so the usual case of a
+  // router answering the device search costs one round trip rather than five.
+  for (const char* serviceType : kSearchTypes) {
+    for (const Interface& iface : localInterfaces()) {
+      searchFrom(iface.address, serviceType, locations);
+    }
+    searchFrom(0, serviceType, locations);
+    if (!locations.empty()) break;
+  }
 
-  const std::string request = "GET " + descPath + " HTTP/1.1\r\nHOST: " + host + ":" +
-                              std::to_string(port) + "\r\nCONNECTION: close\r\n\r\n";
-  std::string description;
-  if (!http(host, port, request, description)) return false;
-  return upnpControlUrl(description, controlPath, serviceType);
+  std::sort(locations.begin(), locations.end());
+  locations.erase(std::unique(locations.begin(), locations.end()), locations.end());
+  devicesSeen = static_cast<int>(locations.size());
+
+  // Each candidate is fetched and read until one of them turns out to have a WAN
+  // connection service. The gateway is not necessarily the first to answer.
+  for (const std::string& location : locations) {
+    std::string descPath;
+    if (!splitUrl(location, host, port, descPath)) continue;
+    const std::string request = "GET " + descPath + " HTTP/1.1\r\nHOST: " + host + ":" +
+                                std::to_string(port) + "\r\nCONNECTION: close\r\n\r\n";
+    std::string description;
+    if (!http(host, port, request, description)) continue;
+    if (upnpControlUrl(description, controlPath, serviceType)) return true;
+  }
+  return false;
 }
 
 bool tryUpnp(std::uint16_t port, MapResult& out) {
   std::string host, controlPath, serviceType;
   std::uint16_t httpPort = 0;
-  if (!discoverIgd(host, httpPort, controlPath, serviceType)) {
-    out.detail = "no UPnP gateway answered";
+  int devicesSeen = 0;
+  if (!discoverIgd(host, httpPort, controlPath, serviceType, devicesSeen)) {
+    out.detail = devicesSeen == 0
+                     ? "no UPnP device answered on this network at all"
+                     : std::to_string(devicesSeen) +
+                           " UPnP device(s) answered, but none of them was a router that "
+                           "forwards ports — if your router's UPnP setting is on, it is "
+                           "not replying";
     return false;
   }
   // A relative controlURL is the common case; an absolute one happens too.
@@ -608,7 +698,8 @@ bool tryUpnp(std::uint16_t port, MapResult& out) {
 void deleteUpnp(std::uint16_t port) {
   std::string host, controlPath, serviceType;
   std::uint16_t httpPort = 0;
-  if (!discoverIgd(host, httpPort, controlPath, serviceType)) return;
+  int devicesSeen = 0;
+  if (!discoverIgd(host, httpPort, controlPath, serviceType, devicesSeen)) return;
   if (!controlPath.empty() && controlPath[0] != '/') controlPath = "/" + controlPath;
   const std::string body =
       "<NewRemoteHost></NewRemoteHost>"
