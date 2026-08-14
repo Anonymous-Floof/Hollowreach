@@ -41,6 +41,8 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.17.0] - 2026-08-14
+
 ### Added
 - **Play with friends who are not on your network.** Settings → Multiplayer →
   *Open a Port for Internet Play*, then host as usual. The game asks your router
@@ -1331,6 +1333,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.17.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.17.0
 [2.16.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.16.0
 [2.15.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.15.1
 [2.14.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.14.0
