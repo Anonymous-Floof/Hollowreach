@@ -44,6 +44,7 @@
 #include "net/client.h"
 #include "net/discovery.h"
 #include "net/host.h"
+#include "net/portmap.h"
 #include "net/protocol.h"
 #include "net/transport.h"
 #include "save/format.h"
@@ -7594,6 +7595,146 @@ void testNet() {
           "a code survives being lowercased and broken up with spaces");
     check(!net::parseInviteCode("not a code at all!", address, port, world),
           "and something that is not a code is refused");
+
+    // A public address rides in the same envelope as a private one. This is the
+    // whole of the "masking": the address is not printed on screen. It is not
+    // secret — this very check decodes it in one call — and the code says so where
+    // a player reads it rather than only here.
+    const std::string wan = net::makeInviteCode("203.0.113.7", 25565, "Hollow Reach");
+    check(wan.find("203.0.113.7") == std::string::npos,
+          "a code does not carry the address in the clear");
+    check(net::parseInviteCode(wan, address, port, world) && address == "203.0.113.7",
+          "and the address comes straight back out of it, which is the point of a code "
+          "and the limit of one");
+  }
+
+  // --- opening a port on the router -------------------------------------------
+  //
+  // Everything here is the part that does not need a router: the byte layouts, the
+  // parsing of what routers send back, and the classifier that decides whether an
+  // address is worth giving to a friend. The sockets are deliberately the thin part
+  // and are not covered — the note in docs/ROADMAP.md says so plainly.
+  {
+    std::printf("opening a port on the router\n");
+
+    // NAT-PMP, RFC 6886 section 3.3. Twelve bytes, big-endian, and getting any of
+    // the offsets wrong asks a router for a mapping nobody wanted.
+    {
+      const std::vector<std::uint8_t> map = net::natpmpMapRequest(25565, 25565, 3600);
+      checkf(map.size() == 12, "a NAT-PMP mapping request is twelve bytes (%d)",
+             static_cast<int>(map.size()));
+      check(map[0] == 0 && map[1] == 1, "version zero, opcode one for UDP");
+      check(map[4] == 0x63 && map[5] == 0xDD, "the internal port is big-endian");
+      check(map[8] == 0 && map[9] == 0 && map[10] == 0x0E && map[11] == 0x10,
+            "and so is the lifetime");
+      const std::vector<std::uint8_t> del = net::natpmpMapRequest(25565, 0, 0);
+      check(del[8] == 0 && del[9] == 0 && del[10] == 0 && del[11] == 0,
+            "a lifetime of zero is how a mapping is deleted");
+    }
+    {
+      // A reply: opcode 128, result 0, then the address.
+      const std::uint8_t reply[] = {0, 128, 0, 0, 0, 0, 0, 1, 203, 0, 113, 7};
+      std::string address, error;
+      check(net::natpmpParseAddress(reply, sizeof reply, address, error) &&
+                address == "203.0.113.7",
+            "the router's own address comes out of a NAT-PMP reply");
+
+      // Result code 2 is a router with forwarding switched off, which is a
+      // different thing to say to a player than "nothing answered".
+      const std::uint8_t refused[] = {0, 128, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0};
+      check(!net::natpmpParseAddress(refused, sizeof refused, address, error) &&
+                error.find("switched off") != std::string::npos,
+            "and a refusal says the router turned it off rather than that it was silent");
+
+      // The opcode check earns its keep here: a mapping reply must not be read as
+      // an address reply, or the lifetime is reported as somebody's IP.
+      const std::uint8_t mapping[] = {0, 129, 0, 0, 0, 0, 0, 1, 0x63, 0xDD, 0x63, 0xDD,
+                                      0, 0,   14, 16};
+      check(!net::natpmpParseAddress(mapping, sizeof mapping, address, error),
+            "a mapping reply is not accepted as an address reply");
+      std::uint16_t external = 0;
+      std::uint32_t lifetime = 0;
+      check(net::natpmpParseMap(mapping, sizeof mapping, external, lifetime, error) &&
+                external == 25565 && lifetime == 3600,
+            "and read as what it is, gives the port and the lease");
+
+      const std::uint8_t truncated[] = {0, 128, 0, 0};
+      check(!net::natpmpParseAddress(truncated, sizeof truncated, address, error),
+            "a short reply is refused rather than read off the end of the buffer");
+    }
+
+    // UPnP: the three parsers, against the shapes routers actually send.
+    {
+      std::string url;
+      check(net::ssdpLocation("HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=120\r\n"
+                              "Location: http://192.168.1.1:5000/rootDesc.xml\r\n\r\n",
+                              url) &&
+                url == "http://192.168.1.1:5000/rootDesc.xml",
+            "the LOCATION header survives a router that spells it Location");
+
+      std::string host, path;
+      std::uint16_t port2 = 0;
+      check(net::splitUrl(url, host, port2, path) && host == "192.168.1.1" && port2 == 5000 &&
+                path == "/rootDesc.xml",
+            "and splits into host, port and path");
+      check(net::splitUrl("http://10.0.0.1/desc", host, port2, path) && port2 == 80,
+            "a URL with no port is port eighty");
+      check(!net::splitUrl("https://10.0.0.1/desc", host, port2, path),
+            "and an https device description is not chased");
+
+      // The control URL has to come from the SAME service block as the type, which
+      // is why this description puts a decoy service first.
+      const std::string description =
+          "<root><device><serviceList>"
+          "<service><serviceType>urn:schemas-upnp-org:service:Layer3Forwarding:1</serviceType>"
+          "<controlURL>/wrong</controlURL></service>"
+          "<service><serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>"
+          "<controlURL>/ctl/IPConn</controlURL></service>"
+          "</serviceList></device></root>";
+      std::string controlPath, serviceType;
+      check(net::upnpControlUrl(description, controlPath, serviceType) &&
+                controlPath == "/ctl/IPConn" &&
+                serviceType == "urn:schemas-upnp-org:service:WANIPConnection:1",
+            "the control URL comes from the WAN service and not the one above it");
+
+      // A modem router offers PPP instead, and refusing it would refuse the
+      // hardware a lot of people actually have.
+      const std::string ppp =
+          "<root><service>"
+          "<serviceType>urn:schemas-upnp-org:service:WANPPPConnection:1</serviceType>"
+          "<controlURL>/upnp/control/WANPPPConn1</controlURL></service></root>";
+      check(net::upnpControlUrl(ppp, controlPath, serviceType) &&
+                controlPath == "/upnp/control/WANPPPConn1",
+            "and a PPP connection is accepted just the same");
+
+      std::string ip;
+      check(net::xmlValue("<u:NewExternalIPAddress>203.0.113.7</u:NewExternalIPAddress>",
+                          "NewExternalIPAddress", ip) &&
+                ip == "203.0.113.7",
+            "the external address is read through whatever namespace prefix arrives");
+    }
+
+    // The classifier, which is what stands between a player and an evening spent
+    // wondering why nobody can join.
+    {
+      check(net::classify("203.0.113.7") == net::Reach::Public, "a routable address is public");
+      check(net::classify("100.70.1.1") == net::Reach::CarrierNat,
+            "100.64/10 is the provider's own NAT and nothing here can open it");
+      check(net::classify("100.128.0.1") == net::Reach::Public,
+            "while 100.128 is outside that range and is not");
+      check(net::classify("192.168.1.1") == net::Reach::PrivateLan,
+            "a private address means a second router in front of this one");
+      check(net::classify("10.1.2.3") == net::Reach::PrivateLan, "and so does 10/8");
+      check(net::classify("172.16.0.1") == net::Reach::PrivateLan, "and 172.16/12");
+      check(net::classify("172.32.0.1") == net::Reach::Public, "but 172.32 is not in it");
+      check(net::classify("169.254.4.4") == net::Reach::Invalid,
+            "a link-local address means no DHCP answered");
+      check(net::classify("127.0.0.1") == net::Reach::Loopback, "loopback is recognised");
+      check(net::classify("not an address") == net::Reach::Invalid, "and nonsense is refused");
+      check(std::string(net::reachExplanation(net::Reach::CarrierNat)).find("Tailscale") !=
+                std::string::npos,
+            "carrier NAT names a way out rather than only saying no");
+    }
   }
 
   // --- a real connection, over the loopback -----------------------------------

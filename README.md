@@ -56,6 +56,7 @@ nothing that phones home.
 - [Farming and cooking](#farming-and-cooking)
 - [Dyeing](#dyeing)
 - [Multiplayer](#multiplayer)
+  - [Playing with friends over the internet](#playing-with-friends-over-the-internet)
   - [Chat and commands](#chat-and-commands)
     - [Who may run what](#who-may-run-what)
     - [The access list](#the-access-list)
@@ -131,7 +132,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1350 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1380 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 ## Controls
@@ -582,6 +583,60 @@ server to run and nothing to sign up for.
 The invite code is the same `HRW1…HRW1` envelope the browser build used, so it
 still survives being lowercased, broken up by a chat client, or read out loud —
 it is Crockford base32, with the letters that look like digits left out.
+
+### Playing with friends over the internet
+
+Everything above is for people on the same network. To play with somebody
+somewhere else, your router has to be told to let them in, and Hollowreach can
+ask it for you: **Settings → Multiplayer → Open a Port for Internet Play**, then
+host as usual. It tries NAT-PMP first and UPnP second, and the panel says which
+worked. The invite code then reaches you from anywhere.
+
+> **Read this part before you turn it on.**
+>
+> While that port is open, **anyone on the internet can send data to the game**,
+> not only the people you gave the code to. The internet is scanned continuously
+> and automatically; an open UDP port will be found within hours whether or not
+> you told anyone about it. That is not a flaw in this implementation — it is
+> what a port forward *is*, in every game that offers one.
+>
+> What that means in practice:
+>
+> - **Only share the code with people you actually trust.** Not a public Discord,
+>   not a stream, not a forum post. Anyone holding it can join your world, and
+>   anyone who joins can see your address.
+> - **Guests are not sandboxed from your world.** A guest can build, break, and
+>   take things from chests. There is no permission system yet.
+> - **Turn it off when you are done.** Stopping hosting closes the port again.
+> - **Keep the game up to date.** A network-facing program is worth patching;
+>   `--check-update` is there for a reason.
+>
+> The port is opened with a **one-hour lease that the game renews while it runs**,
+> so if the game crashes the router drops it by itself within the hour. It is
+> also explicitly closed when you stop hosting, leave the world, or quit.
+
+**On hiding your address.** The panel shows the `HRW1…` code rather than a bare
+`203.0.113.7`, and that is worth something: your address is not sitting in the
+open in a screenshot, over your shoulder, or in a chat log that a bot is
+scanning for things shaped like addresses.
+
+**It is not a secret, and it would be wrong to tell you otherwise.** The code is
+an *encoding*, not encryption — this game decodes it instantly, and so will any
+base32 decoder on the web. Anyone who actually connects to you can read your
+address off their own connection list no matter what the code looks like. That
+is simply how connecting to a computer works.
+
+If you want your address genuinely hidden, the only thing that does it is
+putting a third machine in the middle, which this game has no server for. A
+private network overlay like **Tailscale**, **ZeroTier** or **Hamachi** does
+exactly that: everyone joins the overlay, the game sees plain LAN addresses, and
+no port is opened to the internet at all. If that is an option for you, it is
+strictly safer than this feature, and you do not need this feature to use it.
+
+**If your provider uses carrier-grade NAT** — common on mobile broadband and
+increasingly on fixed lines — there is no address to share and nothing the game
+can do about it. The panel says so plainly rather than handing you an address
+that will never answer.
 
 **If a world does not appear in the list**, run this on both machines first:
 

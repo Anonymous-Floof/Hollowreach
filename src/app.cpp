@@ -1259,17 +1259,42 @@ void App::wireInterface() {
     }
     if (!netHosting()) return {};
     const int guests = netHost_.guestCount();
-    return net::makeInviteCode(net::localAddress(), netHost_.port(), worldMeta_.name) + "\n" +
-           std::to_string(guests) + (guests == 1 ? " guest connected" : " guests connected");
+    std::string out = inviteCode() + "\n" + std::to_string(guests) +
+                      (guests == 1 ? " guest connected" : " guests connected");
+    // The state of the router request, in the panel rather than only in the log,
+    // because "is it working yet" is the whole question while it is happening.
+    const net::MapResult map = portMapper_.result();
+    switch (map.state) {
+      case net::MapState::Off: break;
+      case net::MapState::Trying: out += "\nAsking the router to open the port..."; break;
+      case net::MapState::Open:
+        // The warning sits next to the code, every time, for as long as the port is
+        // open. It is the one place it cannot be missed by somebody who never read
+        // a README, and it is beside the thing they are about to paste to a friend.
+        out += "\nThe port is open to the internet (" + map.method +
+               ").\nThis code reaches you from anywhere. Send it ONLY to people you\n"
+               "trust — while it is open, anyone on the internet can reach this game.";
+        break;
+      case net::MapState::Unusable:
+        out += "\nThe router opened the port, but it cannot be reached.\n" + map.detail;
+        break;
+      case net::MapState::Failed:
+        out += "\nCould not open the port: " + map.detail +
+               "\nFriends on your own network can still join with this code.";
+        break;
+    }
+    return out;
   };
   // Telling somebody to go and read a log file for the one string they need to
   // send a friend was never a feature. The code is on screen; this puts it on the
   // clipboard.
   interface_.menu().actions.copyInvite = [this] {
     if (!netHosting()) return;
-    window_.setClipboardText(
-        net::makeInviteCode(net::localAddress(), netHost_.port(), worldMeta_.name));
-    interface_.notify().push("Invite code copied");
+    window_.setClipboardText(inviteCode());
+    const bool global = portMapper_.result().state == net::MapState::Open;
+    interface_.notify().push(global ? "Invite code copied — send it only to friends"
+                                    : "Invite code copied",
+                             global ? ui::Toast::Important : ui::Toast::Routine);
   };
 
   interface_.menu().actions.exportWorld = [this](const std::string& idOrEmpty) {
@@ -2301,7 +2326,38 @@ bool App::startHosting(std::uint16_t port) {
   interface_.notify().push("Hosting on port " + std::to_string(netHost_.port()));
   log::info("net: invite code %s",
             net::makeInviteCode(address, netHost_.port(), worldMeta_.name).c_str());
+
+  // And, only if asked, the router. Read at the moment of hosting rather than
+  // latched at startup, so turning the row off and hosting again does not forward.
+  if (ui::settings().available("portForward") && ui::settings().flag("portForward")) {
+    portMapper_.begin(netHost_.port());
+    interface_.notify().push("Asking the router to open port " +
+                             std::to_string(netHost_.port()));
+  }
   return true;
+}
+
+// The one code, built in one place, so the panel and the clipboard can never
+// disagree about which address a friend is being sent.
+//
+// This is also the whole of the "masking", and it is worth being precise about what
+// it is: the address is base32 inside the code rather than printed as a dotted
+// quad, so it does not appear in a screenshot, over a shoulder, or to a bot
+// scraping a chat log for something that looks like an address. It is an ENCODING.
+// Anyone who pastes it into this game — or into any base32 decoder — has the
+// address back in a second, and anybody who actually connects can read it off their
+// own connection table regardless. Hiding an address from the person connecting to
+// it is not possible without relaying the traffic through a third machine, which
+// this game has no server to do.
+std::string App::inviteCode() const {
+  const net::MapResult map = portMapper_.result();
+  // The public address only when the router actually opened the way to it. On
+  // Unusable the mapping exists but nothing outside can reach it, and handing over
+  // that address would send a friend somewhere that will never answer.
+  const bool global = map.state == net::MapState::Open && !map.address.empty();
+  const std::string address = global ? map.address : net::localAddress();
+  const std::uint16_t port = global && map.port != 0 ? map.port : netHost_.port();
+  return net::makeInviteCode(address, port, worldMeta_.name);
 }
 
 bool App::startJoining(const std::string& address, std::uint16_t port) {
@@ -2365,6 +2421,13 @@ void App::adoptRemoteWorld(const save::WorldSave& data) {
 
 void App::leaveNetwork(const std::string& reason, bool sayGoodbye) {
   advertiser_.stop();
+  // Before the host stops, not after: this blocks for as long as the router takes
+  // to answer, and doing it here means every way of ending a session — the pause
+  // menu, a disconnect, leaving the world, quitting — gives the port back through
+  // ONE line. A forward that outlives the game is the actual danger in this
+  // feature, and the only defence against it is that there is nowhere to leave
+  // from that does not pass through here.
+  portMapper_.release();
   netHost_.stop();
   netClient_.stop(sayGoodbye);
   // Nothing on the far side to tell any more, and a stale id here would be
@@ -2658,6 +2721,10 @@ void App::frame() {
       netHost_.update(dt, netNow);
       advertiser_.setPlayers(netHost_.guestCount() + 1, net::kMaxGuests + 1);
       advertiser_.update(dt);
+      // Renews the router's lease when it is half gone. The lease is what makes a
+      // crashed game stop being an open port within the hour; renewing is what
+      // stops a long evening's session being cut off by it.
+      portMapper_.tick(dt);
     }
     if (netClient_.running()) netClient_.update(dt, netNow);
     lanListener_.update(dt);

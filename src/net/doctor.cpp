@@ -11,6 +11,7 @@
 #include "core/log.h"
 #include "net/discovery.h"
 #include "net/interfaces.h"
+#include "net/portmap.h"
 #include "net/protocol.h"
 #include "net/transport.h"
 #include "platform/paths.h"
@@ -118,6 +119,59 @@ int runNetDoctor(std::uint16_t gamePort) {
     std::printf("  [FAIL] game       UDP %u   %s\n", static_cast<unsigned>(gamePort),
                 why.c_str());
     std::printf("         Hosting will fail outright on this port.\n");
+  }
+
+  // ---- the router ----------------------------------------------------------
+  //
+  // Asked properly rather than guessed at, because "can this machine be reached
+  // from outside" is the question somebody trying to play with a distant friend
+  // actually has, and the answer involves hardware this program cannot see.
+  //
+  // The mapping made here is RELEASED before this function returns. A diagnostic
+  // that leaves a port open behind it would be a worse bug than anything it could
+  // report.
+  heading("Reaching this machine from outside your network");
+  {
+    const std::string gateway = defaultGatewayText();
+    std::printf("  router     %s\n", gateway.empty() ? "(none found)" : gateway.c_str());
+    if (gateway.empty()) {
+      std::printf("             ^ nothing to ask for a port. On a machine that is\n"
+                  "               plainly on a network, that is a fault in the game\n"
+                  "               rather than in the network.\n");
+    }
+    PortMapper mapper;
+    mapper.begin(gamePort);
+    for (int i = 0; i < 400 && mapper.busy(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    const MapResult map = mapper.result();
+    switch (map.state) {
+      case MapState::Open:
+        std::printf("  [ ok ] the router opened UDP %u for this machine, over %s\n",
+                    static_cast<unsigned>(map.port), map.method.c_str());
+        std::printf("         Friends elsewhere could reach a game here.\n");
+        std::printf("         The invite code carries this address; share it only with\n"
+                    "         people you trust, and see README.md before you do.\n");
+        break;
+      case MapState::Unusable:
+        std::printf("  [warn] the router made the mapping, but it cannot be reached.\n");
+        std::printf("         %s\n", map.detail.c_str());
+        break;
+      case MapState::Failed:
+        std::printf("  [ -- ] no port could be opened: %s\n", map.detail.c_str());
+        std::printf("         Not a fault unless you wanted internet play. Same-network\n"
+                    "         games are unaffected. Turning on UPnP or NAT-PMP in the\n"
+                    "         router's own settings is usually what is missing.\n");
+        break;
+      case MapState::Trying:
+        std::printf("  [ -- ] the router did not answer in twenty seconds.\n");
+        break;
+      case MapState::Off:
+        std::printf("  [ -- ] nothing to report.\n");
+        break;
+    }
+    mapper.release();
+    std::printf("         (any mapping made by this check has been given back)\n");
   }
 
   // ---- the whole path, end to end ------------------------------------------

@@ -33,6 +33,7 @@
 #include "net/client.h"
 #include "net/discovery.h"
 #include "net/host.h"
+#include "net/portmap.h"
 #include "resource/atlas.h"
 #include "save/format.h"
 #include "ui/interface.h"
@@ -373,6 +374,10 @@ class App {
   net::Host netHost_;
   net::Client netClient_;
   net::Advertiser advertiser_;
+  // The router's forwarded port, when the player asked for one. Its destructor
+  // releases, which is what covers the process exiting by a route nobody wrote —
+  // leaveNetwork releases explicitly for every route somebody did.
+  net::PortMapper portMapper_;
   net::Listener lanListener_;
   std::string playerId_;
   std::string playerName_;
@@ -454,6 +459,10 @@ class App {
   // has to be the one from BEFORE this frame's input was handled.
   bool chatWasOpen_ = false;
   bool startHosting(std::uint16_t port);
+  // The code a friend pastes into Join: the public address when the router opened
+  // one, this machine's LAN address otherwise. One function, because the panel that
+  // shows it and the button that copies it must not disagree.
+  std::string inviteCode() const;
   bool startJoining(const std::string& address, std::uint16_t port);
   // `sayGoodbye` false only when the connection is already gone — the host dropped
   // us, or it never came up. Every other route out is a decision we took, and the

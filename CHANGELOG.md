@@ -41,6 +41,36 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+### Added
+- **Play with friends who are not on your network.** Settings → Multiplayer →
+  *Open a Port for Internet Play*, then host as usual. The game asks your router
+  to let people in — NAT-PMP first, UPnP second — and the Open to LAN panel says
+  which one worked. The invite code then reaches you from anywhere, and the Copy
+  button copies that one.
+
+  **This is a real security decision and the game treats it as one.** It is off
+  until you turn it on. While the port is open, anyone on the internet can send
+  data to the game, not only the people you gave the code to — the internet is
+  scanned constantly, and an open port gets found whether or not you told anyone.
+  **Share the code only with people you trust.** Guests can build, break and take
+  from chests; there is no permission system yet.
+
+  The port is opened on a one-hour lease that the game renews while it runs, so a
+  crash cannot leave it open indefinitely, and it is closed explicitly when you
+  stop hosting, leave the world or quit. README.md has the full explanation, and
+  `--net-doctor` now tests whether your router will do it at all.
+
+  If your provider uses carrier-grade NAT, the panel says so instead of handing
+  you an address that can never work.
+
+- **The invite code keeps your address off the screen.** The panel and the
+  clipboard show `HRW1…` rather than a bare address, so it is not sitting in the
+  open in a screenshot or a chat log. To be clear about what that is worth: it is
+  an encoding, not encryption — anyone who decodes it, or who simply connects,
+  has your address. If you want it genuinely hidden, use a private network
+  overlay such as Tailscale; README.md explains why that is the only thing that
+  actually does it.
+
 ## [2.16.0] - 2026-08-14
 
 ### Added

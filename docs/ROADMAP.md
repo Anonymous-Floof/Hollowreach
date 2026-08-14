@@ -869,6 +869,74 @@ feature. They were checked by hand in the running game instead — shift-click, 
 scroll, a number key and a drag, one at a time, against a full bin. If those handlers
 are ever reworked, that is the check to do again, and it is a manual one.
 
+## Opening a port, and the honest limits of a code
+
+Hosting worked for anyone on the same network and nobody else. This asks the
+router to forward the game's UDP port, and hands back an invite code that reaches
+the host from anywhere.
+
+**NAT-PMP first, UPnP IGD second.** NAT-PMP is twelve bytes to the gateway and
+answers in a fraction of a second; UPnP is an SSDP search, an HTTP GET and two
+SOAP posts, and takes seconds even when it works. Trying the cheap one first costs
+nothing when it is absent — one timeout — and saves the slow path on the routers
+that have it. Neither needed a library.
+
+**The external address comes from the gateway, never from a website.** Every "what
+is my IP" service would mean sending this player's address to a third party in
+order to tell them their own address, inside a feature whose entire subject is not
+leaking it. Both protocols will say, so neither has to.
+
+**A finite lease is the safety property, not a detail.** One hour, renewed at the
+halfway mark while the game runs. Get this wrong in the direction of "permanent"
+and a crash leaves a hole in somebody's router indefinitely — the thing the player
+would least expect and least be able to find. `leaveNetwork` also releases
+explicitly, and it is the single choke point every way of ending a session already
+passed through; `PortMapper`'s destructor covers the exits nobody wrote.
+
+**Classify before sharing.** A mapping can succeed on a router that is itself
+behind another one, or behind the provider's own NAT. Then the port really is open
+and the address really is useless, and a player who is handed it spends an evening
+wondering why nobody can join. `classify()` separates public from RFC1918 from
+RFC6598 carrier NAT, and `MapState::Unusable` exists specifically so "it worked"
+and "you can share this" are not the same answer.
+
+### What the code does and does not do
+
+This was asked for as masking: could the address be hidden from people who are not
+digging around. The honest answer, which is written into the README in the same
+words:
+
+- The `HRW1…` code is **base32 of the address, port and world name**. It genuinely
+  keeps the address out of screenshots, out of shoulder-surfing range, and out of
+  the reach of a bot scraping chat for `d.d.d.d:port`. That is real, and it is why
+  the panel shows the code rather than the address.
+- It is an **encoding, not encryption**. `parseInviteCode` decodes it in one call
+  and so will anything else. Anyone who connects reads the address off their own
+  socket regardless.
+
+Hiding an address from the machine connecting to it is not possible without
+relaying the traffic through a third machine, which this project has no server to
+be. The README names Tailscale/ZeroTier/Hamachi as the thing that actually does it
+— and notes that if a player can use one, it is strictly safer than this feature
+and replaces it entirely. **Do not let a future change describe the code as
+protection.** It buys discretion, not secrecy, and the moment it is sold as
+secrecy somebody will paste it somewhere they would not have pasted an IP.
+
+### What is tested
+
+Everything that does not need a router, which is more than it sounds: the NAT-PMP
+byte layouts in both directions, the refusal codes, the opcode check that stops a
+mapping reply being read as an address reply, SSDP `LOCATION` parsing with the
+capitalisation routers actually use, `splitUrl`, the control-URL walk against a
+description with a decoy service in front of the real one, WANPPPConnection as
+well as WANIPConnection, namespace-prefixed SOAP values, and every branch of the
+address classifier. Twelve sabotages, twelve caught.
+
+The sockets are not tested and deliberately are the thin part — discovery, one
+exchange, one HTTP round trip. There is no way to assert against a real router
+from a self-test, and the alternative to leaving it uncovered is pretending
+otherwise.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

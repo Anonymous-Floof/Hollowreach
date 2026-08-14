@@ -81,6 +81,21 @@ const std::vector<SettingDef>& schema() {
       {"notifications", "Notifications (\"Autosaved\", hints, refusals)", SettingType::Toggle,
        "Gameplay", 0, 0, 0, 0, true},
 
+      // --- Multiplayer: this machine's network, not this world's rules ---------
+      //
+      // Global scope, because it is a fact about the house's router rather than
+      // about the place being played in, and a player who has decided once should
+      // not have to decide again per world.
+      //
+      // OFF, and it has to stay off by default. Every other row here changes how
+      // the game looks or plays; this one changes who can send packets to this
+      // computer. The label says the important half because the settings screen has
+      // no room for a paragraph — the paragraph is in README.md under "Playing with
+      // friends over the internet", and the Open to LAN panel repeats the warning
+      // at the moment the address is copied, which is the moment it matters.
+      {"portForward", "Open a Port for Internet Play (anyone can reach it)",
+       SettingType::Toggle, "Multiplayer", 0, 0, 0, 0, false},
+
       // --- Difficulty: the world's, and they stay with it ----------------------
       // How hard the place is to survive. A world shared with a friend has to be
       // the same world for both of them, so these live in the save and the host
