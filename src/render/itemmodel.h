@@ -84,6 +84,10 @@ struct ItemModel {
   world::BlockId blockId = 0;                              // Shape
   world::RenderKind shape = world::RenderKind::None;       // Shape: which display shape
   ResourceId texture;                                      // Sprite: the tile to extrude
+  // Sprite: a second tile stacked under the first, for art two cells tall. A door
+  // is the one user: its item is the whole door, top half over bottom half, rather
+  // than the single-cell slab it used to be shown as.
+  ResourceId textureBelow;
 
   HoldStyle hold;
 

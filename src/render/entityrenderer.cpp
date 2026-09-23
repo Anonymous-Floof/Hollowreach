@@ -61,7 +61,107 @@ MeshBox box(float cx, float cy, float cz, float hx, float hy, float hz, float r,
   return MeshBox{cx, cy, cz, hx, hy, hz, r, g, b, bone};
 }
 
+// Gives every box of one colour a surface. The models are authored as colour lists,
+// and a colour is already what says "this is the fleece" or "this is the shirt", so
+// matching on it keeps the surfaces next to the palette instead of threading a sixth
+// argument through a hundred box() calls.
+void wear(std::vector<MeshBox>& boxes, const float colour[3], Surface surface) {
+  for (MeshBox& b : boxes) {
+    if (b.r == colour[0] && b.g == colour[1] && b.b == colour[2]) b.surface = surface;
+  }
+}
+
+// A cheap integer mix, for placing texture windows. Not a PRNG: the same box and
+// face must land on the same texels every time the mesh is rebuilt.
+std::uint32_t hashU32(std::uint32_t x) {
+  x ^= x >> 16;
+  x *= 0x7feb352du;
+  x ^= x >> 15;
+  x *= 0x846ca68bu;
+  x ^= x >> 16;
+  return x;
+}
+
 }  // namespace
+
+// Mob textures are laid on at the world's own density — one tile to a block —
+// so a sheep's fleece has curls the size of a grass blade's pixels rather than
+// being one tile stretched over the whole body. A face wider than a block is the
+// only thing that stretches.
+//
+// Each face takes its own window of the tile, placed by a hash of the box and the
+// face, so the six sides of a body and the four identical legs under it do not all
+// show the same sixteen texels.
+std::vector<ItemVertex> buildBoxVertices(const std::vector<MeshBox>& boxes,
+                                         const resource::TileRef* tiles) {
+  // Tiles average about 0.9 (see the entity/* painters), so colours are lifted by
+  // the inverse to keep each mob the colour it was designed in.
+  constexpr float kLift = 1.1f;
+  // Anything thinner than this is an eye, a nostril or a painted-on blaze — a decal
+  // a single texel of noise would only smudge.
+  constexpr float kDecal = 0.012f;
+  // The tangent axes of each face (u, then v), in kFaces order.
+  static constexpr int kAxes[6][2] = {{2, 1}, {2, 1}, {0, 2}, {0, 2}, {0, 1}, {0, 1}};
+
+  std::vector<ItemVertex> verts;
+  verts.reserve(boxes.size() * 36);
+  std::uint32_t boxIndex = 0;
+  for (const MeshBox& b : boxes) {
+    const float half[3] = {b.hx, b.hy, b.hz};
+    const bool decal = std::min(b.hx, std::min(b.hy, b.hz)) < kDecal;
+    const Surface surface = decal ? Surface::Plain : b.surface;
+    const resource::TileRef* tile = tiles ? &tiles[static_cast<int>(surface)] : nullptr;
+    const float lift = (tiles && surface != Surface::Plain) ? kLift : 1.0f;
+
+    for (int fi = 0; fi < 6; ++fi) {
+      const Face& f = kFaces[fi];
+      const int ua = kAxes[fi][0], va = kAxes[fi][1];
+      // The face's size in texels, capped at the tile, and where in the tile it sits.
+      float uTex = 0, vTex = 0, u0 = 0, v0 = 0;
+      if (tile) {
+        const float res = static_cast<float>(tile->w);
+        uTex = std::min(res, std::max(1.0f, std::round(half[ua] * 2.0f * res)));
+        vTex = std::min(res, std::max(1.0f, std::round(half[va] * 2.0f * res)));
+        const std::uint32_t h = hashU32((boxIndex * 6u + static_cast<std::uint32_t>(fi)) *
+                                        2654435761u);
+        u0 = static_cast<float>(h % static_cast<std::uint32_t>(res - uTex + 1));
+        v0 = static_cast<float>((h >> 8) % static_cast<std::uint32_t>(res - vTex + 1));
+      }
+      const auto corner = [&](int i) {
+        ItemVertex v;
+        v.x = b.cx + f.c[i][0] * b.hx;
+        v.y = b.cy + f.c[i][1] * b.hy;
+        v.z = b.cz + f.c[i][2] * b.hz;
+        if (tile) {
+          // -1..1 across the face; v runs top to bottom, so +y is the tile's top.
+          const float su = (f.c[i][ua] + 1) * 0.5f;
+          const float sv = va == 1 ? (1 - f.c[i][1]) * 0.5f : (f.c[i][va] + 1) * 0.5f;
+          const float du = (tile->u1 - tile->u0) / static_cast<float>(tile->w);
+          const float dv = (tile->v1 - tile->v0) / static_cast<float>(tile->h);
+          v.u = static_cast<std::uint16_t>(
+              std::lround((tile->u0 + (u0 + su * uTex) * du) * 65535.0f));
+          v.v = static_cast<std::uint16_t>(
+              std::lround((tile->v0 + (v0 + sv * vTex) * dv) * 65535.0f));
+        }
+        v.shade = static_cast<std::uint8_t>(std::lround(f.shade * 255.0f));
+        v.bone = static_cast<std::uint8_t>(b.bone);
+        v.r = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.r * lift) * 255.0f));
+        v.g = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.g * lift) * 255.0f));
+        v.b = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.b * lift) * 255.0f));
+        v.a = 255;
+        verts.push_back(v);
+      };
+      corner(0);
+      corner(1);
+      corner(2);
+      corner(0);
+      corner(2);
+      corner(3);
+    }
+    ++boxIndex;
+  }
+  return verts;
+}
 
 bool EntityRenderer::init(ShaderCache& shaders, const resource::Atlas* atlas,
                           ItemMeshCache* itemMeshes) {
@@ -97,33 +197,16 @@ const EntityRenderer::Mesh& EntityRenderer::buildMultiBox(Mesh& slot,
                                                           const std::vector<MeshBox>& boxes) {
   if (slot.count > 0) return slot;
 
-  std::vector<ItemVertex> verts;
-  verts.reserve(boxes.size() * 36);
-  for (const MeshBox& b : boxes) {
-    for (const Face& f : kFaces) {
-      const auto corner = [&](int i) {
-        ItemVertex v;
-        v.x = b.cx + f.c[i][0] * b.hx;
-        v.y = b.cy + f.c[i][1] * b.hy;
-        v.z = b.cz + f.c[i][2] * b.hz;
-        v.u = 0;
-        v.v = 0;
-        v.shade = static_cast<std::uint8_t>(std::lround(f.shade * 255.0f));
-        v.bone = static_cast<std::uint8_t>(b.bone);
-        v.r = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.r) * 255.0f));
-        v.g = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.g) * 255.0f));
-        v.b = static_cast<std::uint8_t>(std::lround(std::min(1.0f, b.b) * 255.0f));
-        v.a = 255;
-        verts.push_back(v);
-      };
-      corner(0);
-      corner(1);
-      corner(2);
-      corner(0);
-      corner(2);
-      corner(3);
-    }
+  // The surface tiles, in Surface order. Without an atlas the mesh keeps zero UVs
+  // and modelFor draws it untextured, which is exactly what every mob was before.
+  resource::TileRef tiles[5];
+  const bool textured = atlas_ != nullptr;
+  if (textured) {
+    static const char* kNames[5] = {"entity/plain", "entity/hide", "entity/wool",
+                                    "entity/cloth", "entity/grain"};
+    for (int i = 0; i < 5; ++i) tiles[i] = atlas_->tile(ResourceId(kNames[i]));
   }
+  const std::vector<ItemVertex> verts = buildBoxVertices(boxes, textured ? tiles : nullptr);
 
   glGenVertexArrays(1, &slot.vao);
   glBindVertexArray(slot.vao);
@@ -166,6 +249,7 @@ const EntityRenderer::Mesh& EntityRenderer::sheepMesh() {
     boxes.push_back(box(legX[i], 0.335f, cuffZ[i], 0.095f, 0.045f, 0.095f, W[0], W[1], W[2], i + 1));
     boxes.push_back(box(legX[i], 0.17f, cuffZ[i], 0.08f, 0.17f, 0.08f, L[0], L[1], L[2], i + 1));
   }
+  wear(boxes, W, Surface::Wool);
   return buildMultiBox(sheep_, boxes);
 }
 
@@ -264,6 +348,8 @@ const EntityRenderer::Mesh& EntityRenderer::zombieMesh() {
     boxes.push_back(box(x, 1.20f, 0.34f, 0.10f, 0.10f, 0.20f, SK[0], SK[1], SK[2], bone));
     boxes.push_back(box(x, 1.185f, 0.555f, 0.085f, 0.085f, 0.045f, SD[0], SD[1], SD[2], bone));
   }
+  wear(boxes, SH, Surface::Cloth);
+  wear(boxes, PA, Surface::Cloth);
   return buildMultiBox(zombie_, boxes);
 }
 
@@ -317,6 +403,8 @@ const EntityRenderer::Mesh& EntityRenderer::playerMesh(int palette) {
     boxes.push_back(box(x, 1.20f, 0, 0.105f, 0.24f, 0.105f, SH[0], SH[1], SH[2], bone));
     boxes.push_back(box(x, 0.88f, 0, 0.10f, 0.09f, 0.10f, SK[0], SK[1], SK[2], bone));
   }
+  wear(boxes, SH, Surface::Cloth);
+  wear(boxes, TR, Surface::Cloth);
   return buildMultiBox(players_[index], boxes);
 }
 
@@ -336,7 +424,7 @@ const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
   // browser too. Flipping the model rather than the yaw keeps the one place the
   // boat's heading is decided, and an unridden boat has no heading of its own to
   // disagree with.
-  const std::vector<MeshBox> boxes = {
+  std::vector<MeshBox> boxes = {
       box(0, 0.06f, 0.04f, 0.42f, 0.06f, 0.60f, D[0], D[1], D[2]),    // keel
       box(0, 0.145f, 0.04f, 0.38f, 0.025f, 0.56f, L[0], L[1], L[2]),  // floor
       box(0.44f, 0.27f, 0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
@@ -351,12 +439,15 @@ const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
       box(0, 0.24f, 0.30f, 0.36f, 0.03f, 0.11f, L[0], L[1], L[2]),  // seat
       box(0, 0.40f, -0.55f, 0.20f, 0.022f, 0.16f, L[0], L[1], L[2]),  // foredeck
   };
+  for (MeshBox& b : boxes) b.surface = Surface::Grain;
   return buildMultiBox(boat_, boxes);
 }
 
 const EntityRenderer::Mesh& EntityRenderer::unitCube() {
   if (cube_.count > 0) return cube_;
-  return buildMultiBox(cube_, {box(0, 0, 0, kCubeHalf, kCubeHalf, kCubeHalf, 1, 1, 1)});
+  MeshBox cube = box(0, 0, 0, kCubeHalf, kCubeHalf, kCubeHalf, 1, 1, 1);
+  cube.surface = Surface::Plain;
+  return buildMultiBox(cube_, {cube});
 }
 
 bool EntityRenderer::modelFor(const game::Entity& e, Model& out) {
@@ -390,6 +481,7 @@ bool EntityRenderer::modelFor(const game::Entity& e, Model& out) {
         return true;
       }
       out.mesh = &unitCube();
+      out.textured = atlas_ != nullptr;
       out.yOff = kCubeHalf;
       out.tint[0] = out.tint[1] = out.tint[2] = 0.8f;
       return true;
@@ -413,27 +505,33 @@ bool EntityRenderer::modelFor(const game::Entity& e, Model& out) {
     }
     case game::EntityType::Boat:
       out.mesh = &boatMesh();
+      out.textured = atlas_ != nullptr;
       return true;
     case game::EntityType::Sheep:
       out.mesh = &sheepMesh();
+      out.textured = atlas_ != nullptr;
       hurtTint(out);
       return true;
     case game::EntityType::Pig:
       out.mesh = &pigMesh();
+      out.textured = atlas_ != nullptr;
       hurtTint(out);
       return true;
     case game::EntityType::Cow:
       out.mesh = &cowMesh();
+      out.textured = atlas_ != nullptr;
       hurtTint(out);
       return true;
     case game::EntityType::Zombie:
       out.mesh = &zombieMesh();
+      out.textured = atlas_ != nullptr;
       hurtTint(out);
       return true;
     case game::EntityType::RemotePlayer:
       // The palette comes off the network id, which is stable for as long as the
       // player is connected — so their colour does not change while you watch.
       out.mesh = &playerMesh(e.netId);
+      out.textured = atlas_ != nullptr;
       hurtTint(out);
       return true;
     default:

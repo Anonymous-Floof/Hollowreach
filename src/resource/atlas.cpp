@@ -130,14 +130,19 @@ bool Atlas::build(const PackStack& stack, const std::vector<ResourceId>& wanted,
       }
     }
 
-    // Half-texel inset, as in the original: with NEAREST sampling an exact tile
-    // edge can otherwise pick up the adjacent texel at grazing angles.
-    const float e = 0.5f;
+    // Exact tile edges. The original inset every rect by half a texel so a NEAREST
+    // sample at a grazing angle could not pick up the neighbouring tile — but the
+    // gutter above already guarantees that whatever lies just outside the rect is a
+    // copy of the tile's own edge, and the inset was not free: it mapped 16 texels
+    // of tile onto 15 texels' worth of face, so the first and last row and column
+    // of EVERY block face drew at half width. On an extruded item it was worse, since
+    // the edge walls sit on exact texel boundaries and the plates did not, so the art
+    // drifted up to half a texel off its own silhouette.
     TileRef ref;
-    ref.u0 = (ox + e) / width;
-    ref.v0 = (oy + e) / height;
-    ref.u1 = (ox + tileRes_ - e) / width;
-    ref.v1 = (oy + tileRes_ - e) / height;
+    ref.u0 = static_cast<float>(ox) / width;
+    ref.v0 = static_cast<float>(oy) / height;
+    ref.u1 = static_cast<float>(ox + tileRes_) / width;
+    ref.v1 = static_cast<float>(oy + tileRes_) / height;
     ref.x = ox;
     ref.y = oy;
     ref.w = tileRes_;

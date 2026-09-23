@@ -5,3 +5,26 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
+# 2.18.0, the art pass.
+tile(block/bed_*)                # the bed is a model of parts now: mattress tiles repainted, frame and pillow added
+tile(block/*door)                # a door is ONE door across its two cells: this is the lower half
+tile(block/*door_upper)          # ...and this the upper, with the window
+tile(block/pebbles)              # pebbles are boxes now, so this is the stone they are made of
+tile(block/polished*)            # bevelled on all four edges, so a floor reads as slabs rather than stripes
+tile(entity/*)                   # new: greyscale surfaces for mobs, which had no texture at all
+tile(item/wheat)                 # a tied sheaf rather than five stalks behind a bar
+tile(item/barley)                # same
+tile(item/rice)                  # same
+tile(item/maize)                 # a cob in its husk
+tile(item/potato)                # root crops each get their own silhouette instead of the carrot's wedge
+tile(item/onion)                 # same
+tile(item/garlic)                # same
+tile(item/beetroot)              # same
+tile(item/carrot)                # growth rings and a fuller crown
+tile(item/chili)                 # stem tidied when the pod painter was split
+tile(item/soybean)               # three beans in a pod, not a chili
+tile(item/dye_*)                 # a heap of powder, not a pyramid with floating specks
+tile(item/leather)               # a hide, not a cookie
+tile(item/boat)                  # a rowboat, not a loaf
+tile(item/rotten_flesh)          # a torn chunk, not camouflage netting
+mesh(*)                          # pebbles are four small boxes instead of two crossed quads: +108 vertices per cluster

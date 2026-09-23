@@ -123,6 +123,11 @@ struct IconRef {
   GLuint texture = 0;
   float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
   Rgba tint = kWhite;
+  // A second rect from the same texture, drawn untinted over the first: the parts
+  // of a partly dyeable item the dye does not reach (render::IconAtlas::overlayFor).
+  // Empty for everything else.
+  float ou0 = 0, ov0 = 0, ou1 = 0, ov1 = 0;
+  bool hasOverlay() const { return ou1 > ou0; }
 };
 
 struct Node {

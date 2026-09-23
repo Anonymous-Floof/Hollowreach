@@ -21,6 +21,7 @@
 #include "platform/paths.h"
 #include "resource/atlas.h"
 #include "resource/pack.h"
+#include "resource/painters.h"
 #include "resource/packstack.h"
 #include "ui/settings.h"
 #include "ui/theme.h"
@@ -518,6 +519,10 @@ bool dumpAtlas(const std::string& pngPath, int maxTileResolution, bool mipmaps) 
   {
     const std::vector<ResourceId> itemIds = game::collectItemTextureIds();
     wanted.insert(wanted.end(), itemIds.begin(), itemIds.end());
+  }
+  {
+    const std::vector<ResourceId> entityIds = resource::builtinEntityTextureIds();
+    wanted.insert(wanted.end(), entityIds.begin(), entityIds.end());
   }
   resource::Atlas atlas;
   if (!atlas.build(resource::defaultStack(), wanted, settings)) return false;

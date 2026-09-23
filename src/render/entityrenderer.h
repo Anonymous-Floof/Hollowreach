@@ -3,8 +3,9 @@
 //
 // Dropped items reuse the shared item-model cache — the very meshes the held
 // viewmodel draws — so a dropped stair is stair-shaped and a dropped sword is its
-// extruded sprite. Mobs and boats are untextured multi-box meshes built here: a
-// list of coloured boxes, each optionally attached to one of five animated bones.
+// extruded sprite. Mobs and boats are multi-box meshes built here: a list of
+// coloured boxes, each optionally attached to one of five animated bones, and each
+// wearing a greyscale surface tile (fur, wool, cloth, wood) that its colour tints.
 //
 // The walk cycle is derived purely from how an entity's position changes frame to
 // frame, with no cooperation from the AI at all. That is what lets a local mob, a
@@ -30,14 +31,25 @@ class World;
 
 namespace hr::render {
 
-// One box of a multi-box mesh: a centre, a half-extent, a colour, and which bone
-// carries it. Bone 0 never moves.
+// The detail a mob box wears, as one of the greyscale entity/* tiles its colour is
+// multiplied over. Plain is a white tile, for parts too small to show a texture.
+enum class Surface : std::uint8_t { Plain, Hide, Wool, Cloth, Grain };
+
+// One box of a multi-box mesh: a centre, a half-extent, a colour, which bone
+// carries it, and what its surface is made of. Bone 0 never moves.
 struct MeshBox {
   float cx = 0, cy = 0, cz = 0;
   float hx = 0, hy = 0, hz = 0;
   float r = 1, g = 1, b = 1;
   int bone = 0;
+  Surface surface = Surface::Hide;
 };
+
+// The vertices for a list of boxes, headless so the self-test can check them.
+// `tiles` gives each Surface's atlas rect in enum order; with none, every UV is
+// zero and the mesh is drawn untextured, as mobs were before they had surfaces.
+std::vector<ItemVertex> buildBoxVertices(const std::vector<MeshBox>& boxes,
+                                         const resource::TileRef* tiles);
 
 class EntityRenderer {
  public:

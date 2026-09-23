@@ -19,12 +19,14 @@
 #include "core/jsmath.h"
 #include "core/log.h"
 #include "core/prng.h"
+#include "dev/showroom.h"
 #include "game/entities/types.h"
 #include "game/farming.h"
 #include "game/loot.h"
 #include "platform/paths.h"
 #include "resource/image.h"
 #include "resource/pack.h"
+#include "resource/painters.h"
 #include "resource/packstack.h"
 #include "save/storage.h"
 #include "save/transfer.h"
@@ -110,6 +112,10 @@ int App::run(const AppOptions& options) {
   {
     const std::vector<ResourceId> itemIds = game::collectItemTextureIds();
     textureIds.insert(textureIds.end(), itemIds.begin(), itemIds.end());
+  }
+  {
+    const std::vector<ResourceId> entityIds = resource::builtinEntityTextureIds();
+    textureIds.insert(textureIds.end(), entityIds.begin(), entityIds.end());
   }
   resource::AtlasSettings atlasSettings;
   if (!atlas_.build(resource::defaultStack(), textureIds, atlasSettings)) {
@@ -1641,6 +1647,14 @@ bool App::startWorld(const AppOptions& options, const save::WorldSave* loaded) {
       world_->setPainting(bx, by + 1, bz + 1, std::move(art));
       log::info("--hang: painting at %d,%d,%d", bx, by + 1, bz + 1);
     }
+  }
+
+  // --showroom: built at a fixed place in the sky rather than around the camera, so
+  // --at can move in close to one exhibit without the whole grid moving with it.
+  // Stand at 8.5,150,8.5 facing 0 to look down it from the front.
+  if (!options.showroom.empty()) {
+    refreshEntityContext();
+    dev::buildShowroom(*world_, entities_, options.showroom, 8, 149, 8);
   }
 
   // --spawn: a ring of entities around the spawn point, dropped from a little above

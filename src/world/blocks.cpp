@@ -95,6 +95,16 @@ class Builder {
     def_.textures.set(slot, "block/" + std::string(name));
     return *this;
   }
+  // A door's upper half. See BlockDef::upperTexture.
+  Builder& upper(std::string_view name) { return texSlot("upper", name); }
+  // One more material for a multi-part model, in Box::part order (the first call is
+  // part 1). Declared as a texture slot like any other, so the atlas paints it and a
+  // resource pack can replace it by the same name.
+  Builder& part(std::string_view name, bool dyed) {
+    texSlot("part" + std::to_string(def_.parts.size() + 1), name);
+    def_.parts.push_back({ResourceId(), dyed});
+    return *this;
+  }
 
   Builder& hard(float seconds) { def_.hardness = seconds; return *this; }
   Builder& unbreakable(int minTier) {
@@ -298,14 +308,14 @@ BlockRegistry::BlockRegistry() {
   Builder(B, "trapdoor", "Oak Trapdoor").render(RenderKind::Trapdoor).solidClear().toggle()
       .tex("trapdoor").hard(0.8f).axe().drops("trapdoor");
   Builder(B, "door", "Oak Door").render(RenderKind::Door).solidClear().toggle().tall()
-      .tex("door").hard(0.8f).axe().drops("door");
-  // The top slot holds the head (pillow) tile; the mesher swaps in `foot` for the
-  // foot cell. `foot` is declared so the atlas paints it.
+      .tex("door").upper("door_upper").hard(0.8f).axe().drops("door");
+  // The block's own faces are the MATTRESS, the only part a dye reaches; the top
+  // slot is its head-end blanket and the mesher swaps in `foot` for the foot cell.
+  // Its wooden boards and frame, and the pillow, are parts in the order shapes.cpp
+  // numbers them (kBedWood, kBedPillow) and stay their own colours at any dye.
   Builder(B, "bed", "Bed").render(RenderKind::Bed).solidClear().sleep()
-      // Its own bottom tile rather than the shared  one. A dyeable block
-      // needs every face neutral, and "planks" is the actual planks block's own
-      // texture — neutralising THAT would turn every wooden floor in the game grey.
       .tex3("bed_head_top", "bed_side", "bed_bottom").texSlot("foot", "bed_foot_top")
+      .part("bed_frame", /*dyed=*/false).part("bed_pillow", /*dyed=*/false)
       .hard(0.6f)
       .axe().drops("bed").dyeable();
   // Soul Anchor: right-click to attune your spawn point. Glows soul-teal.
@@ -348,7 +358,8 @@ BlockRegistry::BlockRegistry() {
         .tex(id + "_leaves").hard(0.3f).dropsNothing();
     // Each wood gets its own door and trapdoor; oak keeps the original keys.
     Builder(B, id + "_door", name + " Door").render(RenderKind::Door).solidClear().toggle()
-        .tall().tex(id + "_door").hard(0.8f).axe().drops(id + "_door");
+        .tall().tex(id + "_door").upper(id + "_door_upper").hard(0.8f).axe()
+        .drops(id + "_door");
     Builder(B, id + "_trapdoor", name + " Trapdoor").render(RenderKind::Trapdoor).solidClear()
         .toggle().tex(id + "_trapdoor").hard(0.8f).axe().drops(id + "_trapdoor");
   }
@@ -357,8 +368,12 @@ BlockRegistry::BlockRegistry() {
   // opaque:false so they do not block light, replaceable so a placed block
   // overwrites them in place. Instant-break, no tool.
   for (const PlantSpec& p : kPlants) {
-    Builder(B, p.key, p.name).cross().plant(p.height, 0.45f, /*replaceable=*/true)
-        .tex(p.key).hard(0.0f).drops(p.drop ? p.drop : p.key);
+    Builder b(B, p.key, p.name);
+    b.cross().plant(p.height, 0.45f, /*replaceable=*/true).tex(p.key).hard(0.0f)
+        .drops(p.drop ? p.drop : p.key);
+    // Stones, not a billboard; see RenderKind::Pebbles. Everything cross() set
+    // besides the render kind — needs its ground, washes away — still holds.
+    if (std::string_view(p.key) == "pebbles") b.render(RenderKind::Pebbles);
   }
 
   // Materials that get a stair + slab + vertical slab. The two pre-existing
@@ -609,6 +624,12 @@ BlockRegistry::BlockRegistry() {
 
     if (const ResourceId* foot = slot("foot")) d.footTexture = *foot;
     if (const ResourceId* stem = slot("stem")) d.stemTexture = *stem;
+    if (const ResourceId* upper = slot("upper")) d.upperTexture = *upper;
+    for (std::size_t i = 0; i < d.parts.size(); ++i) {
+      const std::string name = "part" + std::to_string(i + 1);
+      const ResourceId* tile = slot(name.c_str());
+      d.parts[i].texture = tile ? *tile : d.faceTextures[0];
+    }
 
     // Produce -> crop, so sowing is a map lookup rather than a scan of the table.
     if (d.cropStages > 0 && !d.drop.empty()) cropByProduce_.emplace(d.drop, d.id);

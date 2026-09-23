@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include "audio/dsp.h"
@@ -34,7 +35,15 @@
 #include "game/raycast.h"
 #include "game/loot.h"
 #include "game/recipes.h"
+#include "render/entityrenderer.h"
+#include "render/iconatlas.h"
+#include "render/itemmesh.h"
+#include "render/itemmodel.h"
 #include "render/sky.h"
+#include "resource/atlas.h"
+#include "resource/packstack.h"
+#include "world/mesher.h"
+#include "world/shapes.h"
 #include "render/viewmodel.h"
 #include "ui/hud.h"
 #include "ui/inventoryui.h"
@@ -1121,6 +1130,13 @@ void testDyeing() {
       if (!d.dyeable) continue;
       for (const auto& [slot, ref] : d.textures.entries()) {
         if (ref.isVariable() || ref.id().empty()) continue;
+        // A part the dye never reaches is painted in its real colours on purpose:
+        // the bed's wooden frame and its pillow. Only what the dye lands on has to
+        // be neutral.
+        if (slot.rfind("part", 0) == 0) {
+          const std::size_t n = static_cast<std::size_t>(std::atoi(slot.c_str() + 4));
+          if (n >= 1 && n <= d.parts.size() && !d.parts[n - 1].dyed) continue;
+        }
         const resource::PainterEntry* p = resource::findPainter(ref.id());
         if (!p) continue;
         const Image tile = resource::paintTile(*p);
@@ -1136,9 +1152,8 @@ void testDyeing() {
             spread = std::max(spread, std::max({r, g, b}) - std::min({r, g, b}));
           }
         }
-        // 24/255 of slack. Wide enough for the wood frame under a bed's blanket,
-        // which is a detail rather than a dyeable surface, and far too narrow for
-        // the red quilt that used to be painted over it.
+        // 24/255 of slack: room for a warm or cool cast in a grey, and far too
+        // narrow for the red quilt the bed used to be painted with.
         if (spread > 24) {
           ++coloured;
           if (spread > worstSpread) {
@@ -11251,6 +11266,365 @@ void testNotificationSetting() {
   ui::settings().setFlag("notifications", restore, /*persist=*/false);
 }
 
+// ---------------------------------------------------------------------------
+// Models and textures
+//
+// The art pass: every check here is about something that could only be SEEN
+// before — a texture squashed onto a slab, a door drawn twice, a dyed bed with
+// red legs, a sprite whose picture drifted off its own edges. Each is pinned to the
+// mechanism rather than to pixels, so a repaint does not trip them and a
+// regression does.
+// ---------------------------------------------------------------------------
+
+// The atlas the game builds, headless: block tiles, item sprites and mob surfaces,
+// from a stack of its own so the process-wide one is left as the other tests found
+// it.
+const resource::Atlas& modelAtlas() {
+  static resource::PackStack stack;
+  static std::unique_ptr<resource::Atlas> atlas;
+  if (!atlas) {
+    stack.push(resource::makeBuiltinProvider());
+    stack.push(game::makeItemSpriteProvider());
+    std::vector<ResourceId> ids = resource::collectBlockTextureIds();
+    const std::vector<ResourceId> items = game::collectItemTextureIds();
+    ids.insert(ids.end(), items.begin(), items.end());
+    const std::vector<ResourceId> mobs = resource::builtinEntityTextureIds();
+    ids.insert(ids.end(), mobs.begin(), mobs.end());
+    atlas = std::make_unique<resource::Atlas>();
+    atlas->build(stack, ids, resource::AtlasSettings {});
+  }
+  return *atlas;
+}
+
+// One block in an otherwise empty chunk, meshed. Returns the opaque vertices.
+std::vector<world::TerrainVertex> meshAlone(
+    const std::vector<std::tuple<int, int, int, world::BlockId, int, std::uint32_t>>& cells) {
+  static world::BlockTileTable tiles;
+  static bool built = false;
+  if (!built) {
+    tiles.build(modelAtlas());
+    built = true;
+  }
+  world::ChunkData data;
+  for (const auto& [x, y, z, id, meta, dye] : cells) {
+    const int i = world::localIdx(x, y, z);
+    data.voxels.set(i, id);
+    data.meta.set(i, static_cast<std::uint8_t>(meta));
+    data.tint.set(i, dye);
+  }
+  world::MeshNeighbourhood nb;
+  nb.grid[4] = &data;
+  return world::meshChunk(nb, tiles).opaque;
+}
+
+float uvOf(std::uint16_t q) { return static_cast<float>(q) / 65535.0f; }
+
+bool insideTile(float u, float v, const resource::TileRef& t) {
+  constexpr float e = 1e-4f;
+  return u >= t.u0 - e && u <= t.u1 + e && v >= t.v0 - e && v <= t.v1 + e;
+}
+
+void testModels() {
+  std::printf("\n-- models and textures --\n");
+  const resource::Atlas& atlas = modelAtlas();
+  const world::BlockRegistry& reg = world::blocks();
+
+  // --- the atlas maps every texel of a tile --------------------------------------
+  {
+    const resource::TileRef& t = atlas.tile(ResourceId("block/planks"));
+    const float W = static_cast<float>(atlas.width());
+    checkf(std::fabs(t.u0 * W - static_cast<float>(t.x)) < 1e-3f &&
+               std::fabs((t.u1 - t.u0) * W - static_cast<float>(t.w)) < 1e-3f,
+           "a tile's UV rect spans all %d of its texels, edge to edge (%.2f)", t.w,
+           (t.u1 - t.u0) * W);
+  }
+
+  // --- a part of a block shows the part of the tile it covers ---------------------
+  {
+    const world::BlockId slab = reg.idOf("greystone_slab");
+    const resource::TileRef& t = atlas.tile(reg.def(slab).faceTextures[0]);
+    const std::vector<world::TerrainVertex> verts = meshAlone({{5, 10, 5, slab, 0, 0xFFFFFFu}});
+    // Side faces carry the side shades (0.68 and 0.85); their v must stay in the
+    // lower half of the tile, which is the half of the block a bottom slab fills.
+    int sides = 0, upper = 0;
+    const float mid = t.v0 + 0.5f * (t.v1 - t.v0);
+    for (const world::TerrainVertex& v : verts) {
+      if (v.shade != 173 && v.shade != 217) continue;
+      ++sides;
+      if (uvOf(v.v) < mid - 1e-3f) ++upper;
+    }
+    checkf(sides > 0 && upper == 0,
+           "a slab's sides show the bottom half of its tile, not the whole tile squashed "
+           "(%d of %d side corners reached the top half)",
+           upper, sides);
+  }
+
+  // --- a door is one door, not two ----------------------------------------------
+  {
+    const world::BlockId door = reg.idOf("door");
+    const world::BlockDef& def = reg.def(door);
+    check(!def.upperTexture.empty(), "a door names a tile for its upper half");
+    const resource::TileRef& lower = atlas.tile(def.faceTextures[0]);
+    const resource::TileRef& upperT = atlas.tile(def.upperTexture);
+    const std::vector<world::TerrainVertex> verts =
+        meshAlone({{5, 10, 5, door, 0, 0xFFFFFFu}, {5, 11, 5, door, 2, 0xFFFFFFu}});
+    int wrong = 0, seen = 0;
+    for (const world::TerrainVertex& v : verts) {
+      const float u = uvOf(v.u), vv = uvOf(v.v);
+      ++seen;
+      // Corners strictly above the join belong to the upper cell, strictly below to
+      // the lower; the join itself is shared and checked by neither.
+      if (v.y > 11.01f && !insideTile(u, vv, upperT)) ++wrong;
+      if (v.y < 10.99f && !insideTile(u, vv, lower)) ++wrong;
+    }
+    checkf(seen > 0 && wrong == 0,
+           "the upper cell draws the door's top half and the lower its bottom (%d astray)",
+           wrong);
+
+    // The upper half has a window you can see through; the lower half is solid.
+    const auto holes = [&](const resource::TileRef& t) {
+      int n = 0;
+      for (int y = 0; y < t.h; ++y) {
+        for (int x = 0; x < t.w; ++x) n += atlas.image().get(t.x + x, t.y + y).a == 0;
+      }
+      return n;
+    };
+    check(holes(upperT) > 0 && holes(lower) == 0,
+          "the window is in the upper half, and the lower half has no holes");
+  }
+
+  // --- a dyed bed is a coloured mattress on a wooden frame ----------------------
+  {
+    const world::BlockId bed = reg.idOf("bed");
+    const world::BlockDef& def = reg.def(bed);
+    check(def.parts.size() >= 2, "the bed is built from more than one material");
+    const resource::TileRef& wood = atlas.tile(def.parts[0].texture);
+    constexpr std::uint32_t kRed = 0xD23A34u;
+    // Foot at x=5 facing +x, head at x=6.
+    const std::vector<world::TerrainVertex> verts =
+        meshAlone({{5, 10, 5, bed, 0, kRed}, {6, 10, 5, bed, 4, kRed}});
+    int woodCorners = 0, woodTinted = 0, clothCorners = 0, clothRed = 0;
+    for (const world::TerrainVertex& v : verts) {
+      const bool isWood = insideTile(uvOf(v.u), uvOf(v.v), wood);
+      const bool red = v.tintR > 200 && v.tintG < 100;
+      if (isWood) {
+        ++woodCorners;
+        woodTinted += (v.tintR != 255 || v.tintG != 255 || v.tintB != 255) ? 1 : 0;
+      } else if (red || (v.tintR == 255 && v.tintG == 255)) {
+        ++clothCorners;
+        clothRed += red ? 1 : 0;
+      }
+    }
+    checkf(woodCorners > 0 && woodTinted == 0,
+           "the dye leaves a bed's wooden frame its own colour (%d of %d wood corners tinted)",
+           woodTinted, woodCorners);
+    checkf(clothRed > 0, "and lands on the mattress (%d red corners)", clothRed);
+
+    const std::vector<world::Box> solid = world::collisionBoxes(world::RenderKind::Bed, 4);
+    check(solid.size() == 1 && std::fabs(solid[0].y1 - 9.0f / 16.0f) < 1e-5f,
+          "however many boxes draw a bed, you stand on one, at the mattress");
+    check(world::renderBoxes(world::RenderKind::Bed, 4).size() > 1,
+          "and it is drawn from several: boards, frame, mattress, pillow");
+  }
+
+  // --- the same split in your hand and on the floor ------------------------------
+  {
+    const std::vector<render::ItemVertex> bedVerts =
+        render::buildItemMesh(render::itemModelFor("bed"), atlas);
+    int masked = 0, dyed = 0;
+    for (const render::ItemVertex& v : bedVerts) (v.a == 0 ? masked : dyed) += 1;
+    checkf(masked > 0 && dyed > 0,
+           "a held or dropped bed marks which surfaces the dye reaches (%d do, %d do not)",
+           dyed, masked);
+    const std::vector<render::ItemVertex> wool =
+        render::buildItemMesh(render::itemModelFor("wool"), atlas);
+    check(!wool.empty() && std::all_of(wool.begin(), wool.end(),
+                                       [](const render::ItemVertex& v) { return v.a == 255; }),
+          "and a block that is all one material is dyed all over");
+  }
+
+  // --- an extruded sprite's picture sits on its own edges -------------------------
+  {
+    const render::ItemModel model = render::itemModelFor("pick_copper");
+    const std::vector<render::ItemVertex> verts = render::buildItemMesh(model, atlas);
+    const resource::TileRef& t = atlas.tile(model.texture);
+    const float W = static_cast<float>(atlas.width());
+    // The first quad is the back plate; its corners give the x -> u mapping.
+    float xa = 1e9f, xb = -1e9f, ua = 0, ub = 0;
+    for (int i = 0; i < 6 && i < static_cast<int>(verts.size()); ++i) {
+      if (verts[i].x < xa) { xa = verts[i].x; ua = uvOf(verts[i].u); }
+      if (verts[i].x > xb) { xb = verts[i].x; ub = uvOf(verts[i].u); }
+    }
+    // Every vertical wall stands on a texel boundary of the model. Where it stands,
+    // the plate's texture must be on a texel boundary too, or the art and its
+    // silhouette disagree.
+    float worst = 0;
+    int walls = 0;
+    for (std::size_t q = 6; q + 6 <= verts.size(); q += 6) {
+      if (verts[q].shade != 173) continue;  // side walls carry the 0.68 shade
+      ++walls;
+      const float plateU = ua + (verts[q].x - xa) / (xb - xa) * (ub - ua);
+      const float texel = plateU * W - static_cast<float>(t.x);
+      worst = std::max(worst, std::fabs(texel - std::round(texel)));
+    }
+    checkf(walls > 0 && worst < 0.05f,
+           "a held sprite's picture meets its edge walls exactly (worst %.3f texel off)",
+           worst);
+
+    // The door's item is the whole door, one block tall.
+    const render::ItemModel doorModel = render::itemModelFor("door");
+    const std::vector<render::ItemVertex> door = render::buildItemMesh(doorModel, atlas);
+    float lo = 1e9f, hi = -1e9f, left = 1e9f, right = -1e9f;
+    for (const render::ItemVertex& v : door) {
+      lo = std::min(lo, v.y);
+      hi = std::max(hi, v.y);
+      left = std::min(left, v.x);
+      right = std::max(right, v.x);
+    }
+    checkf(!doorModel.textureBelow.empty() && std::fabs((hi - lo) - 1.0f) < 0.01f &&
+               right - left <= 0.51f,
+           "a door in hand is the whole door, a block tall and half as wide (%.2f x %.2f)",
+           right - left, hi - lo);
+  }
+
+  // --- pebbles are stones -------------------------------------------------------
+  {
+    const world::BlockDef& pebbles = reg.def(world::wk().pebbles);
+    check(pebbles.render == world::RenderKind::Pebbles, "pebbles are modelled, not a billboard");
+    const std::vector<world::Box> boxes = world::renderBoxes(world::RenderKind::Pebbles, 0);
+    check(!boxes.empty() && std::all_of(boxes.begin(), boxes.end(),
+                                        [](const world::Box& b) { return b.y1 <= 0.13f; }),
+          "and lie low on the ground");
+    check(world::collisionBoxes(world::RenderKind::Pebbles, 0).empty(),
+          "without anything to trip over");
+    check(pebbles.needsGround && pebbles.washesAway,
+          "and still need their ground and still wash away, like the billboard did");
+  }
+
+  // --- mobs wear their surfaces -------------------------------------------------
+  {
+    resource::TileRef tiles[5];
+    const char* names[5] = {"entity/plain", "entity/hide", "entity/wool", "entity/cloth",
+                            "entity/grain"};
+    for (int i = 0; i < 5; ++i) tiles[i] = atlas.tile(ResourceId(names[i]));
+    render::MeshBox fleece;
+    fleece.hx = 0.3f;
+    fleece.hy = 0.3f;
+    fleece.hz = 0.4f;
+    fleece.surface = render::Surface::Wool;
+    render::MeshBox eye;
+    eye.hx = 0.03f;
+    eye.hy = 0.03f;
+    eye.hz = 0.006f;
+    eye.surface = render::Surface::Hide;
+    const std::vector<render::ItemVertex> v = render::buildBoxVertices({fleece, eye}, tiles);
+    const auto allIn = [&](std::size_t from, std::size_t to, const resource::TileRef& t) {
+      for (std::size_t i = from; i < to; ++i) {
+        if (!insideTile(uvOf(v[i].u), uvOf(v[i].v), t)) return false;
+      }
+      return true;
+    };
+    check(v.size() == 72 && allIn(0, 36, tiles[2]), "a fleece box samples the wool tile");
+    check(allIn(36, 72, tiles[0]), "and an eye, too thin for texture, the plain one");
+    const std::vector<render::ItemVertex> bare = render::buildBoxVertices({fleece}, nullptr);
+    check(std::all_of(bare.begin(), bare.end(),
+                      [](const render::ItemVertex& x) { return x.u == 0 && x.v == 0; }),
+          "and with no atlas the mesh keeps the old untextured form");
+  }
+
+  // --- icons --------------------------------------------------------------------
+  {
+    render::IconAtlas icons;
+    check(icons.build(atlas), "the icon sheet builds headless");
+    const Image& img = icons.image();
+    const auto cell = [&](const std::string& key, bool overlay, int& x, int& y) {
+      float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
+      const bool ok = overlay ? icons.overlayFor(key, u0, v0, u1, v1)
+                              : icons.uvFor(key, u0, v0, u1, v1);
+      x = static_cast<int>(std::lround(u0 * img.width()));
+      y = static_cast<int>(std::lround(v0 * img.height()));
+      return ok;
+    };
+    const auto opaqueIn = [&](int x0, int y0) {
+      int n = 0;
+      for (int y = 0; y < render::kIconSize; ++y) {
+        for (int x = 0; x < render::kIconSize; ++x) n += img.get(x0 + x, y0 + y).a >= 128;
+      }
+      return n;
+    };
+
+    // A flower is drawn at a whole-number scale: every 4x4 block is one colour.
+    int fx = 0, fy = 0;
+    cell("flower_poppy", false, fx, fy);
+    int ragged = 0;
+    for (int by = 0; by < render::kIconSize; by += 4) {
+      for (int bx = 0; bx < render::kIconSize; bx += 4) {
+        const Rgba first = img.get(fx + bx, fy + by);
+        for (int y = 0; y < 4; ++y) {
+          for (int x = 0; x < 4; ++x) {
+            const Rgba c = img.get(fx + bx + x, fy + by + y);
+            if (c.a != first.a || (c.a != 0 && (c.r != first.r || c.g != first.g))) ++ragged;
+          }
+        }
+      }
+    }
+    checkf(opaqueIn(fx, fy) > 0 && ragged == 0,
+           "a flower's icon is its tile at a whole-number scale (%d pixels off the grid)",
+           ragged);
+
+    // Only a partly dyeable item has an overlay, and it holds less than the icon.
+    int bx = 0, by = 0, ox = 0, oy = 0, wx = 0, wy = 0;
+    check(cell("bed", false, bx, by) && cell("bed", true, ox, oy),
+          "a bed has an undyed overlay for its frame and pillow");
+    // "Fewer pixels than the icon" is not enough: only solidly covered pixels enter
+    // the overlay, so even one that wrongly took every surface would come out a
+    // little smaller than the icon from its antialiased rim alone. The mattress's
+    // top is the largest surface in the picture, so leaving it out has to cost at
+    // least a fifth.
+    const int whole = opaqueIn(bx, by), frame = opaqueIn(ox, oy);
+    checkf(frame > 0 && frame * 5 <= whole * 4,
+           "and it holds the wood and the pillow but not the mattress (%d of %d)", frame,
+           whole);
+    check(!cell("wool", true, wx, wy), "wool, dyed all over, has none");
+
+    // Cells are padded, so filtering one cannot reach the next.
+    int cx0 = 0, cy0 = 0;
+    cell(game::items().all().front().key, false, cx0, cy0);
+    check(cx0 > 0 && cy0 > 0, "icon cells sit inside a margin of their own");
+
+    // Bleeding colour into the margin leaves it transparent.
+    Image tiny(3, 1);
+    tiny.clear();
+    tiny.set(1, 0, Rgba {200, 30, 20, 255});
+    render::bleedTransparent(tiny, 1);
+    const Rgba edge = tiny.get(0, 0);
+    check(edge.a == 0 && edge.r == 200 && edge.g == 30,
+          "a transparent pixel beside an icon takes its colour and keeps its transparency");
+  }
+
+  // --- polished stone tiles as slabs, not stripes --------------------------------
+  {
+    const resource::PainterEntry* p = resource::findPainter(ResourceId("block/polished"));
+    check(p != nullptr, "polished stone has a painter");
+    if (p) {
+      const Image t = resource::paintTile(*p);
+      const auto lum = [&](int x, int y) {
+        const Rgba c = t.get(x, y);
+        return c.r + c.g + c.b;
+      };
+      int top = 0, bottom = 0, left = 0, right = 0;
+      for (int i = 2; i < 14; ++i) {
+        top += lum(i, 0);
+        bottom += lum(i, 15);
+        left += lum(0, i);
+        right += lum(15, i);
+      }
+      check(top > bottom && left > right,
+            "polished stone is bevelled on all four edges, lit from the top left");
+    }
+  }
+}
+
 }  // namespace
 
 int runSelfTest() {
@@ -11282,6 +11656,7 @@ int runSelfTest() {
   testViewmodelSwing();
   testSpawnChoice();
   testPaintings();
+  testModels();
   testRecipeConvenience();
   testWater();
   testChunkStorage();

@@ -1,5 +1,6 @@
 #include "resource/painters.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <unordered_map>
@@ -118,19 +119,37 @@ PainterFn stoneTex(std::uint32_t base, std::uint32_t fleck) {
   };
 }
 
+// Polished stone: a dressed slab with a bevel on all four edges, lit from the top
+// left like every raised thing in the atlas.
+//
+// It used to be a vertical gradient with a highlight along the top row only, which
+// looked fine on one block and wrong on a floor of them: every row of blocks got a
+// bright line at one edge and a dark one at the other, and a paved area read as a
+// field of stripes rather than as slabs. Four bevelled edges tile into a grid of
+// slabs from any side.
+void polishedInto(Image& img, int ox, int oy, Mulberry32& rng, Rgb3 c) {
+  for (int y = 0; y < T; ++y) {
+    for (int x = 0; x < T; ++x) {
+      // A faint diagonal sheen across the face, then the per-pixel grain.
+      const double sheen = 1.0 + (7.5 - (x + y) * 0.5) * 0.006;
+      const double k = sheen + (rng.next() * 2 - 1) * 0.03;
+      px(img, ox, oy, x, y, c.r * k, c.g * k, c.b * k);
+    }
+  }
+  for (int i = 0; i < T; ++i) {
+    px(img, ox, oy, i, 0, c.r * 1.22, c.g * 1.22, c.b * 1.22);          // top
+    px(img, ox, oy, 0, i, c.r * 1.14, c.g * 1.14, c.b * 1.14);          // left
+    px(img, ox, oy, i, T - 1, c.r * 0.72, c.g * 0.72, c.b * 0.72);      // bottom
+    px(img, ox, oy, T - 1, i, c.r * 0.78, c.g * 0.78, c.b * 0.78);      // right
+  }
+  // The two corners where a light edge meets a dark one, split between them.
+  px(img, ox, oy, T - 1, 0, c.r, c.g, c.b);
+  px(img, ox, oy, 0, T - 1, c.r * 0.9, c.g * 0.9, c.b * 0.9);
+}
+
 PainterFn polishedTex(std::uint32_t base) {
   const Rgb3 c = hex(base);
-  return [c](Image& img, int ox, int oy, Mulberry32& rng) {
-    for (int y = 0; y < T; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const double k = 1 - y * 0.018 + (rng.next() * 2 - 1) * 0.04;
-        px(img, ox, oy, x, y, c.r * k, c.g * k, c.b * k);
-      }
-    }
-    for (int i = 0; i < T; ++i) {  // top highlight
-      px(img, ox, oy, i, 0, c.r * 1.25, c.g * 1.25, c.b * 1.25);
-    }
-  };
+  return [c](Image& img, int ox, int oy, Mulberry32& rng) { polishedInto(img, ox, oy, rng, c); };
 }
 
 PainterFn bricksTex(std::uint32_t base) {
@@ -200,54 +219,120 @@ PainterFn leavesTex(std::uint32_t c1, std::uint32_t c2) {
   };
 }
 
-// Wood doors and trapdoors: the wood's planks plus a frame, bevelled panels and
-// hardware. The bevel — dark top and left, light bottom and right — makes the
-// panels read as recessed rather than merely outlined.
-PainterFn doorTex(std::uint32_t base, std::uint32_t line) {
+// Wood doors: ONE door painted across two tiles, the upper half over the lower.
+//
+// A door is two stacked cells, and until this both drew the same tile — a complete
+// door, frame, two panels and a handle, squeezed into sixteen pixels — so every door
+// in the world was two small doors stacked on top of each other, with two handles.
+// Now each half paints its own rows of a single 16x32 design: vertical boards in a
+// frame, a four-pane window in the upper half, a raised panel in the lower, and the
+// handle at the height a hand would find it. The window is cut clean through: the
+// door is already see-through-capable for its cutout, and a window you cannot see
+// through is a painting of one.
+//
+// `rows` picks the half: 0 paints rows 0-15 of the design (the upper cell), 16 paints
+// rows 16-31 (the lower).
+PainterFn doorTex(std::uint32_t base, std::uint32_t line, int rows) {
   const Rgb3 b = hex(base), l = hex(line);
-  // The nested plank fill is seeded from the base colour's *hex string* plus a
-  // suffix, exactly as the JS concatenated it.
-  char seedBuf[16];
-  std::snprintf(seedBuf, sizeof(seedBuf), "#%06x", base);
-  const std::string plankSeed = std::string(seedBuf) + "door";
+  return [b, l, rows](Image& img, int ox, int oy, Mulberry32& rng) {
+    constexpr int kH = 2 * T;  // the whole door
+    // Every rule below is written against the full 32-row door; this is the one
+    // place that knows only half of it lands in this tile.
+    auto put = [&](int x, int dy, double r, double g, double bl, double a = 1.0) {
+      const int y = dy - rows;
+      if (y >= 0 && y < T) px(img, ox, oy, x, y, r, g, bl, a);
+    };
+    auto shadeOf = [&](double k, double j = 0) {
+      return Rgb3 {b.r * k + j, b.g * k + j, b.b * k + j};
+    };
 
-  return [b, l, plankSeed](Image& img, int ox, int oy, Mulberry32& rng) {
-    Mulberry32 inner = seeded(plankSeed);
-    plankTexInto(img, ox, oy, inner, b, l);
-
-    for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, 0, i, l.r, l.g, l.b);
-      px(img, ox, oy, T - 1, i, l.r, l.g, l.b);
-      px(img, ox, oy, i, 0, l.r, l.g, l.b);
-      px(img, ox, oy, i, T - 1, l.r, l.g, l.b);
+    // Boards: three vertical planks with dark seams, grain streaks down each.
+    for (int y = 0; y < kH; ++y) {
+      for (int x = 0; x < T; ++x) {
+        double j = (rng.next() * 2 - 1) * 7;
+        if ((x * 7 + y / 3) % 11 == 0) j -= 12;  // grain
+        const Rgb3 c = shadeOf(1.0, j);
+        put(x, y, c.r, c.g, c.b);
+      }
+    }
+    for (int y = 0; y < kH; ++y) {
+      put(5, y, l.r * 1.15, l.g * 1.15, l.b * 1.15);
+      put(10, y, l.r * 1.15, l.g * 1.15, l.b * 1.15);
     }
 
-    auto panel = [&](int y0, int y1) {
-      for (int y = y0; y <= y1; ++y) {
-        for (int x = 3; x <= 12; ++x) {
-          const double j = (rng.next() * 2 - 1) * 8;
-          px(img, ox, oy, x, y, b.r * 0.88 + j, b.g * 0.88 + j, b.b * 0.88 + j);
-        }
-      }
-      for (int x = 3; x <= 12; ++x) {
-        px(img, ox, oy, x, y0, b.r * 0.58, b.g * 0.58, b.b * 0.58);
-        px(img, ox, oy, x, y1, b.r * 1.18, b.g * 1.18, b.b * 1.18);
-      }
-      for (int y = y0; y <= y1; ++y) {
-        px(img, ox, oy, 3, y, b.r * 0.62, b.g * 0.62, b.b * 0.62);
-        px(img, ox, oy, 12, y, b.r * 1.14, b.g * 1.14, b.b * 1.14);
+    // The frame: stiles down both sides, rails across the top and the bottom and at
+    // the waist, all a shade lighter than the boards they hold.
+    auto frameRow = [&](int y) {
+      for (int x = 0; x < T; ++x) {
+        const Rgb3 c = shadeOf(1.08, (rng.next() * 2 - 1) * 5);
+        put(x, y, c.r, c.g, c.b);
       }
     };
-    panel(2, 6);
-    panel(9, 13);
+    for (int y = 0; y < kH; ++y) {
+      for (int x : {1, 14}) {
+        const Rgb3 c = shadeOf(1.08, (rng.next() * 2 - 1) * 5);
+        put(x, y, c.r, c.g, c.b);
+      }
+    }
+    frameRow(1);
+    frameRow(15);
+    frameRow(16);
+    frameRow(30);
+    // The outline: what makes a door read as a door against a wall of planks.
+    for (int y = 0; y < kH; ++y) {
+      put(0, y, l.r, l.g, l.b);
+      put(T - 1, y, l.r, l.g, l.b);
+    }
+    for (int x = 0; x < T; ++x) {
+      put(x, 0, l.r, l.g, l.b);
+      put(x, kH - 1, l.r, l.g, l.b);
+    }
 
-    // Brass handle with a shadow pixel so it sits proud of the door.
-    px(img, ox, oy, T - 5, 10, 240, 208, 110);
-    px(img, ox, oy, T - 5, 11, 214, 178, 84);
-    px(img, ox, oy, T - 4, 11, b.r * 0.5, b.g * 0.5, b.b * 0.5);
+    // Upper half: a window of four panes behind a cross of glazing bars. The panes
+    // are open; the sill below them catches the light.
+    for (int y = 4; y <= 11; ++y) {
+      for (int x = 3; x <= 12; ++x) {
+        const bool bar = x == 7 || x == 8 || y == 7 || y == 8;
+        const bool rim = x == 3 || x == 12 || y == 4 || y == 11;
+        if (rim) {
+          put(x, y, l.r, l.g, l.b);
+        } else if (bar) {
+          const Rgb3 c = shadeOf(0.92);
+          put(x, y, c.r, c.g, c.b);
+        } else {
+          put(x, y, 0, 0, 0, 0.0);
+        }
+      }
+    }
+    for (int x = 3; x <= 12; ++x) put(x, 12, b.r * 1.22, b.g * 1.22, b.b * 1.22);
+
+    // Lower half: a raised panel, lit along its top and left, shadowed below and
+    // to the right, so it stands proud of the boards rather than being drawn on.
+    for (int y = 19; y <= 27; ++y) {
+      for (int x = 3; x <= 12; ++x) {
+        const Rgb3 c = shadeOf(1.02, (rng.next() * 2 - 1) * 5);
+        put(x, y, c.r, c.g, c.b);
+      }
+    }
+    for (int x = 3; x <= 12; ++x) {
+      put(x, 19, b.r * 1.24, b.g * 1.24, b.b * 1.24);
+      put(x, 27, b.r * 0.6, b.g * 0.6, b.b * 0.6);
+    }
+    for (int y = 19; y <= 27; ++y) {
+      put(3, y, b.r * 1.16, b.g * 1.16, b.b * 1.16);
+      put(12, y, b.r * 0.66, b.g * 0.66, b.b * 0.66);
+    }
+
+    // The handle: a brass knob with a backplate, at the waist rail where a hand
+    // meets it, and a shadow pixel so it sits proud of the wood.
+    put(12, 15, 96, 90, 84);
+    put(12, 16, 240, 208, 110);
+    put(12, 17, 214, 178, 84);
+    put(13, 17, b.r * 0.5, b.g * 0.5, b.b * 0.5);
   };
 }
 
+// Trapdoors: the wood's planks in a frame with a cross-brace and iron studs.
 PainterFn trapdoorTex(std::uint32_t base, std::uint32_t line) {
   const Rgb3 b = hex(base), l = hex(line);
   char seedBuf[16];
@@ -409,20 +494,21 @@ void deadBushTex(Image& img, int ox, int oy, Mulberry32& rng) {
   }
 }
 
-// A scatter of small stones hugging the ground.
+// Pebbles are small boxes now (RenderKind::Pebbles), so this is the STONE they are
+// made of rather than a picture of a few of them: water-worn grey, mottled, with a
+// lighter crown where the light catches the top. Every face of every stone samples
+// its own few texels of it by position, so the mottling is what tells the stones
+// apart. Opaque, since a box has no use for a cutout.
 void pebblesTex(Image& img, int ox, int oy, Mulberry32& rng) {
-  const Rgb3 cols[3] = {hex(0x8a8f96), hex(0x6f747b), hex(0xa2a7ad)};
-  for (int i = 0; i < 5; ++i) {
-    const int bx = 2 + static_cast<int>(rng.next() * (T - 5));
-    const int by = T - 4 + static_cast<int>(rng.next() * 3);
-    const int s = 2 + static_cast<int>(rng.next() * 2);
-    const Rgb3 c = cols[static_cast<int>(rng.next() * 3)];
-    for (int y = 0; y < s; ++y) {
-      for (int x = 0; x < s + 1; ++x) {
-        const double j = (rng.next() * 2 - 1) * 14;
-        const int yy = by + y < T - 1 ? by + y : T - 1;
-        px(img, ox, oy, (bx + x) % T, yy, c.r + j, c.g + j, c.b + j);
-      }
+  noisy(img, ox, oy, hex(0x8a8f96), 14, rng);
+  blobs(img, ox, oy, hex(0x6f747b), 10, rng, 2);
+  blobs(img, ox, oy, hex(0xa9aeb4), 8, rng, 2);
+  // Rows 12-15 are the sides of the stones (they are one or two texels tall and sit
+  // on the floor); a darker band there is the shadow under each one's crown.
+  for (int y = 13; y < T; ++y) {
+    for (int x = 0; x < T; ++x) {
+      const Rgba p = img.get(ox + x, oy + y);
+      px(img, ox, oy, x, y, p.r * 0.84, p.g * 0.84, p.b * 0.84);
     }
   }
 }
@@ -750,15 +836,7 @@ std::vector<PainterEntry> buildPainters() {
       }
     }
   });
-  add("polished", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    for (int y = 0; y < T; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const double v = 132 - y * 2 + (rng.next() * 2 - 1) * 6;
-        px(img, ox, oy, x, y, v, v + 2, v + 8);
-      }
-    }
-    for (int i = 0; i < T; ++i) px(img, ox, oy, i, 0, 160, 164, 172);
-  });
+  add("polished", polishedTex(0x8a8c94));
   add("wool", [](Image& img, int ox, int oy, Mulberry32& rng) {
     noisy(img, ox, oy, hex(0xececec), 8, rng);
     blobs(img, ox, oy, hex(0xdadada), 16, rng, 2);
@@ -1036,82 +1114,91 @@ std::vector<PainterEntry> buildPainters() {
     }
   });
   add("trapdoor", trapdoorTex(0xb08a52, 0x6e5230));
-  add("door", doorTex(0xb08a52, 0x6e5230));
+  add("door", doorTex(0xb08a52, 0x6e5230, T));
+  add("door_upper", doorTex(0xb08a52, 0x6e5230, 0));
 
+  // ---- the bed ----
+  //
+  // Four of these are the MATTRESS, the one part of the model a dye reaches (see
+  // bedBoxes in world/shapes.cpp), and are painted as neutral light greys so the
+  // shaders' multiply lands on something that can take a colour: white takes it
+  // exactly, and the darker hems come out as shaded versions of it. The frame and
+  // the pillow are parts of their own and are painted in their real colours,
+  // because no dye ever touches them — which is the whole reason the bed stopped
+  // being one box. Faces are textured by position now, so each tile is drawn with
+  // the rows the model actually shows in mind.
+  //
+  // The head cell's blanket, with the tile's top edge toward the head. The pillow
+  // sits on rows 2-6 and the headboard hides 0-1, so the turned-down sheet is drawn
+  // just below the pillow, where it shows.
   add("bed_head_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0xb5b5b5), 12, rng);  // neutral blanket, takes the dye
-    blobs(img, ox, oy, hex(0xa0a0a0), 6, rng, 1);
-    for (int x = 0; x < T; ++x) {  // headboard rail
-      px(img, ox, oy, x, 0, 84, 84, 84);
-      px(img, ox, oy, x, 1, 62, 62, 62);
+    noisy(img, ox, oy, hex(0xdadada), 7, rng);
+    for (int x = 0; x < T; ++x) {
+      px(img, ox, oy, x, 7, 250, 250, 250);  // the fold, catching the light
+      px(img, ox, oy, x, 8, 238, 238, 238);
+      px(img, ox, oy, x, 9, 170, 170, 170);  // and its shadow on the blanket
     }
-    // Plump pillow: dim rounded edge, bright centre, a stitched highlight.
-    for (int y = 2; y <= 6; ++y) {
-      for (int x = 2; x <= 13; ++x) {
-        const bool edge = y == 2 || y == 6 || x == 2 || x == 13;
-        const double j = (rng.next() * 2 - 1) * 6;
-        if (edge) {
-          px(img, ox, oy, x, y, 202 + j, 200 + j, 190 + j);
-        } else {
-          px(img, ox, oy, x, y, 238 + j, 236 + j, 226 + j);
-        }
+    for (int y = 10; y < T; ++y) {  // quilting below the fold, as on the foot tile
+      for (int x = 0; x < T; ++x) {
+        if ((x + y) % 6 == 0 || (x - y + 32) % 6 == 0) px(img, ox, oy, x, y, 196, 196, 196);
       }
-    }
-    px(img, ox, oy, 4, 3, 250, 249, 242);
-    px(img, ox, oy, 5, 3, 250, 249, 242);
-    for (int x = 0; x < T; ++x) {  // blanket folded below the pillow
-      px(img, ox, oy, x, 8, 150, 150, 150);
-      px(img, ox, oy, x, 9, 128, 128, 128);
     }
   });
   add("bed_foot_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0xb5b5b5), 10, rng);  // neutral quilt
-    for (int y = 0; y < T; ++y) {                // diagonal quilt stitching
+    noisy(img, ox, oy, hex(0xdadada), 7, rng);
+    for (int y = 0; y < T; ++y) {  // diagonal quilt stitching
       for (int x = 0; x < T; ++x) {
-        if ((x + y) % 6 == 0 || (x - y + 32) % 6 == 0) px(img, ox, oy, x, y, 150, 150, 150);
+        if ((x + y) % 6 == 0 || (x - y + 32) % 6 == 0) px(img, ox, oy, x, y, 196, 196, 196);
       }
     }
-    for (int x = 0; x < T; ++x) {  // tucked white sheet at the foot end
-      px(img, ox, oy, x, 13, 128, 128, 128);
-      px(img, ox, oy, x, 14, 222, 218, 206);
-      px(img, ox, oy, x, 15, 192, 188, 176);
-    }
   });
-  // The underside, which is never visible in play but is part of a dyeable block
-  // and therefore has to be neutral like the rest of it.
-  add("bed_bottom", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0x6e6e6e), 10, rng);
-    for (int x = 0; x < T; ++x) {
-      px(img, ox, oy, x, 0, 88, 88, 88);
-      px(img, ox, oy, x, T - 1, 52, 52, 52);
-    }
-  });
+  // The mattress's side. Only rows 7-9 are ever on screen — the mattress is three
+  // texels deep, from 6/16 to 9/16 — so those three carry the design: a lit top
+  // edge where the blanket rolls over, the blanket, and a hem in shadow.
   add("bed_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    // A neutral frame rather than planksInto. The shaders multiply the dye over
-    // this whole tile, so a brown frame would come out as brown-times-the-dye — a
-    // muddy version of whatever was chosen. Painted as greys it reads as a frame in
-    // shadow at every colour, which is what "the details should be dark" buys.
-    for (int y = 8; y < T; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const double j = (rng.next() * 2 - 1) * 8;
-        px(img, ox, oy, x, y, 96 + j, 96 + j, 96 + j);
-      }
-    }
-    // Draped blanket with a lit top edge and a shadowed hem.
-    for (int y = 0; y < 8; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const double j = (rng.next() * 2 - 1) * 10;
-        px(img, ox, oy, x, y, 181 + j, 181 + j, 181 + j);
-      }
-    }
+    noisy(img, ox, oy, hex(0xd2d2d2), 7, rng);
     for (int x = 0; x < T; ++x) {
-      px(img, ox, oy, x, 0, 205, 205, 205);
-      px(img, ox, oy, x, 7, 138, 138, 138);
-      px(img, ox, oy, x, 8, 220, 220, 220);  // sheet peeking out
-      px(img, ox, oy, x, 9, 104, 104, 104);  // frame rail
+      px(img, ox, oy, x, 7, 240, 240, 240);
+      px(img, ox, oy, x, 9, 150, 150, 150);
     }
-    for (int y = 12; y < T; ++y) {  // shadowed gap between stout legs
-      for (int x = 3; x <= 12; ++x) px(img, ox, oy, x, y, 30, 30, 30);
+  });
+  add("bed_bottom", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x9a9a9a), 8, rng);
+  });
+  // The wooden head- and footboards and the frame between them. Corner posts down
+  // both edges, so each board reads as framed and the frame rail's ends read as the
+  // posts they meet.
+  add("bed_frame", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    const Rgb3 wood = hex(0x8a5a34), post = hex(0x6a4226), cap = hex(0xa87448);
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        double j = (rng.next() * 2 - 1) * 8;
+        if ((x * 5 + y / 4) % 9 == 0) j -= 14;  // grain running down the boards
+        const bool isPost = x <= 1 || x >= T - 2;
+        const Rgb3 c = isPost ? post : wood;
+        px(img, ox, oy, x, y, c.r + j, c.g + j, c.b + j);
+      }
+    }
+    for (int y = 0; y < T; ++y) {  // board seams
+      px(img, ox, oy, 5, y, wood.r * 0.72, wood.g * 0.72, wood.b * 0.72);
+      px(img, ox, oy, 10, y, wood.r * 0.72, wood.g * 0.72, wood.b * 0.72);
+    }
+    // A lighter cap along the top of the headboard (row 2, the highest the model
+    // shows) and of the footboard (row 6), so both boards have a finished edge.
+    for (int x = 0; x < T; ++x) {
+      px(img, ox, oy, x, 2, cap.r, cap.g, cap.b);
+      px(img, ox, oy, x, 6, cap.r, cap.g, cap.b);
+    }
+  });
+  add("bed_pillow", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    // Soft white, darkening toward every edge so it looks stuffed rather than cut.
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double dx = std::abs(x - 7.5) / 7.5, dy = std::abs(y - 7.5) / 7.5;
+        const double edge = std::max(dx, dy);
+        const double v = 246 - edge * edge * 34 + (rng.next() * 2 - 1) * 4;
+        px(img, ox, oy, x, y, v, v - 1, v - 6);
+      }
     }
   });
 
@@ -1157,12 +1244,16 @@ std::vector<PainterEntry> buildPainters() {
   });
   add("palm_leaves", leavesTex(0x4fae4a, 0x3f9440));
 
-  add("pine_door", doorTex(0xc2a05a, 0x7a5e2e));
-  add("dusk_door", doorTex(0x5a4634, 0x33271a));
+  add("pine_door", doorTex(0xc2a05a, 0x7a5e2e, T));
+  add("pine_door_upper", doorTex(0xc2a05a, 0x7a5e2e, 0));
+  add("dusk_door", doorTex(0x5a4634, 0x33271a, T));
+  add("dusk_door_upper", doorTex(0x5a4634, 0x33271a, 0));
   add("pine_trapdoor", trapdoorTex(0xc2a05a, 0x7a5e2e));
   add("dusk_trapdoor", trapdoorTex(0x5a4634, 0x33271a));
-  add("birch_door", doorTex(0xd8c9a2, 0x8f8058));
-  add("palm_door", doorTex(0xc9a06a, 0x7c5c32));
+  add("birch_door", doorTex(0xd8c9a2, 0x8f8058, T));
+  add("birch_door_upper", doorTex(0xd8c9a2, 0x8f8058, 0));
+  add("palm_door", doorTex(0xc9a06a, 0x7c5c32, T));
+  add("palm_door_upper", doorTex(0xc9a06a, 0x7c5c32, 0));
   add("birch_trapdoor", trapdoorTex(0xd8c9a2, 0x8f8058));
   add("palm_trapdoor", trapdoorTex(0xc9a06a, 0x7c5c32));
 
@@ -1502,6 +1593,80 @@ std::vector<PainterEntry> buildPainters() {
     }
   });
 
+  // ---- mob surfaces ----
+  //
+  // Greyscale, and multiplied by each box's own colour in the entity shader, so one
+  // tile serves every mob that wears that kind of surface: the sheep's wool and the
+  // cow's hide are the same grey detail in different colours. They sit near white
+  // (the mean is about 0.9) so a mob keeps the colour it was designed in and gains
+  // the texture on top, rather than coming out darker. Mobs were flat colour until
+  // these, the one thing in the world with no texture at all.
+  //
+  // Named under entity/ rather than block/ so a resource pack finds them where it
+  // would look for a mob's skin.
+  auto addEntity = [&out](std::string name, PainterFn fn) {
+    ResourceId id(std::string("entity/") + name);
+    out.push_back({id, "entity_" + name, std::move(fn)});
+  };
+  // Eyes, noses, horns: parts too small to show a texture, which still need a UV
+  // that points at something.
+  addEntity("plain", [](Image& img, int ox, int oy, Mulberry32&) {
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) px(img, ox, oy, x, y, 255, 255, 255);
+    }
+  });
+  // Skin and short hair: a soft mottle.
+  addEntity("hide", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double v = 232 + (rng.next() * 2 - 1) * 14;
+        px(img, ox, oy, x, y, v, v, v);
+      }
+    }
+    for (int i = 0; i < 10; ++i) {  // a few darker hairs
+      const int x = static_cast<int>(rng.next() * T), y = static_cast<int>(rng.next() * (T - 1));
+      px(img, ox, oy, x, y, 206, 206, 206);
+      px(img, ox, oy, x, y + 1, 214, 214, 214);
+    }
+  });
+  // Fleece: tight curls, each a lit crown over a shadowed underside.
+  addEntity("wool", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const double v = 226 + (rng.next() * 2 - 1) * 8;
+        px(img, ox, oy, x, y, v, v, v);
+      }
+    }
+    for (int i = 0; i < 22; ++i) {
+      const int cx = static_cast<int>(rng.next() * T), cy = static_cast<int>(rng.next() * T);
+      px(img, ox, oy, cx, cy, 255, 255, 255);
+      px(img, ox, oy, (cx + 1) % T, cy, 246, 246, 246);
+      px(img, ox, oy, cx, (cy + 1) % T, 196, 196, 196);
+      px(img, ox, oy, (cx + 1) % T, (cy + 1) % T, 206, 206, 206);
+    }
+  });
+  // Woven cloth for shirts and trousers: a fine twill.
+  addEntity("cloth", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        const bool thread = (x + y) % 3 == 0;
+        const double v = (thread ? 214 : 238) + (rng.next() * 2 - 1) * 6;
+        px(img, ox, oy, x, y, v, v, v);
+      }
+    }
+  });
+  // Planking for the boat: boards with seams, grain along their length.
+  addEntity("grain", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    for (int y = 0; y < T; ++y) {
+      for (int x = 0; x < T; ++x) {
+        double v = 234 + (rng.next() * 2 - 1) * 8;
+        if ((y * 5 + x / 5) % 7 == 0) v -= 20;  // grain
+        if (y % 4 == 3) v = 176;                // seam between boards
+        px(img, ox, oy, x, y, v, v, v);
+      }
+    }
+  });
+
   return out;
 }
 
@@ -1510,6 +1675,14 @@ std::vector<PainterEntry> buildPainters() {
 const std::vector<PainterEntry>& builtinPainters() {
   static const std::vector<PainterEntry> painters = buildPainters();
   return painters;
+}
+
+std::vector<ResourceId> builtinEntityTextureIds() {
+  std::vector<ResourceId> ids;
+  for (const PainterEntry& e : builtinPainters()) {
+    if (e.id.path().rfind("entity/", 0) == 0) ids.push_back(e.id);
+  }
+  return ids;
 }
 
 const PainterEntry* findPainter(const ResourceId& id) {

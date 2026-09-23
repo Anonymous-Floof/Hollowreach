@@ -668,6 +668,9 @@ void Doc::paintNode(Ui2D& ui, const Node& n) const {
   if (n.content == Content::Icon && n.icon.texture != 0) {
     ui.setTexture(n.icon.texture);
     ui.texturedRect(n.rect, n.icon.u0, n.icon.v0, n.icon.u1, n.icon.v1, tint(n.icon.tint));
+    if (n.icon.hasOverlay()) {
+      ui.texturedRect(n.rect, n.icon.ou0, n.icon.ov0, n.icon.ou1, n.icon.ov1, tint(kWhite));
+    }
     ui.setTexture(0);
   } else if (n.content == Content::Text && text_ && !n.text.empty()) {
     Rect inner = {n.rect.x + s.padding.left, n.rect.y + s.padding.top,

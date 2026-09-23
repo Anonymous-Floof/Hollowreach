@@ -150,6 +150,9 @@ struct AppOptions {
   // The only way to capture a painting reproducibly — everything else about one
   // goes through a mouse click on a screen that needs a gallery behind it.
   std::string hangPicture;
+  // --showroom <blocks|items>: every block, or a drop of every item, laid out in a
+  // grid in front of spawn. See dev/showroom.h.
+  std::string showroom;
   // --dump-icons <png>: write the generated icon sheet and exit.
   std::string iconDumpPath;
 

@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "world/blocks.h"
@@ -26,10 +27,40 @@
 namespace hr::world {
 
 // min/max corners in [0,1].
+//
+// `part` says which art a box wears. 0 is the block's own face textures, the only
+// thing most shapes need; N > 0 is BlockDef::parts[N - 1], for a model built from
+// several materials — a bed is a dyed mattress on an undyed wooden frame, and one
+// set of six face textures cannot say that. Physics ignores it.
 struct Box {
   float x0 = 0, y0 = 0, z0 = 0;
   float x1 = 1, y1 = 1, z1 = 1;
+  std::uint8_t part = 0;
 };
+
+// Where on its tile one corner of a box face samples, as fractions of the tile: `fu`
+// across and `fv` DOWN from the top edge, both in [0, 1]. `face` is the mesher's
+// numbering (0:+x 1:-x 2:+y 3:-y 4:+z 5:-z) and x, y, z the corner in block-local
+// [0,1] space.
+//
+// The fractions are the corner's POSITION in the cell, not its place on the box.
+// That is the whole point: a slab shows the bottom half of its tile rather than the
+// whole tile squashed into half the height, a stair's step lines up with the slab
+// beneath it, and the edge of a door shows the three texels of frame that are
+// actually there instead of the full door art crushed into a sliver. For a full
+// cube it reduces to the corners of the tile, in the orientation every shaped face
+// has always used — so nothing that was a whole block changes.
+//
+// One function for the three places that draw a shape — the chunk mesher, the
+// dropped and held model, and the inventory icon — because the day two of them
+// disagree is the day a stair in your hand stops matching the one on the floor.
+void faceUv(int face, float x, float y, float z, float& fu, float& fv);
+
+// Turns tile fractions a quarter-turn at a time, about the tile's centre. The bed
+// uses it so the pillow end of its top art follows the way the bed was laid; done on
+// the fractions rather than by shuffling a face's four corner UVs, because only the
+// fractions still mean the right thing on a box smaller than the cell.
+void rotateUv(int quarterTurns, float& fu, float& fv);
 
 // True for the render kinds expressed as box lists.
 bool isShaped(RenderKind kind);

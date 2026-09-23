@@ -34,7 +34,8 @@ namespace hr::resource {
 
 // Where a texture lives in the atlas.
 struct TileRef {
-  // Normalised rect, inset by half a texel. u0,v0 is the top-left corner.
+  // Normalised rect, exactly on the tile's edges (the gutter makes an inset
+  // unnecessary; see Atlas::build). u0,v0 is the top-left corner.
   float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
   // Pixel rect of the tile interior, excluding the gutter. Item-model extrusion
   // and icon generation read the CPU image through this.

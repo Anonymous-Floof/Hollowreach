@@ -77,6 +77,8 @@ void printUsage() {
       "  --check-update [ver] ask GitHub for the latest release, print it, and exit\n"
       "  --apply-update [ver] download the latest release and install it over this one\n"
       "  --hang <png>        build a wall at spawn with this picture in a painting\n"
+      "  --showroom <what>   lay out every block (blocks) or a drop of every item\n"
+      "                      (items) in a grid in front of spawn, for inspection\n"
       "  --screen <name>     open a screen straight away: menu, worlds, newworld,\n"
       "                      about, join, pause, settings, inventory, workbench,\n"
       "                      forge, chest, recipes, map, gallery, packs, bed,\n"
@@ -333,6 +335,9 @@ int main(int argc, char** argv) {
       }
     } else if (std::strcmp(arg, "--hang") == 0) {
       if (!takeValue(argc, argv, i, arg, options.hangPicture)) return 2;
+      wantsWorld = true;
+    } else if (std::strcmp(arg, "--showroom") == 0) {
+      if (!takeValue(argc, argv, i, arg, options.showroom)) return 2;
       wantsWorld = true;
     } else if (std::strcmp(arg, "--dump-icons") == 0) {
       if (!takeValue(argc, argv, i, arg, options.iconDumpPath)) return 2;

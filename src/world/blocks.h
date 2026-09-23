@@ -88,6 +88,11 @@ enum class RenderKind : std::uint8_t {
   // of its own, per position, so the mesher cannot draw it and a separate pass
   // does. See render/paintings.h.
   Painting,
+  // A few small stones lying on the ground. Was a Cross billboard, and a pair of
+  // crossed pictures of a pebble is a pair of thin lines from any angle but the
+  // one it was painted for — looked down on, which is how a player sees the
+  // ground, it all but vanished. Real boxes read as stones from everywhere.
+  Pebbles,
 };
 
 enum class ToolType : std::uint8_t { None = 0, Pick, Axe, Shovel };
@@ -230,6 +235,20 @@ struct BlockDef {
   // papyrus above shows the plain stem so a clump reads as continuous reeds.
   ResourceId footTexture;
   ResourceId stemTexture;
+  // A door's upper cell. A door is two stacked cells and used to draw the same tile
+  // in both, which put a whole door — both panels and the handle — in each half, so
+  // every door in the world was two doors on top of each other.
+  ResourceId upperTexture;
+
+  // Extra materials for a model built from more than one (world::Box::part indexes
+  // this, 1-based). Each part wears one texture on every face. `dyed` says whether
+  // the block's dye lands on it: a bed's mattress takes the colour, its wooden frame
+  // and its pillow do not.
+  struct Part {
+    ResourceId texture;
+    bool dyed = false;
+  };
+  std::vector<Part> parts;
 };
 
 // The registry. Built once at startup and then read-only, so worker threads can

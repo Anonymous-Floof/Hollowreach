@@ -266,6 +266,9 @@ void breakGeneric(const Dest& d, Material material) {
 
 Material materialOf(const world::BlockDef& block) {
   const std::string_view k = block.key;
+  // Registered as a plant (instant to break, washed away, walked through) but it is
+  // stones, and now it looks like stones it should not rustle like grass.
+  if (block.render == world::RenderKind::Pebbles) return Material::Gravel;
   if (block.isPlant) return Material::Grass;
   if (block.isLeaf) return Material::Leaves;
   if (k == "glass") return Material::Glass;

@@ -1,9 +1,10 @@
 #version 330 core
 
 // Depth-only, cutout-accurate for textured drops: a dropped pickaxe should throw a
-// pickaxe-shaped shadow, not the shadow of the quad it is painted on. The mobs are
-// untextured, so uCutout switches the test off for them rather than sampling a
-// texture their UVs do not point into.
+// pickaxe-shaped shadow, not the shadow of the quad it is painted on. Mob surface
+// tiles are opaque, so the test passes everywhere on a mob; uCutout still switches it
+// off for a mesh built without UVs, rather than sampling a texture they do not point
+// into.
 
 in vec2 vUV;
 

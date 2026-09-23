@@ -172,6 +172,11 @@ void BlockTileTable::build(const resource::Atlas& atlas) {
   foot_.assign(n, {});
   stem_.assign(n, {});
   hasStem_.assign(n, 0);
+  upper_.assign(n, {});
+  hasUpper_.assign(n, 0);
+  parts_.clear();
+  partBase_.assign(n, 0);
+  partCount_.assign(n, 0);
   stages_.clear();
   stageBase_.assign(n, 0);
   stageCount_.assign(n, 0);
@@ -184,6 +189,15 @@ void BlockTileTable::build(const resource::Atlas& atlas) {
     if (!def.stemTexture.empty()) {
       stem_[def.id] = atlas.tile(def.stemTexture);
       hasStem_[def.id] = 1;
+    }
+    if (!def.upperTexture.empty()) {
+      upper_[def.id] = atlas.tile(def.upperTexture);
+      hasUpper_[def.id] = 1;
+    }
+    if (!def.parts.empty()) {
+      partBase_[def.id] = parts_.size();
+      partCount_[def.id] = static_cast<int>(def.parts.size());
+      for (const BlockDef::Part& p : def.parts) parts_.push_back(atlas.tile(p.texture));
     }
     if (!def.stageTextures.empty()) {
       stageBase_[def.id] = stages_.size();
@@ -382,40 +396,52 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
           const std::vector<Box> boxes = renderBoxes(def.render, meta);
           // The bed's top texture turns with the block so the pillow stays at the
           // head end; its foot cell shows the blanket instead of the pillow.
-          const int bedRot = def.render == RenderKind::Bed ? kBedTopRot[meta & 3] : 0;
-          const bool bedFoot = def.render == RenderKind::Bed && !(meta & 4);
+          const bool isBed = def.render == RenderKind::Bed;
+          const int bedRot = isBed ? kBedTopRot[meta & 3] : 0;
+          const bool bedFoot = isBed && !(meta & 4);
+          const bool doorUpper = def.render == RenderKind::Door && (meta & 2);
+          // A part the block's dye does not reach wears the biome tint alone.
+          const resource::Rgb8 plainTint =
+              def.tintIndex == resource::kNoTint
+                  ? resource::kWhite
+                  : resource::tintFor(def.tintIndex,
+                                      climate ? climate->at(x, z) : Biome::Meadow);
+          int part = 0;
 
           auto boxQuad = [&](int faceDir, double shade, const float p0[3], const float p1[3],
                              const float p2[3], const float p3[3]) {
             const resource::TileRef& tile =
-                (bedFoot && faceDir == 2) ? tiles.foot(id) : tiles.face(id, faceDir);
-            float uv[4][2] = {{tile.u0, tile.v1},
-                              {tile.u1, tile.v1},
-                              {tile.u1, tile.v0},
-                              {tile.u0, tile.v0}};
-            if (faceDir == 2 && bedRot) {
-              float rotated[4][2];
-              for (int i = 0; i < 4; ++i) {
-                rotated[i][0] = uv[(bedRot + i) & 3][0];
-                rotated[i][1] = uv[(bedRot + i) & 3][1];
-              }
-              for (int i = 0; i < 4; ++i) {
-                uv[i][0] = rotated[i][0];
-                uv[i][1] = rotated[i][1];
-              }
-            }
+                part > 0 ? tiles.part(id, part, faceDir)
+                : (bedFoot && faceDir == 2) ? tiles.foot(id)
+                : doorUpper ? tiles.upper(id, faceDir)
+                            : tiles.face(id, faceDir);
             const float* p[4] = {p0, p1, p2, p3};
             Corner c[4];
             for (int i = 0; i < 4; ++i) {
+              // Textured by where the corner sits in the cell, not by where it sits
+              // on its box; see world::faceUv.
+              float fu = 0, fv = 0;
+              faceUv(faceDir, p[i][0] - wx, p[i][1] - wy, p[i][2] - wz, fu, fv);
+              // The bed's top art turns with the bed, so the head end stays at the
+              // head whichever way it was laid.
+              if (faceDir == 2 && bedRot) rotateUv(bedRot, fu, fv);
               // Light is one flat sample from the block's own cell, so shaped
               // blocks get no ambient occlusion — matching the original.
-              c[i] = {p[i][0], p[i][1], p[i][2], uv[i][0], uv[i][1],
-                      static_cast<float>(shade), cellSky, cellBlock};
+              c[i] = {p[i][0],
+                      p[i][1],
+                      p[i][2],
+                      tile.u0 + fu * (tile.u1 - tile.u0),
+                      tile.v0 + fv * (tile.v1 - tile.v0),
+                      static_cast<float>(shade),
+                      cellSky,
+                      cellBlock};
             }
-            emitQuad(result.opaque, c, tint);
+            const bool dyed = part == 0 || def.parts[static_cast<std::size_t>(part - 1)].dyed;
+            emitQuad(result.opaque, c, dyed ? tint : plainTint);
           };
 
           for (const Box& b : boxes) {
+            part = b.part <= def.parts.size() ? b.part : 0;
             const float x0 = wx + b.x0, y0 = wy + b.y0, z0 = wz + b.z0;
             const float x1 = wx + b.x1, y1 = wy + b.y1, z1 = wz + b.z1;
             // A sub-box face is culled only when it is flush with the cell boundary

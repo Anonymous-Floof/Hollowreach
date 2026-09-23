@@ -725,8 +725,12 @@ StackVisual stackVisual(const game::ItemStack& stack, const render::IconAtlas* i
   if (icons && icons->uvFor(stack.key, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1)) {
     v.icon.texture = icons->texture();
   }
-  // The dye, multiplied over the sprite by the UI shader's textured-quad mode.
-  if (stack.dyed()) v.icon.tint = rgb(static_cast<std::uint32_t>(stack.tint));
+  // The dye, multiplied over the sprite by the UI shader's textured-quad mode, and
+  // for a bed the frame and pillow laid back over it untinted.
+  if (stack.dyed()) {
+    v.icon.tint = rgb(static_cast<std::uint32_t>(stack.tint));
+    if (icons) icons->overlayFor(stack.key, v.icon.ou0, v.icon.ov0, v.icon.ou1, v.icon.ov1);
+  }
   v.count = stack.count;
   const int maxDura = game::maxDurability(stack.key);
   if (stack.wears() && maxDura > 0) {
@@ -739,6 +743,9 @@ void drawStack(Ui2D& ui, Text& text, const Rect& slot, const StackVisual& v) {
   if (v.icon.texture != 0) {
     ui.setTexture(v.icon.texture);
     ui.texturedRect(slot, v.icon.u0, v.icon.v0, v.icon.u1, v.icon.v1, v.icon.tint);
+    if (v.icon.hasOverlay()) {
+      ui.texturedRect(slot, v.icon.ou0, v.icon.ov0, v.icon.ou1, v.icon.ov1, kWhite);
+    }
     ui.setTexture(0);
   }
   if (v.count > 1) {

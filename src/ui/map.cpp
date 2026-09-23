@@ -114,8 +114,8 @@ Atlas::Column Atlas::sampleLoaded(const world::LoadedChunk& lc, int lx, int lz) 
     const world::BlockId id = d.voxels.get(world::localIdx(lx, y, lz));
     if (id == 0) continue;
     const world::BlockDef& b = reg.def(id);
-    // Plants do not hide the ground they stand on.
-    if (b.render == world::RenderKind::Cross) continue;
+    // Plants do not hide the ground they stand on, and nor do a few pebbles.
+    if (b.render == world::RenderKind::Cross || b.render == world::RenderKind::Pebbles) continue;
     if (id == world::wk().water) {
       ++water;
       continue;

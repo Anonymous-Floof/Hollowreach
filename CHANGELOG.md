@@ -41,6 +41,50 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+### Added
+- **Mobs have textures.** Sheep have curly fleece, pigs and cows have hide, and
+  zombies and other players wear woven cloth, all at the same pixel size as the
+  world around them. Boats are planked. Until now mobs were the one thing in the
+  game drawn in flat colour.
+- **Beds are proper beds**: a wooden headboard and footboard, a frame with a
+  shadowed gap underneath, the mattress, and a pillow. **Dye now colours only the
+  bedding** — the wood and the pillow keep their own colours, in the world, in
+  your hand, dropped on the ground and in the inventory.
+- **Doors have a window** in their upper half that you can see through.
+- **Pebbles are little stones** lying on the ground rather than a flat picture of
+  some, and they sound like gravel when you pick them up.
+
+### Changed
+- **Inventory icons are sharper at every interface size.** They were drawn small
+  and stretched to fit the slot, which doubled every few rows and columns of
+  pixels unevenly; they are now drawn at twice the size and scaled down smoothly.
+- Plants, flowers and torches in the inventory are drawn at the same pixel size as
+  every other item, with the same outline, instead of stretched to a tall
+  rectangle.
+- Ladders, paintings and doors show as flat pictures in the inventory and in your
+  hand. They were thin slabs seen almost edge-on.
+- Redrawn item art: wheat, barley and rice are tied sheaves, maize is a cob in its
+  husk, potatoes, onions, garlic and beetroot each have their own shape instead of
+  sharing the carrot's, dyes are heaps of powder, and leather, the boat, soybeans
+  and rotten flesh look like what they are.
+- Polished stone, slate and umber have a bevel on all four edges, so a polished
+  floor reads as slabs instead of stripes.
+
+### Fixed
+- **Every door was two doors stacked on top of each other**, each with its own
+  handle. A door is now one door across its two blocks.
+- **Stairs, slabs, doors, trapdoors, ladders and beds squashed their whole texture
+  onto each part.** A slab showed the full block texture at half height, so its
+  planks or bricks were twice as dense as the block beside it, and a stair's two
+  halves did not line up. Every part now shows the part of the texture it covers.
+- **The outermost row of pixels on every block face was drawn at half width**,
+  thinning the border of every brick, plank and frame in the world.
+- **Held and dropped items had gaps along their edges**: the picture sat up to
+  half a pixel off the model's sides, so the edge showed through on one side and
+  overhung on the other.
+- Door, trapdoor and ladder edges were a fraction of a pixel wide and shimmered as
+  you moved; they are now whole pixels thick.
+
 ## [2.17.0] - 2026-08-14
 
 ### Added

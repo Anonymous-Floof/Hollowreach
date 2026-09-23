@@ -58,6 +58,19 @@ struct BlockTileTable {
   const resource::TileRef& foot(BlockId id) const { return foot_[id]; }
   const resource::TileRef& stem(BlockId id) const { return stem_[id]; }
   bool hasStem(BlockId id) const { return hasStem_[id] != 0; }
+  // A door's upper cell; its own face tiles when it declares no upper half.
+  const resource::TileRef& upper(BlockId id, int faceDir) const {
+    return hasUpper_[id] ? upper_[id] : face(id, faceDir);
+  }
+
+  // The tile for one face of a model box: the block's own faces for part 0, else
+  // BlockDef::parts[part - 1]. An out-of-range part — a pack or a future shape
+  // naming a material the block never declared — falls back to the faces rather
+  // than reading past the table.
+  const resource::TileRef& part(BlockId id, int part, int faceDir) const {
+    if (part <= 0 || part > partCount_[id]) return face(id, faceDir);
+    return parts_[partBase_[id] + static_cast<std::size_t>(part - 1)];
+  }
 
   // Growth stages. `stageCount` is 0 for everything that is not a crop, and the
   // index is clamped rather than asserted: metadata comes off disk and off the wire,
@@ -72,8 +85,12 @@ struct BlockTileTable {
 
  private:
   std::vector<resource::TileRef> faces_;  // 6 per block
-  std::vector<resource::TileRef> foot_, stem_;
-  std::vector<std::uint8_t> hasStem_;
+  std::vector<resource::TileRef> foot_, stem_, upper_;
+  std::vector<std::uint8_t> hasStem_, hasUpper_;
+  // Packed like the stages below, and for the same reason: one block has any.
+  std::vector<resource::TileRef> parts_;
+  std::vector<std::size_t> partBase_;
+  std::vector<int> partCount_;
   // Stage tiles are packed end to end with a per-block base, rather than a fixed
   // stride: only eighteen of a hundred and forty-odd blocks have any, and a fixed
   // four-wide row for every block would be mostly empty.

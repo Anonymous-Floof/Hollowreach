@@ -53,6 +53,10 @@ struct PainterEntry {
 // Every built-in painter, in registration order.
 const std::vector<PainterEntry>& builtinPainters();
 
+// The built-in mob surface tiles (entity/*). No block names them, so the atlas's
+// block collection never finds them; whoever builds the atlas asks for these too.
+std::vector<ResourceId> builtinEntityTextureIds();
+
 // Looks one up by id. Returns nullptr when nothing is registered, which is how
 // the atlas decides to emit its magenta "missing" tile.
 const PainterEntry* findPainter(const ResourceId& id);

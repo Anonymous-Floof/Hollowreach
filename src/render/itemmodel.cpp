@@ -126,11 +126,21 @@ ItemModel itemModelFor(const game::ItemDef& item) {
 
   if (item.type == game::ItemType::Block) {
     const world::BlockDef& b = world::blocks().def(item.blockId);
-    if (b.render == world::RenderKind::Cross) {
+    if (b.render == world::RenderKind::Cross || b.render == world::RenderKind::Ladder ||
+        b.render == world::RenderKind::Painting) {
       // A cross-rendered block's own tile is already a 16x16 sprite, so extruding
-      // it gives a torch or a flower the same treatment as any item.
+      // it gives a torch or a flower the same treatment as any item. A ladder and a
+      // painting are pictures too — flat against a wall, and held or dropped as their
+      // one-cell display box they were an edge-on sliver with the art on its face.
       model.kind = ItemModelKind::Sprite;
       model.texture = b.faceTextures[0];
+    } else if (b.render == world::RenderKind::Door && !b.upperTexture.empty()) {
+      // The whole door as a flat picture, like every other panel-shaped thing you
+      // carry. It was the placed door's one-cell slab, which showed half a door —
+      // and before the door had two halves, a door with a second door on top.
+      model.kind = ItemModelKind::Sprite;
+      model.texture = b.upperTexture;
+      model.textureBelow = b.faceTextures[0];
     } else {
       model.kind = ItemModelKind::Shape;
       model.blockId = item.blockId;

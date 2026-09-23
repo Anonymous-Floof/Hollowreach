@@ -994,6 +994,147 @@ code. That code means "something here would stop this machine being found", whic
 is a question about the local network, and a house behind carrier NAT plays
 together perfectly.
 
+## The art pass: what was wrong with the pictures, and why each fix lives where it does
+
+Every fault in this pass was invisible to every test the project had, because each
+one only exists once the pieces are assembled and lit. `--showroom blocks|items`
+exists for that reason: a platform in the sky with every block, or a drop of every
+item, on it, so one capture shows all of them. Give it `--frames 400`; at that
+altitude 90 frames is not always enough for the chunks under it to finish meshing,
+and the capture comes out as a floating island of distant terrain with no platform.
+
+### Texture by position, in one function
+
+Shaped blocks — stairs, slabs, doors, trapdoors, ladders, beds — stretched their
+whole tile over every face of every sub-box. A slab showed the full texture at half
+height; a stair's step and its slab disagreed about where the plank lines were; the
+edge of a door showed the entire door picture crushed into three pixels.
+`world::faceUv` now maps each corner by its POSITION in the cell (Minecraft's
+UV-lock), and for a full cube that reduces to the corners of the tile in exactly the
+orientation the faces always had, so nothing that was a whole block changed.
+
+It is one function because three things draw a shape — the chunk mesher, the held
+and dropped model, and the inventory icon — and the day two of them disagree is the
+day the stair in your hand stops matching the one on the floor. The icon's top face
+used to run its tile the opposite way to the world's; it now matches, which is what
+let the bed's top art rotate identically in both.
+
+Thicknesses are whole texels now (`kPanel = 3/16`, `kLadder = 2/16`, the bed's
+mattress at `9/16`). With textures mapped by position, a panel 0.18 thick showed
+2.88 texels of its edge, and a fraction of a texel shimmers as it moves.
+
+### The half-texel inset, and why the gutter made it redundant
+
+Every `TileRef` was inset half a texel, inherited from the web build, to stop a
+NEAREST sample at a grazing angle picking up the neighbouring tile. The atlas
+already has a gutter that clamp-extends each tile's edge, so what lies just outside
+the rect is the tile's own edge — the inset bought nothing, and it cost two things.
+Every face mapped sixteen texels onto fifteen texels' worth of surface, so the
+outermost row and column of every block face drew at half width. And on an extruded
+item the edge walls sit on exact texel boundaries while the plates carried the
+inset, so the picture drifted up to half a texel off its own silhouette: a gap
+along one side and an overhang on the other. That second one is the "vertex gaps"
+that started this pass, and it is the one the self-test measures directly.
+
+The mesh golden did not move for this, because it deliberately does not hash UVs.
+
+### Doors are one picture across two cells
+
+A door is two stacked cells, and both drew the single `door` tile — a complete door
+in sixteen pixels — so every door in the world was two doors with two handles.
+`BlockDef::upperTexture` (the `upper` slot) holds the top half and the mesher picks
+it by meta bit 1. `door` itself is now the LOWER half, so a resource pack that
+already ships `block/door.png` still covers the part it always did, and adds
+`block/door_upper.png` for the rest. The door item is the whole door as an extruded
+two-tile sprite (`ItemModel::textureBelow`), scaled so its longer side is one unit.
+
+### A model of several materials: `Box::part` and `BlockDef::parts`
+
+The bed is a mattress on a wooden frame with a pillow, and one box with one texture
+could not say that — which is why the old bed painted its legs grey, so a dye would
+make them a darker shade of the same colour rather than a different colour. Boxes
+now carry a `part`; part 0 is the block's own faces and part N is
+`BlockDef::parts[N-1]`, each with one texture and a `dyed` flag.
+
+The dye has to be kept off the wood in four places, and each needed its own
+mechanism, because the four draw in four different ways:
+
+- **In the world**, the mesher emits undyed parts with the biome tint alone.
+- **Dropped and held**, the item mesh is cached per key and multiplied by one colour
+  per draw, so the split rides in the vertex ALPHA, which the entity and viewmodel
+  shaders read as "does the dye reach this surface". Mobs set it everywhere, which
+  keeps the hit flash covering the whole body.
+- **In a slot**, the UI multiplies one tint over one icon, so a partly dyeable item
+  gets a second cell holding only its undyed surfaces — the frame and pillow, with
+  their shading — drawn untinted on top (`IconAtlas::overlayFor`, `IconRef::ou0..`).
+  The mask follows the VISIBLE surface: the last solid write to a pixel owns it.
+- **In the neutral-tile check**, parts marked undyed are skipped, since being in
+  their real colours is the point of them.
+
+Physics still sees one box. The headboard is taller than the mattress, and clipping
+on it while walking across a bed would be a wall at knee height for no gain.
+
+### Icons: bigger cells, padded, mipmapped
+
+Icons were 32px cells drawn into slots of whatever size the scale setting produced.
+A 32px icon in a 40px slot is a 1.25x nearest-neighbour stretch that doubles every
+fourth row and column — outlines one and two pixels wide on the same icon. Cells are
+64px now, minified with mipmaps (bias -0.5, toward the sharper level) and magnified
+NEAREST. Three things were needed to make linear filtering safe on pixel art:
+
+- **Alpha bleed**: transparent pixels take the colour of their neighbours with alpha
+  still zero. Without it, filtering averages in the black of empty space and every
+  icon grows a dark fringe as it shrinks.
+- **Padding**: 4px of empty margin per cell. Packed edge to edge, the top row of the
+  icon below leaked into the bottom of the one above as a faint line. That one was
+  only visible in a capture of the real inventory, and only under some icons.
+- **Whole-number scales only** for drawn art: sprites and plants at 4x, doors at 2x.
+  Plants were 20x26 in a 32px cell, which is not a multiple of 16 in either axis.
+
+Ladders, paintings and doors are flat pictures in the bag and in hand, as plants
+are. In projection they were a thin slab seen nearly edge on.
+
+### Mobs wear surfaces at the world's texel density
+
+Mob boxes were flat colour. They now carry a `Surface` (plain, hide, wool, cloth,
+grain) naming a greyscale `entity/*` tile that their colour multiplies, laid on at
+sixteen texels per block so a sheep's curls are the size of a grass blade's pixels.
+Each face takes its own window of the tile by a hash, so four identical legs do not
+show the same sixteen texels. Anything thinner than 0.012 — eyes, nostrils, the
+cow's blaze — is a decal and stays plain, because one texel of noise only smudges
+it. Tiles average about 0.9, so colours are lifted by 1.1 to keep each mob the
+colour it was designed in. Which box wears what is decided by COLOUR (`wear()`),
+because the models are authored as palettes and a colour already says "this is the
+fleece".
+
+### Pebbles are boxes
+
+A `Cross` billboard is two crossed pictures, and a picture of pebbles is a pair of
+lines from any angle except the one it was painted for — from above, which is how a
+player sees the ground, it all but vanished. `RenderKind::Pebbles` is appended to
+the enum and draws four small stones; it keeps every flag `cross()` set (needs its
+ground, washes away) and takes no collision. The mesh golden moves by exactly 108
+vertices per cluster (4 boxes, bottoms culled against the ground, minus the old 12),
+and every chunk that changed moved by a multiple of 108 — that is how the change was
+confirmed to be pebbles and nothing else.
+
+### What is tested, and what is not
+
+`testModels` covers the mechanisms, not the pixels: the atlas maps whole tiles; a
+slab's sides stay in the lower half of the tile; each door cell draws its own half
+and only the upper has holes; a dyed bed's wood corners are untinted and its
+mattress corners are red; the item mesh masks the frame and not the wool; a sprite's
+plate meets its walls on texel boundaries; the door item is one block tall; pebbles
+are low boxes with no collision; an eye samples the plain tile; a flower icon is on a
+4x grid; the bed has an overlay holding less than its icon and wool has none; cells
+are padded; bleeding keeps alpha zero; polished stone is lit from the top left.
+Twenty sabotages, each reverting one mechanism.
+
+NOT tested: the shaders. The vertex-alpha dye mask, the icon sampler state and the
+mob textures being sampled at all are GL, which the self-test does not have. They
+were checked in captures of the real binary — the dyed-bed row and a textured cow are
+in the showroom — which is where they will have to be checked again.
+
 ## Things a future session will otherwise rediscover the hard way
 
 - `build.bat` must be invoked from PowerShell as `& cmd.exe /c ".\build.bat"`. It

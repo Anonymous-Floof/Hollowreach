@@ -29,6 +29,8 @@ out vec4 vColor;
 void main() {
   vUV = aUV;
   vShade = aShade;
-  vColor = aColor * uDye;
+  // aColor.a marks the surfaces the dye reaches (see render/itemmesh.cpp): a held
+  // bed's mattress takes it, its frame and pillow do not.
+  vColor = vec4(aColor.rgb * mix(vec3(1.0), uDye.rgb, aColor.a), 1.0);
   gl_Position = uMVP * vec4(aPos, 1.0);
 }

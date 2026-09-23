@@ -132,8 +132,16 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1386 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1416 assertions with no window at
 all and is the fastest way to know a change did not break something.
+
+For art work, `--showroom blocks` builds a platform in the sky with every block in
+the game laid out on it, and `--showroom items` puts a dropped copy of every item
+there instead. Stand at `--at 8.5,150,8.5` and look along it; `--verbose` logs
+where each block was put, for aiming a close-up. Block textures and inventory
+icons can be dumped as flat sheets (`--dump-atlas`, `--dump-icons`), but the
+faults worth finding — a texture squashed onto part of a block, an edge that does
+not meet — only exist once the pieces are assembled and lit.
 
 ## Controls
 
@@ -1142,6 +1150,15 @@ channel; items go through one `ItemModel` with display transforms instead of
 being smeared across four files; and entity meshes have genuine UVs rather than
 colour smuggled through the UV slot.
 
+For whoever writes the first texture pack: `block/door` is a door's **lower** half
+since 2.18.0, and `block/door_upper` (plus `pine_door_upper` and the rest, one
+per wood) is the upper. The bed's wood and pillow are `block/bed_frame` and
+`block/bed_pillow`, its four `bed_*` tiles are the mattress and must stay grey for
+dyeing to work, and mobs wear greyscale `entity/plain`, `entity/hide`,
+`entity/wool`, `entity/cloth` and `entity/grain`, each multiplied by the colour of
+the part wearing it. Faces of stairs, slabs and other part-blocks are textured by
+position, as Minecraft's are, so a tile is drawn once across the whole block.
+
 ## Deliberately deferred (foundation already in place)
 
 More mob types & deeper combat variety (sheep, pigs, cows and zombies are in,
@@ -1165,10 +1182,12 @@ Wayshard.
   it the backdrop, and clearing it falls back to the stylesheet's own gradient.
   The panorama toggle is gone from Settings — with no panorama to toggle it
   switched between the fallback gradient and the same fallback gradient.
-- **Pixel-identical inventory icons.** All 67 sprite icons and every
-  cross-rendered block icon are bit-exact against the browser; the 120
-  cube/shape icons differ only along the one-pixel antialiased silhouette, where
-  the browser's rasteriser blends edge coverage its own way. They are also
-  deliberately centred here, where the browser's sat two pixels up and left.
+- **Pixel-identical inventory icons.** Until 2.18.0 the sprite icons were
+  bit-exact against the browser and the shape icons differed only along their
+  antialiased edge. The art pass let that go on purpose: icons are drawn at twice
+  the size and filtered to fit the slot, part-blocks show the part of their
+  texture they cover, plants and doors are drawn flat with an outline, and a
+  dozen sprites were redrawn. None of those would have been possible while
+  matching the browser was the goal.
 - **The audio compressor**, which is a documented approximation of Chrome's
   rather than a reproduction — within 0.2 dB across the range the game uses.

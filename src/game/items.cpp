@@ -1,6 +1,7 @@
 #include "game/items.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <set>
@@ -59,6 +60,297 @@ void haft(SpriteGrid& g, int y0, int y1) {
   pcol(g, 8, y0, y1, HM);
   pset(g, 7, y1, HD);
   pset(g, 8, y1, HD);
+}
+
+// A straight run of texels from (x0, y0) to (x1, y1), inclusive.
+void pline(SpriteGrid& g, int x0, int y0, int x1, int y1, Rgba c) {
+  const int n = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
+  for (int i = 0; i <= n; ++i) {
+    const double t = n == 0 ? 0.0 : static_cast<double>(i) / n;
+    pset(g, static_cast<int>(std::lround(x0 + (x1 - x0) * t)),
+         static_cast<int>(std::lround(y0 + (y1 - y0) * t)), c);
+  }
+}
+
+// A filled ellipse, shaded as a ball lit from the top left: `M` on the lit crown,
+// `m` for the body, `d` on the far edge.
+void pball(SpriteGrid& g, double cx, double cy, double rx, double ry, Rgba M, Rgba m, Rgba d) {
+  for (int y = 0; y < G; ++y) {
+    for (int x = 0; x < G; ++x) {
+      const double a = (x + 0.5 - cx) / rx, b = (y + 0.5 - cy) / ry;
+      const double v = a * a + b * b;
+      if (v > 1.0) continue;
+      const bool lit = a < -0.1 && b < -0.1 && v < 0.55;
+      const bool shade = v > 0.55 && (a + b) > 0.35;
+      pset(g, x, y, lit ? M : (shade ? d : m));
+    }
+  }
+}
+
+// A tied sheaf: wheat, barley, rice. Ears fanned out at the top, stalks gathered
+// through a twine band, cut ends splayed at the bottom — the shape that says
+// "harvested grain" at sixteen pixels. The first version stood five stalks side by
+// side behind a crossbar, which read as a fence.
+void paintSheaf(SpriteGrid& g, std::uint32_t col) {
+  const Rgba M = shade(col, 1.2), m = solid(col), d = shade(col, 0.72);
+  const Rgba stalk = shade(col, 0.82), stalkD = shade(col, 0.62);
+  const Rgba twine = solid(0x8a6a3au), twineD = solid(0x6f5430u);
+  // Stalks: from each ear down to the band, then out to a cut end.
+  static constexpr int kTop[5] = {3, 5, 8, 10, 12};
+  static constexpr int kFoot[5] = {4, 6, 8, 9, 11};
+  for (int i = 0; i < 5; ++i) {
+    pline(g, kTop[i], 5, 7 + (i >= 2 ? 1 : 0), 9, i % 2 ? stalkD : stalk);
+    pline(g, 7 + (i >= 2 ? 1 : 0), 11, kFoot[i], 14, i % 2 ? stalkD : stalk);
+  }
+  // Ears: a two-texel-wide head of kernels on each stalk, lit on the left.
+  for (int i = 0; i < 5; ++i) {
+    const int x = kTop[i] - (i < 2 ? 1 : 0);
+    const int top = i == 2 ? 0 : 1;
+    for (int y = top; y <= top + 4; ++y) {
+      pset(g, x, y, y == top ? M : m);
+      pset(g, x + 1, y, (y + i) % 2 ? d : m);
+    }
+  }
+  // The band.
+  prow(g, 6, 9, 9, twine);
+  prow(g, 6, 9, 10, twineD);
+}
+
+// A cob in its husk: maize.
+void paintCob(SpriteGrid& g, std::uint32_t col) {
+  const Rgba M = shade(col, 1.18), m = solid(col), d = shade(col, 0.7);
+  const Rgba husk = solid(0x7fa84au), huskD = solid(0x5e8a38u), silk = solid(0xd9b86au);
+  // The cob, diagonal, kernels in a checker of lit and shaded.
+  for (int i = 0; i < 9; ++i) {
+    const int x = 4 + i, y = 12 - i;
+    pset(g, x, y, (i % 2) ? m : M);
+    pset(g, x + 1, y, (i % 2) ? d : m);
+    pset(g, x, y - 1, (i % 2) ? M : m);
+  }
+  pset(g, 13, 3, silk);
+  pset(g, 14, 2, silk);
+  pset(g, 13, 2, silk);
+  // Husk leaves peeled back along both sides of the base.
+  pline(g, 2, 14, 5, 9, husk);
+  pline(g, 3, 14, 8, 11, huskD);
+  pline(g, 2, 13, 3, 9, huskD);
+  pline(g, 4, 14, 9, 13, husk);
+}
+
+// Tubers and bulbs. One painter family, but a potato is not a carrot: five crops
+// shared the carrot's tapered wedge, so a potato, an onion and a head of garlic were
+// all the same triangle in different colours. Each now has its own silhouette.
+void paintCarrot(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.22);
+  const Rgba leaf = shade(0x4f9e46, 1.0), leafD = shade(0x3f8a3a, 1.0);
+  for (int y = 5; y <= 14; ++y) {
+    const int half = (14 - y) / 2 + 1;  // widest at the shoulder, pointed at the tip
+    for (int x = 8 - half; x <= 8 + half; ++x) {
+      pset(g, x, y, x <= 8 - half + 1 ? M : (x >= 8 + half ? d : m));
+    }
+  }
+  for (int y : {7, 10}) pset(g, 8 - (14 - y) / 2 + 2, y, d);  // growth rings
+  pset(g, 7, 4, leaf);
+  pset(g, 9, 4, leaf);
+  pset(g, 8, 3, leafD);
+  pset(g, 6, 3, leafD);
+  pset(g, 10, 3, leaf);
+  pset(g, 8, 2, leaf);
+  pset(g, 5, 2, leaf);
+  pset(g, 11, 2, leafD);
+}
+
+void paintPotato(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.7), M = shade(col, 1.2);
+  // A lumpy oval, lying on its side, with a knobble on its back.
+  pball(g, 8.0, 9.0, 5.6, 4.2, M, m, d);
+  pball(g, 10.5, 6.8, 2.2, 1.6, M, m, d);
+  // Eyes.
+  const Rgba eye = shade(col, 0.5);
+  pset(g, 6, 8, eye);
+  pset(g, 9, 10, eye);
+  pset(g, 11, 8, eye);
+  pset(g, 5, 11, eye);
+}
+
+void paintOnion(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.68), M = shade(col, 1.22);
+  const Rgba skin = shade(col, 0.82);
+  // The round bulb.
+  pball(g, 8.0, 10.0, 5.0, 4.4, M, m, d);
+  // Papery skin lines running pole to pole.
+  pline(g, 6, 7, 5, 12, skin);
+  pline(g, 10, 7, 11, 12, skin);
+  // The neck, pinched and dry at the tip.
+  pcol(g, 7, 3, 6, m);
+  pcol(g, 8, 4, 6, d);
+  pset(g, 7, 2, skin);
+  // Root hairs.
+  const Rgba root = solid(0xd8ccaau);
+  pset(g, 7, 15, root);
+  pset(g, 9, 15, root);
+  pset(g, 8, 14, root);
+}
+
+void paintGarlic(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.7), M = shade(col, 1.1);
+  const Rgba clove = shade(col, 0.82);
+  // A squat bulb.
+  pball(g, 8.0, 10.2, 5.4, 4.0, M, m, d);
+  // Clove seams curving up from the base to the neck.
+  pline(g, 5, 12, 7, 7, clove);
+  pline(g, 8, 13, 8, 7, clove);
+  pline(g, 11, 12, 9, 7, clove);
+  // The neck.
+  pcol(g, 8, 3, 6, m);
+  pset(g, 7, 5, M);
+  pset(g, 9, 2, clove);
+  const Rgba root = solid(0xb8a47au);
+  pset(g, 6, 14, root);
+  pset(g, 10, 14, root);
+}
+
+void paintBeet(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.66), M = shade(col, 1.25);
+  const Rgba leaf = solid(0x4f8e3eu), leafD = solid(0x3c7430u), vein = shade(col, 0.9);
+  // The round root and its tail.
+  pball(g, 8.0, 10.0, 4.6, 4.0, M, m, d);
+  pset(g, 9, 14, d);
+  pset(g, 10, 15, d);
+  // Leaves on red stems.
+  pline(g, 7, 6, 4, 2, vein);
+  pline(g, 9, 6, 12, 2, vein);
+  pline(g, 8, 6, 8, 1, vein);
+  for (const auto& p : {std::array<int, 2> {3, 2}, {4, 1}, {5, 2}, {11, 1}, {12, 2}, {13, 2},
+                        {7, 1}, {9, 0}, {8, 0}}) {
+    pset(g, p[0], p[1], (p[0] + p[1]) % 2 ? leaf : leafD);
+  }
+}
+
+// A pinch of ground pigment heaped in a mound, with a couple of loose grains at its
+// foot. The first version floated three grains in the air above a flat heap, and the
+// rim every sprite gets turned each floating grain into a black-outlined speck, so
+// every dye read as a pyramid with a crown.
+void paintDye(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba M = shade(col, 1.6), m = solid(col), d = shade(col, 0.55);
+  prow(g, 6, 9, 7, m);
+  prow(g, 5, 10, 8, m);
+  prow(g, 4, 11, 9, m);
+  prow(g, 3, 12, 10, m);
+  prow(g, 3, 12, 11, m);
+  prow(g, 3, 12, 12, d);
+  // Light on the crown and down the left slope.
+  pset(g, 6, 7, M);
+  pset(g, 7, 7, M);
+  pset(g, 5, 8, M);
+  pset(g, 6, 8, M);
+  pset(g, 4, 9, M);
+  // Shade down the right slope.
+  pset(g, 10, 8, d);
+  pset(g, 11, 9, d);
+  pset(g, 12, 10, d);
+  pset(g, 12, 11, d);
+  // Loose grains, touching the heap so they are part of it.
+  pset(g, 2, 12, m);
+  pset(g, 13, 12, d);
+  pset(g, 9, 9, M);
+}
+
+// A tanned hide pegged out flat: a body with four leg flaps and a neck. It was a
+// round blob with darker dots, which is a cookie.
+void paintLeather(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba M = shade(col, 1.22), m = solid(col), d = shade(col, 0.66);
+  for (int y = 3; y <= 12; ++y) prow(g, 4, 11, y, m);
+  // Leg flaps at the corners, and the neck and tail.
+  for (const auto& f : {std::array<int, 4> {2, 2, 4, 4}, {11, 2, 13, 4}, {2, 11, 4, 13},
+                        {11, 11, 13, 13}}) {
+    for (int y = f[1]; y <= f[3]; ++y) prow(g, f[0], f[2], y, m);
+  }
+  prow(g, 7, 8, 1, m);
+  prow(g, 7, 8, 2, m);
+  pset(g, 8, 13, m);
+  pset(g, 8, 14, d);
+  // Lit left edge, shaded right edge, a fold down the spine.
+  pcol(g, 4, 5, 10, M);
+  pcol(g, 11, 5, 10, d);
+  pcol(g, 8, 3, 12, d);
+  pset(g, 6, 5, M);
+  pset(g, 6, 9, M);
+  pset(g, 2, 2, M);
+  pset(g, 13, 13, d);
+}
+
+// A rowboat seen from the side: upswept bow and stern, planked hull, a rim of lit
+// gunwale. It was an oval, which is a loaf of bread.
+void paintBoat(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba M = shade(col, 1.3), m = solid(col), d = shade(col, 0.62);
+  const Rgba seam = shade(col, 0.78);
+  // Stem and stern posts.
+  pcol(g, 1, 5, 7, M);
+  pcol(g, 14, 5, 7, m);
+  prow(g, 1, 14, 7, M);  // gunwale
+  prow(g, 2, 13, 8, m);
+  prow(g, 2, 13, 9, seam);  // plank seam
+  prow(g, 3, 12, 10, m);
+  prow(g, 4, 11, 11, seam);
+  prow(g, 5, 10, 12, d);  // keel
+  // The inside of the far side, just visible over the near gunwale.
+  prow(g, 3, 12, 6, d);
+  pset(g, 2, 6, m);
+  pset(g, 13, 6, d);
+}
+
+// Rotten flesh: a torn, greying chunk with bruised patches and a bite out of it. Was
+// a checkerboard of three colours, which read as camouflage netting.
+void paintFlesh(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
+  const Rgba m = solid(col), d = shade(col, 0.66), M = shade(col, 1.22);
+  const Rgba bruise = solid(0x6e5a38u), sinew = solid(0xb8a88au);
+  for (int y = 3; y <= 12; ++y) {
+    for (int x = 3; x <= 13; ++x) {
+      const double a = (x - 8.0) / 5.4, b = (y - 7.8) / 4.8;
+      const double v = a * a + b * b;
+      if (v > 1.0) continue;
+      if (x >= 11 && y <= 5) continue;                       // the bite
+      if ((x == 3 || x == 13) && (y % 3 == 0)) continue;     // torn edges
+      pset(g, x, y, v > 0.6 && (x > 8 || y > 9) ? d : m);
+    }
+  }
+  for (const auto& p : {std::array<int, 2> {5, 6}, {6, 6}, {9, 9}, {10, 9}, {10, 10},
+                        {6, 10}, {12, 8}}) {
+    pset(g, p[0], p[1], bruise);
+  }
+  pline(g, 5, 8, 9, 6, sinew);
+  pset(g, 5, 5, M);
+  pset(g, 4, 7, M);
+}
+
+// Pods. A chili is a long curved pod; a soybean is a short fuzzy one bulging over
+// three beans, which the chili's shape did not describe at all.
+void paintChili(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.26);
+  for (int y = 4; y <= 13; ++y) {
+    const int x = 6 + (y - 4) / 3;  // a gentle curve
+    pset(g, x, y, M);
+    pset(g, x + 1, y, m);
+    pset(g, x + 2, y, d);
+  }
+  pset(g, 9, 14, d);
+  pset(g, 6, 3, shade(0x4a7a32, 1.0));
+  pset(g, 7, 2, shade(0x3f6a2a, 1.0));
+  pset(g, 7, 3, shade(0x5a8a3f, 1.0));
+}
+
+void paintSoyPod(SpriteGrid& g, std::uint32_t col) {
+  const Rgba m = solid(col), d = shade(col, 0.7), M = shade(col, 1.2);
+  // Three beans in a row along a diagonal pod, each a bulge.
+  for (int i = 0; i < 3; ++i) {
+    const double cx = 5.0 + i * 3.0, cy = 11.0 - i * 3.0;
+    pball(g, cx, cy, 2.2, 2.2, M, m, d);
+  }
+  // The seam between them.
+  pline(g, 4, 13, 12, 5, d);
+  pset(g, 13, 3, shade(0x5e7a36, 1.0));  // stalk
+  pset(g, 14, 2, shade(0x4a6a2a, 1.0));
 }
 
 // --- sprite painters --------------------------------------------------------
@@ -167,23 +459,6 @@ void paintNugget(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   pset(g, 5, 7, M);
 }
 
-// A pinch of ground pigment: a small heap with a scatter of loose grains above it.
-// Shaded from ItemDef::color like every other painter here, so eight dyes are eight
-// table rows and no sprite work at all.
-void paintDye(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba M = shade(col, 1.9), m = solid(col), d = shade(col, 0.5);
-  // The heap.
-  prow(g, 4, 11, 12, d);
-  prow(g, 4, 11, 11, m);
-  prow(g, 5, 10, 10, m);
-  prow(g, 6, 9, 9, M);
-  // Loose grains drifting off it, so a dye reads as powder rather than as a stone.
-  pset(g, 5, 7, m);
-  pset(g, 9, 6, m);
-  pset(g, 7, 5, M);
-  pset(g, 11, 8, d);
-  pset(g, 3, 9, d);
-}
 
 // A wooden board with a thumb hole and six dabs of wet colour on it. The dabs are
 // hard-coded rather than shaded from ItemDef::color, and deliberately: this is the
@@ -264,17 +539,6 @@ void paintShard(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   prow(g, 5, 12, 13, d);  // base rubble
 }
 
-void paintBoat(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba M = shade(col, 1.3), m = solid(col), d = shade(col, 0.6);
-  prow(g, 1, 14, 8, M);  // gunwale
-  prow(g, 2, 13, 9, m);
-  prow(g, 3, 12, 10, m);
-  prow(g, 4, 11, 11, m);
-  prow(g, 5, 10, 12, d);  // keel
-  prow(g, 5, 10, 9, d);   // shaded interior
-  pset(g, 7, 9, HW);
-  pset(g, 8, 9, HW);  // seat plank
-}
 
 void paintMeat(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   const Rgba M = shade(col, 1.3), m = solid(col), d = shade(col, 0.72);
@@ -304,18 +568,6 @@ void paintMeat(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   pset(g, 3, 13, Bd);
 }
 
-void paintFlesh(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  // ragged, hole-riddled slab in sickly greens and browns
-  const Rgba m = solid(col), d = shade(col, 0.66), b = solid(0x6e5a38u);
-  for (int y = 3; y <= 13; ++y) {
-    for (int x = 2; x <= 13; ++x) {
-      if ((x == 2 || x == 13) && y % 3 != 1) continue;  // ragged sides
-      if ((y == 3 || y == 13) && x % 3 == 0) continue;  // ragged ends
-      if ((x * 3 + y * 5) % 11 == 0) continue;          // rot holes
-      pset(g, x, y, (x * 7 + y * 3) % 9 < 3 ? b : ((x + y) % 4 == 0 ? d : m));
-    }
-  }
-}
 
 void paintPaper(SpriteGrid& g, std::uint32_t, const ItemDef&) {
   const Rgba P = solid(0xece7d4u), S = solid(0xcfc8aeu), L = solid(0x8f886eu);
@@ -328,23 +580,6 @@ void paintPaper(SpriteGrid& g, std::uint32_t, const ItemDef&) {
   for (int y : {5, 8, 11}) prow(g, 6, 9, y, L);  // faint script lines
 }
 
-void paintLeather(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba M = shade(col, 1.25), m = solid(col), d = shade(col, 0.62);
-  // a tanned hide: irregular blob with darker crinkled edges
-  for (int y = 3; y <= 12; ++y) {
-    for (int x = 3; x <= 12; ++x) {
-      if ((x == 3 || x == 12) && (y < 5 || y > 10)) continue;
-      if ((y == 3 || y == 12) && (x < 5 || x > 10)) continue;
-      pset(g, x, y, (x + y * 3) % 7 == 0 ? d : m);
-    }
-  }
-  pset(g, 5, 4, M);
-  pset(g, 6, 4, M);
-  pset(g, 4, 6, M);  // worn sheen
-  pset(g, 7, 8, d);
-  pset(g, 9, 6, d);
-  pset(g, 6, 10, d);  // crease marks
-}
 
 void paintSteak(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   const Rgba M = shade(col, 1.35), m = solid(col), d = shade(col, 0.66);
@@ -491,36 +726,29 @@ using PainterFn = void (*)(SpriteGrid&, std::uint32_t, const ItemDef&);
 // row and a hex value; it does not need a new sprite drawn by hand, which is the
 // only reason a content target this size is affordable at all.
 
-// A tied bundle of stalks: wheat, barley, rice, maize.
-void paintGrain(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba m = solid(col), d = shade(col, 0.74), M = shade(col, 1.25);
-  for (int i = 0; i < 5; ++i) {
-    const int x = 4 + i * 2;
-    for (int y = 3; y <= 13; ++y) pset(g, x, y, (i % 2) ? m : M);
-    pset(g, x, 2, M);  // the ear
-    pset(g, x - 1, 3, d);
-    pset(g, x + 1, 4, d);
+// Grain: a tied sheaf for wheat, barley and rice, a cob in its husk for maize.
+void paintGrain(SpriteGrid& g, std::uint32_t col, const ItemDef& item) {
+  if (item.key == "maize") {
+    paintCob(g, col);
+  } else {
+    paintSheaf(g, col);
   }
-  prow(g, 3, 12, 11, shade(0x8a6a3a, 1.0));  // the binding twine
-  prow(g, 3, 12, 12, shade(0x6f5430, 1.0));
 }
 
-// A tapered root with a leafy crown: carrot, potato, onion, beetroot, garlic.
-void paintRoot(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.22);
-  const Rgba leaf = shade(0x4f9e46, 1.0), leafD = shade(0x3f8a3a, 1.0);
-  for (int y = 5; y <= 14; ++y) {
-    const int half = (14 - y) / 2 + 1;  // widest at the shoulder, pointed at the tip
-    for (int x = 8 - half; x <= 8 + half; ++x) {
-      pset(g, x, y, x <= 8 - half + 1 ? M : (x >= 8 + half ? d : m));
-    }
+// Roots and bulbs, each crop its own shape. A root nobody has drawn yet gets the
+// carrot's taper, which is at least a root.
+void paintRoot(SpriteGrid& g, std::uint32_t col, const ItemDef& item) {
+  if (item.key == "potato") {
+    paintPotato(g, col);
+  } else if (item.key == "onion") {
+    paintOnion(g, col);
+  } else if (item.key == "garlic") {
+    paintGarlic(g, col);
+  } else if (item.key == "beetroot") {
+    paintBeet(g, col);
+  } else {
+    paintCarrot(g, col);
   }
-  pset(g, 7, 4, leaf);
-  pset(g, 9, 4, leaf);
-  pset(g, 8, 3, leafD);
-  pset(g, 6, 3, leafD);
-  pset(g, 10, 3, leaf);
-  pset(g, 8, 2, leaf);
 }
 
 // A round fruit with a stem: pumpkin, melon, tomato.
@@ -539,17 +767,13 @@ void paintProduce(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
   pset(g, 9, 3, shade(0x5a8a3f, 1.0));
 }
 
-// A long pod: chili, soybean.
-void paintPod(SpriteGrid& g, std::uint32_t col, const ItemDef&) {
-  const Rgba m = solid(col), d = shade(col, 0.72), M = shade(col, 1.26);
-  for (int y = 4; y <= 13; ++y) {
-    const int x = 6 + (y - 4) / 3;  // a gentle curve
-    pset(g, x, y, M);
-    pset(g, x + 1, y, m);
-    pset(g, x + 2, y, d);
+// Pods: a chili, or a soybean.
+void paintPod(SpriteGrid& g, std::uint32_t col, const ItemDef& item) {
+  if (item.key == "soybean") {
+    paintSoyPod(g, col);
+  } else {
+    paintChili(g, col);
   }
-  pset(g, 6, 3, shade(0x4a7a32, 1.0));
-  pset(g, 7, 2, shade(0x3f6a2a, 1.0));
 }
 
 // A small cluster: strawberry, blueberry, grapes.

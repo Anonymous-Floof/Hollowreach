@@ -17,7 +17,10 @@ in vec3 vWorld;
 uniform sampler2D uAtlas;
 uniform float uSky;       // 0..1 skylight at the entity's cell
 uniform float uBlock;     // 0..1 block light at the entity's cell
-uniform float uTextured;  // 1 for item drops, 0 for the untextured mobs
+// 1 whenever the mesh has real UVs: item drops, and mobs and boats, whose boxes wear
+// greyscale surface tiles under their colour. 0 only for a mesh built without an
+// atlas, which draws its vertex colour alone.
+uniform float uTextured;
 uniform vec3 uTint;       // white normally, red while a mob flashes from a hit
 
 layout(location = 0) out vec4 oAlbedo;
@@ -35,7 +38,11 @@ void main() {
   // cross product of the world-position derivatives is the exact normal.
   vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
 
-  oAlbedo = vec4(albedo * uTint, vShade);
+  // The vertex alpha says whether uTint reaches this surface. Mobs set it
+  // everywhere, so the hit flash covers the whole body; an item mesh clears it on
+  // the parts a dye does not colour, so a dropped red bed has a red mattress on a
+  // wooden frame rather than red wood.
+  oAlbedo = vec4(albedo * mix(vec3(1.0), uTint, vColor.a), vShade);
   oLight = vec4(uSky, uBlock, 0.0, 0.0);
   oNormal = vec4(n * 0.5 + 0.5, 1.0);
 }

@@ -415,6 +415,9 @@ void PaletteUI::draw(Ui2D& ui, Text& text) {
       const Rgba tint = slot_->dyed() ? packed(static_cast<std::uint32_t>(slot_->tint))
                                       : Rgba {255, 255, 255, 255};
       ui.texturedRect(lay.slot.inset(6), u0, v0, u1, v1, tint);
+      if (slot_->dyed() && icons_->overlayFor(slot_->key, u0, v0, u1, v1)) {
+        ui.texturedRect(lay.slot.inset(6), u0, v0, u1, v1, Rgba {255, 255, 255, 255});
+      }
     }
     if (slot_->count > 1) {
       label(ui, text, {lay.slot.x, lay.slot.bottom() - 16, lay.slot.w - 4, 14},
