@@ -5,8 +5,3 @@
 #
 # Emptied by --accept at release time, so it can never accumulate the way the
 # JS exception list it replaced did.
-tile(block/chest_*)        # stations have a front: latch on the front, handle on the sides, hinges on the back
-tile(block/forge_*)        # firebox front, banded sides, ash-hatch back
-tile(block/stove_*)        # oven-door front, riveted sides, flue back
-tile(block/workbench_*)    # tool-rack front, drawer sides, braced back
-tile(block/soul_anchor_*)  # a stone hearth instead of black glass with a teal core

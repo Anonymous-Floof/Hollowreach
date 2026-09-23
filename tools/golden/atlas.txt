@@ -1,6 +1,6 @@
 # hollowreach atlas tiles v1
 # source: c++
-# tileRes=16 tiles=331
+# tileRes=16 tiles=339
 
 ## atlas.tiles
 tile(block/bed_bottom) = fb40fb68
@@ -22,7 +22,9 @@ tile(block/bricks_slate) = 77e9653f
 tile(block/bricks_umber) = 977e8ca7
 tile(block/bush) = feae6baf
 tile(block/canvas) = 29bff736
-tile(block/chest_side) = 3416a6f5
+tile(block/chest_back) = 68bdde52
+tile(block/chest_front) = 14b4146e
+tile(block/chest_side) = 591287aa
 tile(block/chest_top) = 3e23fb1b
 tile(block/cobbled) = 4281ee72
 tile(block/cooking_pot_side) = c4611e95
@@ -126,7 +128,9 @@ tile(block/flower_marigold) = 2daf2ebc
 tile(block/flower_nightcap) = 0f6006b9
 tile(block/flower_poppy) = d412a53e
 tile(block/flower_violet) = 4a835e9b
-tile(block/forge_side) = 054a1a26
+tile(block/forge_back) = 09b503ad
+tile(block/forge_front) = 1d08fc1a
+tile(block/forge_side) = b52cb61b
 tile(block/forge_top) = 6d38c336
 tile(block/glass) = 2c9b4e82
 tile(block/greystone) = 7ed499f5
@@ -173,9 +177,11 @@ tile(block/shingle) = 390d54f1
 tile(block/slatestone) = 55edc51c
 tile(block/snow_top) = c19e6c7d
 tile(block/snowturf_side) = 10facf2e
-tile(block/soul_anchor_side) = 0b5cbb35
-tile(block/soul_anchor_top) = e8898dfc
-tile(block/stove_side) = 70cc2352
+tile(block/soul_anchor_side) = b979ae67
+tile(block/soul_anchor_top) = c973ff82
+tile(block/stove_back) = 7e04e2ed
+tile(block/stove_front) = b79afc97
+tile(block/stove_side) = df97f39e
 tile(block/stove_top) = 6db6d3be
 tile(block/tall_grass) = 23089f9b
 tile(block/torch) = 0d9545cf
@@ -185,7 +191,9 @@ tile(block/turf_top) = 564caa98
 tile(block/umberstone) = 6ce495a7
 tile(block/water) = 6a3e6876
 tile(block/wool) = a5c6fe26
-tile(block/workbench_side) = 8bfac4c1
+tile(block/workbench_back) = 91b3f51a
+tile(block/workbench_front) = 8bfac4c1
+tile(block/workbench_side) = 7b74d364
 tile(block/workbench_top) = 678723a0
 tile(entity/cloth) = 19fb5fca
 tile(entity/grain) = dd34be0c
