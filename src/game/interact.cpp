@@ -608,6 +608,12 @@ int Interact::placementMeta(const world::BlockDef& def, const Player& player, co
   const float fracY = hit.point.y - static_cast<float>(hit.y);
   const bool topHalf = fny == -1 || (fny == 0 && fracY > 0.5f);
 
+  // A station faces you: its front points back the way you are looking.
+  if (def.directional) {
+    static constexpr int kToward[4] = {1, 0, 3, 2};
+    return kToward[f];
+  }
+
   switch (render) {
     case RenderKind::Slab:
       return topHalf ? 1 : 0;

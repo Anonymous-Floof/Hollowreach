@@ -1118,6 +1118,31 @@ vertices per cluster (4 boxes, bottoms culled against the ground, minus the old 
 and every chunk that changed moved by a multiple of 108 — that is how the change was
 confirmed to be pebbles and nothing else.
 
+### Faces at one depth, and a test that finds them
+
+Two boxes that end on the same plane, facing the same way, draw over the same
+pixels at the same depth, and which one wins flips pixel by pixel as the camera
+moves: the sheep's shimmering rump, reported after the art pass shipped as a draft.
+Its "woolly tail end" block finished exactly flush with the back of the body. The
+mob models are now free functions (`sheepBoxes()` and the rest) so the self-test
+can walk every pair of boxes in every model and fail on any shared, same-facing,
+overlapping face. It found twenty-six more pairs: the cow's tail on its back, the zombie's
+hands under its forearms, the player's legs running to the ground inside the boots,
+and most of the boat. Faces that meet back to back are not counted — each is inside
+the other's box. The fix is always the same: move one of them a hair inside or
+outside the other, never onto it.
+
+### Stations with a front
+
+`BlockDef::directional` gives a cube a front: meta bits 0-1 (the stairs'
+convention), turned toward the player on placement, and `directionalFace`
+remaps which of the six textures each world face shows. The textures are laid out
+as the block faces +z, which is also the pose the icon, the dropped block and the
+held block show — so none of those needed to learn about facing. Chests, forges,
+workbenches and stoves use it. Existing ones have meta 0 and all face +x, and
+dungeon chests stay at 0 too: turning them to face their rooms would change
+generated chunks, which is a generator version for a cosmetic.
+
 ### What is tested, and what is not
 
 `testModels` covers the mechanisms, not the pixels: the atlas maps whole tiles; a

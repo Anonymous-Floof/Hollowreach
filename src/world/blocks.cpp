@@ -95,6 +95,15 @@ class Builder {
     def_.textures.set(slot, "block/" + std::string(name));
     return *this;
   }
+  // A cube with a front, a back and two matching sides; see BlockDef::directional.
+  Builder& facing(std::string_view front, std::string_view side, std::string_view back,
+                  std::string_view top, std::string_view bottom) {
+    tex3(top, side, bottom);
+    texSlot("front", front);
+    texSlot("back", back);
+    def_.directional = true;
+    return *this;
+  }
   // A door's upper half. See BlockDef::upperTexture.
   Builder& upper(std::string_view name) { return texSlot("upper", name); }
   // One more material for a multi-part model, in Box::part order (the first call is
@@ -288,15 +297,17 @@ BlockRegistry::BlockRegistry() {
       .hard(2.2f).pick(tier::kStone).drops("verdanite");
 
   // ---- crafting stations ----
+  // The three stations and the stove below have a front — the tool rack, the
+  // firebox, the latch, the oven door — and face whoever placed them.
   Builder(B, "workbench", "Workbench").cube().solidOpaque()
-      .tex3("workbench_top", "workbench_side", "planks").hard(1.2f).axe().drops("workbench")
-      .station(Station::Workbench);
+      .facing("workbench_front", "workbench_side", "workbench_back", "workbench_top", "planks")
+      .hard(1.2f).axe().drops("workbench").station(Station::Workbench);
   Builder(B, "forge", "Forge").cube().solidOpaque()
-      .tex3("forge_top", "forge_side", "greystone").hard(2.0f).pick(tier::kWood).drops("forge")
-      .station(Station::Forge);
+      .facing("forge_front", "forge_side", "forge_back", "forge_top", "greystone")
+      .hard(2.0f).pick(tier::kWood).drops("forge").station(Station::Forge);
   Builder(B, "chest", "Chest").cube().solidOpaque()
-      .tex3("chest_top", "chest_side", "planks").hard(1.4f).axe().drops("chest")
-      .station(Station::Chest);
+      .facing("chest_front", "chest_side", "chest_back", "chest_top", "planks")
+      .hard(1.4f).axe().drops("chest").station(Station::Chest);
 
   // ---- shaped blocks (orientation/state in metadata; see world/shapes.h) ----
   Builder(B, "greystone_stairs", "Stone Stairs").render(RenderKind::Stair).solidClear()
@@ -318,10 +329,13 @@ BlockRegistry::BlockRegistry() {
       .part("bed_frame", /*dyed=*/false).part("bed_pillow", /*dyed=*/false)
       .hard(0.6f)
       .axe().drops("bed").dyeable();
-  // Soul Anchor: right-click to attune your spawn point. Glows soul-teal.
+  // Soul Anchor: right-click to attune your spawn point. A dressed-stone hearth
+  // with embers banked in its top, glowing the warm colour a hearth does. It was
+  // black glass with a teal core, which belonged to no material anywhere else in
+  // the game and read as a portal rather than as home.
   Builder(B, "soul_anchor", "Soul Anchor").cube().solidOpaque().anchor()
-      .tex3("soul_anchor_top", "soul_anchor_side", "soul_anchor_top").hard(2.5f)
-      .pick(tier::kWood).drops("soul_anchor").emits(9, 0.42f, 0.95f, 0.88f);
+      .tex3("soul_anchor_top", "soul_anchor_side", "polished").hard(2.5f)
+      .pick(tier::kWood).drops("soul_anchor").emits(9, 1.0f, 0.74f, 0.46f);
   // Papyrus: a shore reed 1-3 tall, stamped by worldgen and placeable beside
   // water. Not `replaceable`, unlike the decorative plants, so placing a block at
   // it does not silently destroy it. `stem` is used for segments with more papyrus
@@ -537,7 +551,8 @@ BlockRegistry::BlockRegistry() {
   // The stove throws light, the way the forge does — it is the one station you want
   // to be able to find in a dark kitchen.
   Builder(B, "stove", "Stove").cube().solidOpaque()
-      .tex3("stove_top", "stove_side", "greystone").hard(3.0f).pick(tier::kWood)
+      .facing("stove_front", "stove_side", "stove_back", "stove_top", "greystone")
+      .hard(3.0f).pick(tier::kWood)
       .drops("stove").station(Station::Stove).emits(8, 1.0f, 0.72f, 0.36f);
 
   Builder(B, "cooking_pot", "Cooking Pot").cube().solidOpaque()
@@ -621,6 +636,9 @@ BlockRegistry::BlockRegistry() {
       return side ? *side : ResourceId();
     };
     for (int face = 0; face < 6; ++face) d.faceTextures[face] = pick(face);
+    // A directional block is laid out facing +z: front on face 4, back on face 5.
+    if (const ResourceId* front = slot("front")) d.faceTextures[4] = *front;
+    if (const ResourceId* back = slot("back")) d.faceTextures[5] = *back;
 
     if (const ResourceId* foot = slot("foot")) d.footTexture = *foot;
     if (const ResourceId* stem = slot("stem")) d.stemTexture = *stem;

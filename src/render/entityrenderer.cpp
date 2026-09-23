@@ -222,22 +222,29 @@ const EntityRenderer::Mesh& EntityRenderer::buildMultiBox(Mesh& slot,
 
 // +z is forward for every mob, matching the model convention the AI's yaw uses.
 
-const EntityRenderer::Mesh& EntityRenderer::sheepMesh() {
-  if (sheep_.count > 0) return sheep_;
-  // A fluffy cream wool body, a tan face with eyes and drooping ears, and short
-  // dark legs with woolly cuffs at the top.
+std::vector<MeshBox> sheepBoxes() {
+  // A fluffy cream fleece, a tan face with eyes and drooping ears under a woolly
+  // cap, a tuft of a tail, and short dark legs with woolly cuffs at the top.
   // Bones: 1-4 the legs (FL FR BL BR, cuffs riding along), 5 the head group.
+  //
+  // Rebuilt so that no two boxes share a face plane. The old body had a "woolly
+  // tail end" block whose back sat exactly flush with the back of the body, and
+  // two faces at one depth flicker between each other from any angle that sees
+  // them: the shimmering rump every sheep had. The fleece is now a core with a
+  // wider band around its middle, which rounds the silhouette the way the tail
+  // block was meant to, and every surface of it is at a depth of its own.
   const float W[3] = {0.95f, 0.94f, 0.90f};
   const float F[3] = {0.84f, 0.71f, 0.57f};
   const float S[3] = {0.74f, 0.60f, 0.47f};
   const float L[3] = {0.42f, 0.34f, 0.28f};
   const float E[3] = {0.10f, 0.09f, 0.08f};
   std::vector<MeshBox> boxes = {
-      box(0, 0.58f, -0.02f, 0.32f, 0.30f, 0.44f, W[0], W[1], W[2]),
-      box(0, 0.66f, -0.34f, 0.28f, 0.26f, 0.12f, W[0], W[1], W[2]),  // woolly tail end
-      box(0, 0.66f, 0.50f, 0.18f, 0.19f, 0.17f, F[0], F[1], F[2], 5),
-      box(0, 0.58f, 0.66f, 0.11f, 0.10f, 0.07f, S[0], S[1], S[2], 5),
-      box(0, 0.84f, 0.48f, 0.17f, 0.07f, 0.15f, W[0], W[1], W[2], 5),  // fringe over the brow
+      box(0, 0.58f, -0.02f, 0.30f, 0.28f, 0.43f, W[0], W[1], W[2]),     // fleece core
+      box(0, 0.60f, -0.02f, 0.33f, 0.24f, 0.40f, W[0], W[1], W[2]),     // ...and its band
+      box(0, 0.70f, -0.48f, 0.09f, 0.08f, 0.05f, W[0], W[1], W[2]),     // tail tuft
+      box(0, 0.66f, 0.50f, 0.18f, 0.19f, 0.17f, F[0], F[1], F[2], 5),  // head
+      box(0, 0.58f, 0.66f, 0.11f, 0.10f, 0.07f, S[0], S[1], S[2], 5),  // snout
+      box(0, 0.84f, 0.485f, 0.19f, 0.07f, 0.165f, W[0], W[1], W[2], 5),  // woolly cap
       box(0.085f, 0.71f, 0.672f, 0.026f, 0.032f, 0.006f, E[0], E[1], E[2], 5),
       box(-0.085f, 0.71f, 0.672f, 0.026f, 0.032f, 0.006f, E[0], E[1], E[2], 5),
       box(0.21f, 0.72f, 0.46f, 0.045f, 0.032f, 0.065f, F[0], F[1], F[2], 5),
@@ -246,15 +253,14 @@ const EntityRenderer::Mesh& EntityRenderer::sheepMesh() {
   const float cuffZ[4] = {0.28f, 0.28f, -0.26f, -0.26f};
   const float legX[4] = {0.18f, -0.18f, 0.18f, -0.18f};
   for (int i = 0; i < 4; ++i) {
-    boxes.push_back(box(legX[i], 0.335f, cuffZ[i], 0.095f, 0.045f, 0.095f, W[0], W[1], W[2], i + 1));
+    boxes.push_back(box(legX[i], 0.32f, cuffZ[i], 0.095f, 0.05f, 0.095f, W[0], W[1], W[2], i + 1));
     boxes.push_back(box(legX[i], 0.17f, cuffZ[i], 0.08f, 0.17f, 0.08f, L[0], L[1], L[2], i + 1));
   }
   wear(boxes, W, Surface::Wool);
-  return buildMultiBox(sheep_, boxes);
+  return boxes;
 }
 
-const EntityRenderer::Mesh& EntityRenderer::pigMesh() {
-  if (pig_.count > 0) return pig_;
+std::vector<MeshBox> pigBoxes() {
   // A rounded pink body, a flat snout with nostrils, perky ears, four little legs
   // and a curly tail nub at the back.
   const float B[3] = {0.91f, 0.60f, 0.64f};
@@ -279,11 +285,10 @@ const EntityRenderer::Mesh& EntityRenderer::pigMesh() {
   for (int i = 0; i < 4; ++i) {
     boxes.push_back(box(legX[i], 0.13f, legZ[i], 0.08f, 0.13f, 0.08f, L[0], L[1], L[2], i + 1));
   }
-  return buildMultiBox(pig_, boxes);
+  return boxes;
 }
 
-const EntityRenderer::Mesh& EntityRenderer::cowMesh() {
-  if (cow_.count > 0) return cow_;
+std::vector<MeshBox> cowBoxes() {
   // A big barrel body in brown with white patches, a blazed face with pale horns,
   // a pink muzzle and udder, and tall dark legs.
   const float B[3] = {0.45f, 0.32f, 0.24f};
@@ -307,18 +312,17 @@ const EntityRenderer::Mesh& EntityRenderer::cowMesh() {
       box(0.24f, 1.16f, 0.60f, 0.055f, 0.035f, 0.03f, B[0], B[1], B[2], 5),
       box(-0.24f, 1.16f, 0.60f, 0.055f, 0.035f, 0.03f, B[0], B[1], B[2], 5),
       box(0, 0.50f, -0.20f, 0.14f, 0.08f, 0.16f, U[0], U[1], U[2]),
-      box(0, 1.02f, -0.585f, 0.03f, 0.14f, 0.03f, B[0], B[1], B[2]),
+      box(0, 1.00f, -0.585f, 0.03f, 0.14f, 0.03f, B[0], B[1], B[2]),  // tail, hung below the back
   };
   const float legZ[4] = {0.38f, 0.38f, -0.36f, -0.36f};
   const float legX[4] = {0.23f, -0.23f, 0.23f, -0.23f};
   for (int i = 0; i < 4; ++i) {
     boxes.push_back(box(legX[i], 0.28f, legZ[i], 0.095f, 0.28f, 0.095f, L[0], L[1], L[2], i + 1));
   }
-  return buildMultiBox(cow_, boxes);
+  return boxes;
 }
 
-const EntityRenderer::Mesh& EntityRenderer::zombieMesh() {
-  if (zombie_.count > 0) return zombie_;
+std::vector<MeshBox> zombieBoxes() {
   // Green skin, a tattered shirt torn open over the belly, trousers with ripped
   // hems, arms split into sleeve and reaching bare hands, and sunken dark eyes
   // under a heavy brow. Bones: 1/2 the legs, 3/4 the arms.
@@ -346,16 +350,15 @@ const EntityRenderer::Mesh& EntityRenderer::zombieMesh() {
     const int bone = side == 0 ? 3 : 4;
     boxes.push_back(box(x, 1.20f, 0.09f, 0.105f, 0.105f, 0.115f, SH[0], SH[1], SH[2], bone));
     boxes.push_back(box(x, 1.20f, 0.34f, 0.10f, 0.10f, 0.20f, SK[0], SK[1], SK[2], bone));
-    boxes.push_back(box(x, 1.185f, 0.555f, 0.085f, 0.085f, 0.045f, SD[0], SD[1], SD[2], bone));
+    boxes.push_back(box(x, 1.19f, 0.555f, 0.085f, 0.085f, 0.045f, SD[0], SD[1], SD[2], bone));
   }
   wear(boxes, SH, Surface::Cloth);
   wear(boxes, PA, Surface::Cloth);
-  return buildMultiBox(zombie_, boxes);
+  return boxes;
 }
 
-const EntityRenderer::Mesh& EntityRenderer::playerMesh(int palette) {
+std::vector<MeshBox> playerBoxes(int palette) {
   const int index = ((palette % 8) + 8) % 8;
-  if (players_[index].count > 0) return players_[index];
 
   // The one piece of js/render/entityrenderer.js that M8 left unported, because
   // nothing could spawn a ghost until there was a transport. Eight shirt colours,
@@ -383,8 +386,10 @@ const EntityRenderer::Mesh& EntityRenderer::playerMesh(int palette) {
   // torso to 1.44, head on top. Bones 1/2 are the legs and 3/4 the arms, which is
   // the same skeleton the zombie uses, so the walk cycle needs no special case.
   std::vector<MeshBox> boxes = {
-      box(-0.11f, 0.36f, 0, 0.105f, 0.36f, 0.11f, TR[0], TR[1], TR[2], 2),
-      box(0.11f, 0.36f, 0, 0.105f, 0.36f, 0.11f, TR[0], TR[1], TR[2], 1),
+      // Legs stand ON the boots rather than running to the ground inside them,
+      // which shared the soles and the heels with the boot boxes.
+      box(-0.11f, 0.41f, 0, 0.105f, 0.31f, 0.11f, TR[0], TR[1], TR[2], 2),
+      box(0.11f, 0.41f, 0, 0.105f, 0.31f, 0.11f, TR[0], TR[1], TR[2], 1),
       box(-0.11f, 0.05f, 0.02f, 0.11f, 0.05f, 0.13f, HR[0], HR[1], HR[2], 2),  // boots
       box(0.11f, 0.05f, 0.02f, 0.11f, 0.05f, 0.13f, HR[0], HR[1], HR[2], 1),
       box(0, 1.08f, 0, 0.23f, 0.36f, 0.12f, SH[0], SH[1], SH[2]),   // torso
@@ -405,11 +410,10 @@ const EntityRenderer::Mesh& EntityRenderer::playerMesh(int palette) {
   }
   wear(boxes, SH, Surface::Cloth);
   wear(boxes, TR, Surface::Cloth);
-  return buildMultiBox(players_[index], boxes);
+  return boxes;
 }
 
-const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
-  if (boat_.count > 0) return boat_;
+std::vector<MeshBox> boatBoxes() {
   // A proper rowboat: a dark keel slab, plank side walls and stern, a two-step
   // tapered bow with a small foredeck, a pale interior floor and seat bench, and
   // darker gunwale caps along the rims. Origin at the hull bottom; the waterline
@@ -425,22 +429,53 @@ const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
   // boat's heading is decided, and an unridden boat has no heading of its own to
   // disagree with.
   std::vector<MeshBox> boxes = {
-      box(0, 0.06f, 0.04f, 0.42f, 0.06f, 0.60f, D[0], D[1], D[2]),    // keel
-      box(0, 0.145f, 0.04f, 0.38f, 0.025f, 0.56f, L[0], L[1], L[2]),  // floor
-      box(0.44f, 0.27f, 0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
-      box(-0.44f, 0.27f, 0.06f, 0.075f, 0.15f, 0.54f, W[0], W[1], W[2]),
-      box(0, 0.27f, 0.60f, 0.44f, 0.15f, 0.075f, W[0], W[1], W[2]),  // stern
-      box(0, 0.27f, -0.53f, 0.34f, 0.15f, 0.075f, W[0], W[1], W[2]),   // bow
-      box(0, 0.29f, -0.65f, 0.20f, 0.13f, 0.06f, W[0], W[1], W[2]),
-      box(0, 0.32f, -0.735f, 0.08f, 0.10f, 0.035f, D[0], D[1], D[2]),  // bow tip
+      // No two of these share a face plane: planks that met flush flickered
+      // against each other wherever they overlapped, most of all along the floor
+      // and the gunwales. Each now starts and ends a hair inside or outside its
+      // neighbour.
+      box(0, 0.06f, 0.04f, 0.42f, 0.06f, 0.60f, D[0], D[1], D[2]),      // keel
+      box(0, 0.14f, 0.04f, 0.37f, 0.025f, 0.54f, L[0], L[1], L[2]),     // floor
+      box(0.44f, 0.265f, 0.06f, 0.075f, 0.155f, 0.545f, W[0], W[1], W[2]),
+      box(-0.44f, 0.265f, 0.06f, 0.075f, 0.155f, 0.545f, W[0], W[1], W[2]),
+      box(0, 0.27f, 0.60f, 0.45f, 0.14f, 0.075f, W[0], W[1], W[2]),     // stern
+      box(0, 0.265f, -0.53f, 0.34f, 0.145f, 0.075f, W[0], W[1], W[2]),  // bow
+      box(0, 0.28f, -0.65f, 0.20f, 0.12f, 0.06f, W[0], W[1], W[2]),
+      box(0, 0.315f, -0.735f, 0.08f, 0.095f, 0.035f, D[0], D[1], D[2]),  // bow tip
       box(0.44f, 0.435f, 0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
       box(-0.44f, 0.435f, 0.06f, 0.085f, 0.02f, 0.55f, D[0], D[1], D[2]),
-      box(0, 0.435f, 0.60f, 0.455f, 0.02f, 0.09f, D[0], D[1], D[2]),
-      box(0, 0.24f, 0.30f, 0.36f, 0.03f, 0.11f, L[0], L[1], L[2]),  // seat
-      box(0, 0.40f, -0.55f, 0.20f, 0.022f, 0.16f, L[0], L[1], L[2]),  // foredeck
+      box(0, 0.44f, 0.60f, 0.46f, 0.02f, 0.09f, D[0], D[1], D[2]),
+      box(0, 0.24f, 0.30f, 0.36f, 0.03f, 0.11f, L[0], L[1], L[2]),      // seat
+      box(0, 0.395f, -0.54f, 0.21f, 0.022f, 0.16f, L[0], L[1], L[2]),   // foredeck
   };
   for (MeshBox& b : boxes) b.surface = Surface::Grain;
-  return buildMultiBox(boat_, boxes);
+  return boxes;
+}
+
+// The GL side: each model built once, on first sight, from the lists above.
+const EntityRenderer::Mesh& EntityRenderer::sheepMesh() {
+  return sheep_.count > 0 ? sheep_ : buildMultiBox(sheep_, sheepBoxes());
+}
+
+const EntityRenderer::Mesh& EntityRenderer::pigMesh() {
+  return pig_.count > 0 ? pig_ : buildMultiBox(pig_, pigBoxes());
+}
+
+const EntityRenderer::Mesh& EntityRenderer::cowMesh() {
+  return cow_.count > 0 ? cow_ : buildMultiBox(cow_, cowBoxes());
+}
+
+const EntityRenderer::Mesh& EntityRenderer::zombieMesh() {
+  return zombie_.count > 0 ? zombie_ : buildMultiBox(zombie_, zombieBoxes());
+}
+
+const EntityRenderer::Mesh& EntityRenderer::boatMesh() {
+  return boat_.count > 0 ? boat_ : buildMultiBox(boat_, boatBoxes());
+}
+
+const EntityRenderer::Mesh& EntityRenderer::playerMesh(int palette) {
+  const int index = ((palette % 8) + 8) % 8;
+  Mesh& slot = players_[index];
+  return slot.count > 0 ? slot : buildMultiBox(slot, playerBoxes(index));
 }
 
 const EntityRenderer::Mesh& EntityRenderer::unitCube() {

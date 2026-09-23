@@ -71,6 +71,21 @@ inline constexpr int kCropStageMask = 0x1F;  // five bits, 32 stages
 inline int cropStageOf(int meta) { return (meta >> kCropStageShift) & kCropStageMask; }
 inline int cropMetaFor(int stage) { return (stage & kCropStageMask) << kCropStageShift; }
 
+// Which of a directional block's six face textures (laid out facing +z) a world face
+// shows, for a block facing `facing` (meta & 3). Horizontal faces turn with the
+// block; top and bottom stay put. One table, read by the mesher, so the front can
+// only ever be where placement put it.
+inline int directionalFace(int facing, int worldFace) {
+  // Rows: facing +x, -x, +z, -z. Columns: world face +x, -x, +y, -y, +z, -z.
+  static constexpr int kTable[4][6] = {
+      {4, 5, 2, 3, 1, 0},  // front to +x: +z art on +x, its right side (+x) to -z
+      {5, 4, 2, 3, 0, 1},  // front to -x
+      {0, 1, 2, 3, 4, 5},  // front to +z: as painted
+      {1, 0, 2, 3, 5, 4},  // front to -z: turned half round
+  };
+  return kTable[facing & 3][worldFace];
+}
+
 enum class RenderKind : std::uint8_t {
   None = 0,  // air
   Cube,
@@ -171,6 +186,12 @@ struct BlockDef {
   // before it will let the item into its slot.
   bool dyeable = false;
   bool anchor = false;
+  // A cube with a front: meta bits 0-1 say which way it faces (0:+x 1:-x 2:+z 3:-z,
+  // the stairs' convention), placement turns the front toward the player, and the
+  // mesher turns all four side textures to match. faceTextures holds the block as
+  // it faces +z: front on face 4, back on face 5, the sides on 0 and 1 — which is
+  // also the pose an icon, a dropped block and a held one show it in.
+  bool directional = false;
   bool shore = false;  // needs adjacent water to be placed
   bool isPlank = false;
 

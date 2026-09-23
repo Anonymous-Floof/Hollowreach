@@ -51,6 +51,17 @@ struct MeshBox {
 std::vector<ItemVertex> buildBoxVertices(const std::vector<MeshBox>& boxes,
                                          const resource::TileRef* tiles);
 
+// Every mob's model as a list of boxes, at rest. Free functions rather than members
+// so the self-test can inspect them without a GL context — which is how coplanar
+// faces are caught: two boxes sharing a face plane and a facing fight over the same
+// pixels, and at rest that flicker is invisible in any list of numbers.
+std::vector<MeshBox> sheepBoxes();
+std::vector<MeshBox> pigBoxes();
+std::vector<MeshBox> cowBoxes();
+std::vector<MeshBox> zombieBoxes();
+std::vector<MeshBox> playerBoxes(int palette);
+std::vector<MeshBox> boatBoxes();
+
 class EntityRenderer {
  public:
   bool init(ShaderCache& shaders, const resource::Atlas* atlas, ItemMeshCache* itemMeshes);

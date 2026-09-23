@@ -132,7 +132,7 @@ an absolute path inside it that nobody would have thought to open.
 
 `Hollowreach --help` lists the harness flags the port was verified with —
 `--screenshot`, `--at`, `--time`, `--seed`, `--screen`, `--threads`,
-`--selftest` and the rest. `--selftest` runs 1416 assertions with no window at
+`--selftest` and the rest. `--selftest` runs 1437 assertions with no window at
 all and is the fastest way to know a change did not break something.
 
 For art work, `--showroom blocks` builds a platform in the sky with every block in

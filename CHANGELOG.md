@@ -55,6 +55,12 @@ what it lets them do, never by the refactor that made it possible.
 - **Doors have a window** in their upper half that you can see through.
 - **Pebbles are little stones** lying on the ground rather than a flat picture of
   some, and they sound like gravel when you pick them up.
+- **Chests, forges, workbenches and stoves have a front, and face you when you
+  place them.** The chest's latch, the forge's firebox, the workbench's tool rack
+  and the stove's oven door are on the front; the sides and backs have their own
+  detail — a carrying handle and hinges, iron bands and an ash hatch, a drawer, a
+  flue. Ones already in your world all face the same way until you pick them up
+  and put them down again.
 
 ### Changed
 - **Inventory icons are sharper at every interface size.** They were drawn small
@@ -71,8 +77,15 @@ what it lets them do, never by the refactor that made it possible.
   and rotten flesh look like what they are.
 - Polished stone, slate and umber have a bevel on all four edges, so a polished
   floor reads as slabs instead of stripes.
+- **The Soul Anchor is a stone hearth** with embers banked in its top and a copper
+  band, glowing warm. It was black glass with a teal core, which looked like it
+  belonged to a different game.
 
 ### Fixed
+- **Sheep flickered at the back.** Two parts of the fleece ended at exactly the
+  same depth and fought over which was in front. The sheep has been rebuilt, and
+  the same fault is gone from the cow's tail, the zombie's hands, other players'
+  boots and a dozen planks of the boat.
 - **Every door was two doors stacked on top of each other**, each with its own
   handle. A door is now one door across its two blocks.
 - **Stairs, slabs, doors, trapdoors, ladders and beds squashed their whole texture

@@ -360,6 +360,18 @@ void testPlacing() {
   check((world->getMeta(px, py, pz) & 3) == 0, "the stair faces +x, the way the player does");
   check((world->getMeta(px, py, pz) & 4) == 0, "a low click leaves it the right way up");
 
+  // A station faces the player who placed it: looking +x, its front points back at
+  // them, toward -x. The opposite of a stair, which faces the way you do.
+  world->setBlock(px, py, pz, world::kAir, 0);
+  inv.slots()[0].clear();
+  inv.give("chest", 1);
+  inv.setSelected(0);
+  frame(in, false, true);
+  interact.update(0.016f, in, player, *world, inv, hooks);
+  check(world->getBlock(px, py, pz) == world::blocks().idOf("chest") &&
+            (world->getMeta(px, py, pz) & 3) == 1,
+        "a chest placed while looking +x turns its latch back toward the player");
+
   // Placing into the player's own body is refused.
   world->setBlock(px, py, pz, world::kAir, 0);
   game::Player crowded(px + 0.5f, static_cast<float>(kY), pz + 0.5f);
@@ -11625,6 +11637,125 @@ void testModels() {
   }
 }
 
+// Two faces of a model that lie in the same plane, face the same way and overlap are
+// drawn at exactly the same depth, and which one wins changes pixel by pixel and
+// frame by frame: z-fighting. The sheep's tail block ended flush with the back of
+// its body and shimmered there for as long as sheep have existed. Faces that meet
+// back to back are fine — each is buried in the other's box — so only faces that
+// point the same way are counted.
+std::vector<std::string> coplanarFaces(const std::vector<render::MeshBox>& boxes) {
+  std::vector<std::string> found;
+  constexpr float kEps = 1e-4f;
+  for (std::size_t i = 0; i < boxes.size(); ++i) {
+    for (std::size_t j = i + 1; j < boxes.size(); ++j) {
+      const render::MeshBox& a = boxes[i];
+      const render::MeshBox& b = boxes[j];
+      const float ac[3] = {a.cx, a.cy, a.cz}, ah[3] = {a.hx, a.hy, a.hz};
+      const float bc[3] = {b.cx, b.cy, b.cz}, bh[3] = {b.hx, b.hy, b.hz};
+      for (int axis = 0; axis < 3; ++axis) {
+        for (int sign = -1; sign <= 1; sign += 2) {
+          if (std::fabs((ac[axis] + sign * ah[axis]) - (bc[axis] + sign * bh[axis])) > kEps) {
+            continue;
+          }
+          bool overlap = true;
+          for (int o = 0; o < 3 && overlap; ++o) {
+            if (o == axis) continue;
+            const float lo = std::max(ac[o] - ah[o], bc[o] - bh[o]);
+            const float hi = std::min(ac[o] + ah[o], bc[o] + bh[o]);
+            overlap = hi - lo > kEps;
+          }
+          if (overlap) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "boxes %zu+%zu on %c%c", i, j, sign > 0 ? '+' : '-',
+                          "xyz"[axis]);
+            found.emplace_back(buf);
+          }
+        }
+      }
+    }
+  }
+  return found;
+}
+
+void testMobModels() {
+  std::printf("\n-- mob models --\n");
+  const std::pair<const char*, std::vector<render::MeshBox>> models[] = {
+      {"sheep", render::sheepBoxes()},   {"pig", render::pigBoxes()},
+      {"cow", render::cowBoxes()},       {"zombie", render::zombieBoxes()},
+      {"player", render::playerBoxes(0)}, {"boat", render::boatBoxes()},
+  };
+  for (const auto& [name, boxes] : models) {
+    const std::vector<std::string> fights = coplanarFaces(boxes);
+    std::string list;
+    for (const std::string& f : fights) list += (list.empty() ? "" : ", ") + f;
+    checkf(!boxes.empty() && fights.empty(), "the %s has no faces fighting for the same pixels%s%s",
+           name, fights.empty() ? "" : ": ", list.c_str());
+  }
+
+  // The detector itself, on the exact case that started this: a block ending flush
+  // with the back of the one it is attached to.
+  render::MeshBox body, tail;
+  body.cz = 0.0f;
+  body.hx = body.hy = 0.3f;
+  body.hz = 0.4f;
+  tail = body;
+  tail.hx = tail.hy = 0.25f;  // smaller across, so only the back is shared
+  tail.hz = 0.1f;
+  tail.cz = -0.3f;  // back face at -0.4, the body's
+  check(coplanarFaces({body, tail}).size() == 1, "and a flush tail is exactly what it catches");
+}
+
+void testDirectionalBlocks() {
+  std::printf("\n-- stations with a front --\n");
+  const resource::Atlas& atlas = modelAtlas();
+  const world::BlockRegistry& reg = world::blocks();
+
+  for (const char* key : {"chest", "forge", "workbench", "stove"}) {
+    const world::BlockDef& def = reg.def(reg.idOf(key));
+    check(def.directional, (std::string(key) + " has a front").c_str());
+    const resource::TileRef& front = atlas.tile(def.faceTextures[4]);
+    const resource::TileRef& back = atlas.tile(def.faceTextures[5]);
+    const resource::TileRef& side = atlas.tile(def.faceTextures[0]);
+    check(def.faceTextures[4] != def.faceTextures[0] && def.faceTextures[5] != def.faceTextures[0],
+          (std::string("and its front and back differ from its sides: ") + key).c_str());
+
+    // Every facing: the face pointing that way wears the front, the opposite face the
+    // back, and the two faces across wear the sides.
+    static constexpr int kDir[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    int wrong = 0;
+    for (int f = 0; f < 4; ++f) {
+      const std::vector<world::TerrainVertex> verts =
+          meshAlone({{5, 10, 5, def.id, f, 0xFFFFFFu}});
+      for (std::size_t q = 0; q + 6 <= verts.size(); q += 6) {
+        // A side face has all six corners on one x or one z plane of the cell.
+        int dx = 0, dz = 0;
+        if (std::all_of(verts.begin() + q, verts.begin() + q + 6,
+                        [](const world::TerrainVertex& v) { return v.x == 6.0f; })) dx = 1;
+        if (std::all_of(verts.begin() + q, verts.begin() + q + 6,
+                        [](const world::TerrainVertex& v) { return v.x == 5.0f; })) dx = -1;
+        if (std::all_of(verts.begin() + q, verts.begin() + q + 6,
+                        [](const world::TerrainVertex& v) { return v.z == 6.0f; })) dz = 1;
+        if (std::all_of(verts.begin() + q, verts.begin() + q + 6,
+                        [](const world::TerrainVertex& v) { return v.z == 5.0f; })) dz = -1;
+        if (dx == 0 && dz == 0) continue;
+        const float u = uvOf(verts[q].u), v = uvOf(verts[q].v);
+        const resource::TileRef& want = (dx == kDir[f][0] && dz == kDir[f][1])     ? front
+                                        : (dx == -kDir[f][0] && dz == -kDir[f][1]) ? back
+                                                                                   : side;
+        if (!insideTile(u, v, want)) ++wrong;
+      }
+    }
+    checkf(wrong == 0, "a %s turned each of four ways shows its front the way it faces (%d astray)",
+           key, wrong);
+  }
+
+  // The anchor glows like the hearth it now is, not teal.
+  const world::BlockDef& anchor = reg.def(reg.idOf("soul_anchor"));
+  check(anchor.light > 0 && anchor.lightColor.r > anchor.lightColor.g &&
+            anchor.lightColor.g > anchor.lightColor.b,
+        "the soul anchor still glows, and warm");
+}
+
 }  // namespace
 
 int runSelfTest() {
@@ -11657,6 +11788,8 @@ int runSelfTest() {
   testSpawnChoice();
   testPaintings();
   testModels();
+  testMobModels();
+  testDirectionalBlocks();
   testRecipeConvenience();
   testWater();
   testChunkStorage();

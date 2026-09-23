@@ -82,6 +82,44 @@ void chestBrackets(Image& img, int ox, int oy) {
   arm(15, 15, -1, -1);
 }
 
+// The plank panel with a dark frame that every side of the workbench is built on.
+void workbenchFrame(Image& img, int ox, int oy) {
+  for (int i = 0; i < T; ++i) {
+    px(img, ox, oy, i, 0, 84, 62, 36);
+    px(img, ox, oy, i, 15, 74, 54, 30);
+    px(img, ox, oy, 0, i, 84, 62, 36);
+    px(img, ox, oy, 15, i, 84, 62, 36);
+  }
+}
+
+// The forge's mortared stone, under every one of its four sides.
+void forgeMasonry(Image& img, int ox, int oy, Mulberry32& rng) {
+  noisy(img, ox, oy, hex(0x7a7e86), 12, rng);
+  for (int y = 0; y < T; ++y) {
+    for (int x = 0; x < T; ++x) {
+      const int row = y / 4, offset = row % 2 == 0 ? 0 : 4;
+      if (y % 4 == 0 || (x + offset) % 8 == 0) px(img, ox, oy, x, y, 88, 90, 96);
+    }
+  }
+}
+
+// A chest side: horizontal boards, the lid seam, a board join, corner brackets.
+void chestSideInto(Image& img, int ox, int oy, Mulberry32& rng) {
+  noisy(img, ox, oy, hex(0xa97e48), 10, rng);
+  for (int x = 0; x < T; ++x) {
+    px(img, ox, oy, x, 4, 92, 64, 32);    // lid seam
+    px(img, ox, oy, x, 5, 158, 116, 64);  // lower lip catches light
+    px(img, ox, oy, x, 10, 130, 94, 48);  // board join
+  }
+  for (int i = 0; i < T; ++i) {
+    px(img, ox, oy, i, 0, 122, 88, 46);
+    px(img, ox, oy, i, 15, 84, 58, 30);
+    px(img, ox, oy, 0, i, 100, 70, 36);
+    px(img, ox, oy, 15, i, 100, 70, 36);
+  }
+  chestBrackets(img, ox, oy);
+}
+
 // A fresh generator for a nested painter call. The original passed
 // mulberry32(hashSeed(name)) so the inner texture is identical wherever it is
 // reused, and crucially does *not* advance the outer sequence.
@@ -945,17 +983,14 @@ std::vector<PainterEntry> buildPainters() {
     px(img, ox, oy, 1, 14, 122, 124, 132);
     px(img, ox, oy, 14, 14, 122, 124, 132);
   });
-  add("workbench_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+  // The workbench has a front (the tool rack), two sides and a back since it
+  // started facing whoever places it. All three share one framed plank panel.
+  add("workbench_front", [](Image& img, int ox, int oy, Mulberry32& rng) {
     Mulberry32 inner = seeded("planks2");
     planksInto(img, ox, oy, inner);
     (void)rng;
-    // Framed panel with a saw and a hammer hung on it.
-    for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, i, 0, 84, 62, 36);
-      px(img, ox, oy, i, 15, 74, 54, 30);
-      px(img, ox, oy, 0, i, 84, 62, 36);
-      px(img, ox, oy, 15, i, 84, 62, 36);
-    }
+    workbenchFrame(img, ox, oy);
+    // A saw and a hammer hung on the panel.
     for (int x = 2; x <= 8; ++x) {  // saw: bright blade, toothed underside
       px(img, ox, oy, x, 4, 190, 194, 200);
       px(img, ox, oy, x, 5, 158, 162, 170);
@@ -973,6 +1008,34 @@ std::vector<PainterEntry> buildPainters() {
     for (int y = 11; y <= 14; ++y) {  // shaft
       px(img, ox, oy, 10, y, 128, 94, 54);
       px(img, ox, oy, 11, y, 104, 74, 42);
+    }
+  });
+  // A side: a drawer under the top, with a pull, and a shelf rail below.
+  add("workbench_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    Mulberry32 inner = seeded("planks3");
+    planksInto(img, ox, oy, inner);
+    (void)rng;
+    workbenchFrame(img, ox, oy);
+    for (int y = 3; y <= 7; ++y) {
+      for (int x = 3; x <= 12; ++x) {
+        const bool edge = y == 3 || y == 7 || x == 3 || x == 12;
+        if (edge) px(img, ox, oy, x, y, y == 3 || x == 3 ? 176 : 96, y == 3 || x == 3 ? 136 : 70,
+                     y == 3 || x == 3 ? 82 : 40);
+      }
+    }
+    px(img, ox, oy, 7, 5, 128, 130, 138);  // the pull
+    px(img, ox, oy, 8, 5, 104, 106, 114);
+    for (int x = 1; x <= 14; ++x) px(img, ox, oy, x, 11, 92, 68, 38);  // shelf rail
+  });
+  // The back: the bare panel, braced.
+  add("workbench_back", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    Mulberry32 inner = seeded("planks4");
+    planksInto(img, ox, oy, inner);
+    (void)rng;
+    workbenchFrame(img, ox, oy);
+    for (int i = 2; i <= 13; ++i) {
+      px(img, ox, oy, i, 15 - i, 104, 76, 42);
+      px(img, ox, oy, i, 16 - i, 150, 112, 64);
     }
   });
   add("forge_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
@@ -1003,16 +1066,12 @@ std::vector<PainterEntry> buildPainters() {
       for (int x = 4; x <= 11; ++x) px(img, ox, oy, x, gy, 62, 64, 70);
     }
   });
-  add("forge_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+  // The forge's front is the firebox; its sides are banded masonry and its back a
+  // flue hatch, so from behind or beside it you can see which way it faces.
+  add("forge_front", [](Image& img, int ox, int oy, Mulberry32& rng) {
     // Mortared stone body with an arched, lintel-topped firebox. The fire is
     // layered bottom-up: coal bed, orange body, yellow tongues, hot core.
-    noisy(img, ox, oy, hex(0x7a7e86), 12, rng);
-    for (int y = 0; y < T; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const int row = y / 4, offset = row % 2 == 0 ? 0 : 4;
-        if (y % 4 == 0 || (x + offset) % 8 == 0) px(img, ox, oy, x, y, 88, 90, 96);
-      }
-    }
+    forgeMasonry(img, ox, oy, rng);
     for (int x = 4; x <= 11; ++x) px(img, ox, oy, x, 5, 74, 76, 82);  // iron lintel
     px(img, ox, oy, 3, 5, 60, 62, 68);
     px(img, ox, oy, 12, 5, 60, 62, 68);
@@ -1048,6 +1107,37 @@ std::vector<PainterEntry> buildPainters() {
     px(img, ox, oy, 8, 11, 255, 236, 156);
     px(img, ox, oy, 6, 8, 250, 176, 60);  // stray spark
   });
+  add("forge_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    forgeMasonry(img, ox, oy, rng);
+    // Iron bands binding the corners, and soot climbing from where the fire is.
+    for (int y = 0; y < T; ++y) {
+      px(img, ox, oy, 0, y, 70, 72, 78);
+      px(img, ox, oy, 15, y, 58, 60, 66);
+    }
+    for (int x = 0; x < T; ++x) px(img, ox, oy, x, 12, 74, 76, 82);
+    for (int y = 0; y < 6; ++y) {
+      for (int x = 1; x < T - 1; ++x) {
+        if (rng.next() < 0.18 * (6 - y) / 6.0) {
+          const Rgba c = img.get(ox + x, oy + y);
+          px(img, ox, oy, x, y, c.r * 0.6, c.g * 0.6, c.b * 0.6);
+        }
+      }
+    }
+  });
+  add("forge_back", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    forgeMasonry(img, ox, oy, rng);
+    // A small iron ash hatch low down, bolted shut.
+    for (int y = 9; y <= 13; ++y) {
+      for (int x = 5; x <= 10; ++x) {
+        const bool rim = y == 9 || y == 13 || x == 5 || x == 10;
+        px(img, ox, oy, x, y, rim ? 58 : 84, rim ? 60 : 86, rim ? 66 : 94);
+      }
+    }
+    px(img, ox, oy, 6, 10, 120, 122, 130);
+    px(img, ox, oy, 9, 10, 120, 122, 130);
+    px(img, ox, oy, 6, 12, 120, 122, 130);
+    px(img, ox, oy, 9, 12, 120, 122, 130);
+  });
   add("chest_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
     // Warm oak boards bound by an iron strap, brackets riveted at the corners.
     noisy(img, ox, oy, hex(0xab7f49), 10, rng);
@@ -1066,21 +1156,10 @@ std::vector<PainterEntry> buildPainters() {
     }
     chestBrackets(img, ox, oy);
   });
-  add("chest_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    // Horizontal boards, a deep lid seam, iron corner brackets, latch with keyhole.
-    noisy(img, ox, oy, hex(0xa97e48), 10, rng);
-    for (int x = 0; x < T; ++x) {
-      px(img, ox, oy, x, 4, 92, 64, 32);    // lid seam
-      px(img, ox, oy, x, 5, 158, 116, 64);  // lower lip catches light
-      px(img, ox, oy, x, 10, 130, 94, 48);  // board join
-    }
-    for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, i, 0, 122, 88, 46);
-      px(img, ox, oy, i, 15, 84, 58, 30);
-      px(img, ox, oy, 0, i, 100, 70, 36);
-      px(img, ox, oy, 15, i, 100, 70, 36);
-    }
-    chestBrackets(img, ox, oy);
+  // The chest's latch is its front, and the lid's hinges are on the back. It used to
+  // carry the latch on all four sides, which meant it had no front at all.
+  add("chest_front", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    chestSideInto(img, ox, oy, rng);
     for (int y = 2; y <= 6; ++y) {  // latch plate straddling the seam
       for (int x = 6; x <= 9; ++x) px(img, ox, oy, x, y, 128, 130, 138);
     }
@@ -1091,6 +1170,24 @@ std::vector<PainterEntry> buildPainters() {
     px(img, ox, oy, 7, 4, 42, 42, 48);  // keyhole
     px(img, ox, oy, 8, 4, 42, 42, 48);
     px(img, ox, oy, 7, 5, 42, 42, 48);
+  });
+  add("chest_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    chestSideInto(img, ox, oy, rng);
+    for (int x = 5; x <= 10; ++x) {  // a carrying handle
+      px(img, ox, oy, x, 8, 112, 114, 122);
+    }
+    px(img, ox, oy, 5, 9, 92, 94, 102);
+    px(img, ox, oy, 10, 9, 92, 94, 102);
+  });
+  add("chest_back", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    chestSideInto(img, ox, oy, rng);
+    for (int hx : {3, 11}) {  // two hinges across the lid seam
+      for (int y = 2; y <= 6; ++y) {
+        px(img, ox, oy, hx, y, 118, 120, 128);
+        px(img, ox, oy, hx + 1, y, 96, 98, 106);
+      }
+      px(img, ox, oy, hx, 4, 150, 152, 160);
+    }
   });
   add("ladder", [](Image& img, int ox, int oy, Mulberry32& rng) {
     // Transparent background: two rails, chunky rungs with an underside shadow,
@@ -1273,48 +1370,72 @@ std::vector<PainterEntry> buildPainters() {
     }
   });
 
-  // ---- soul anchor: night-dark stone shot through with a glowing teal core ----
+  // ---- soul anchor: a dressed-stone hearth ------------------------------------
+  //
+  // Where you come home to, so it is built like home: dressed grey stone of the
+  // same family as the polished blocks, bound with a copper band, with embers
+  // banked in a hearth in its top and a small arched niche in each side where the
+  // fire shows through. It used to be near-black glass with a teal core and a
+  // channel of teal light, a material nothing else in the world is made of, and
+  // it read as a portal from a different game. The glow stays — it is how you find
+  // the thing in the dark — but warm, the colour a hearth is.
   add("soul_anchor_top", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0x2c2f3a), 10, rng);
-    for (int y = 0; y < T; ++y) {
-      for (int x = 0; x < T; ++x) {
-        const double d = std::hypot(x - 7.5, y - 7.5);
-        if (d < 2.4) {
-          px(img, ox, oy, x, y, 150, 240, 226);  // hot core
-        } else if (d < 4.2 && rng.next() < 0.8) {
-          px(img, ox, oy, x, y, 74, 178, 168);
-        } else if (std::abs(d - 6.2) < 0.7) {
-          px(img, ox, oy, x, y, 52, 118, 116);  // faint ring
+    polishedInto(img, ox, oy, rng, hex(0x8a8c94));
+    for (int y = 3; y <= 12; ++y) {  // the hearth: a dark recess...
+      for (int x = 3; x <= 12; ++x) px(img, ox, oy, x, y, 34, 30, 28);
+    }
+    for (int i = 3; i <= 12; ++i) {  // ...with a lip, lit on the far side
+      px(img, ox, oy, i, 3, 58, 54, 52);
+      px(img, ox, oy, 3, i, 58, 54, 52);
+      px(img, ox, oy, i, 12, 108, 110, 118);
+      px(img, ox, oy, 12, i, 108, 110, 118);
+    }
+    for (int y = 5; y <= 10; ++y) {  // embers, hottest at the heart
+      for (int x = 5; x <= 10; ++x) {
+        const double heat = std::max(0.0, 1.0 - std::hypot(x - 7.5, y - 7.5) / 3.6);
+        if (rng.next() < 0.35 + heat * 0.6) {
+          px(img, ox, oy, x, y, 170 + heat * 85, 62 + heat * 130, 20 + heat * 50);
+        } else {
+          px(img, ox, oy, x, y, 52, 40, 34);  // a coal gone dark
         }
       }
     }
-    for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, i, 0, 60, 64, 78);
-      px(img, ox, oy, 0, i, 60, 64, 78);
+    for (int c : {1, 14}) {  // copper studs at the corners
+      px(img, ox, oy, c, 1, 196, 122, 70);
+      px(img, ox, oy, c, 14, 168, 98, 54);
+      px(img, ox, oy, 1, c, 196, 122, 70);
+      px(img, ox, oy, 14, c, 168, 98, 54);
     }
   });
   add("soul_anchor_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
-    noisy(img, ox, oy, hex(0x2c2f3a), 10, rng);
-    for (int i = 0; i < T; ++i) {
-      px(img, ox, oy, i, 0, 66, 70, 84);
-      px(img, ox, oy, i, 15, 22, 24, 30);
+    polishedInto(img, ox, oy, rng, hex(0x8a8c94));
+    for (int x = 0; x < T; ++x) {  // the copper band
+      px(img, ox, oy, x, 3, 204, 130, 76);
+      px(img, ox, oy, x, 4, 168, 98, 54);
     }
-    for (int y = 3; y <= 13; ++y) {  // a rune-etched channel bleeding light
-      px(img, ox, oy, 7, y, 74, 190, 178);
-      px(img, ox, oy, 8, y, 96, 214, 200);
-      if (y % 3 == 0) {
-        px(img, ox, oy, 6, y, 58, 142, 136);
-        px(img, ox, oy, 9, y, 58, 142, 136);
+    for (int x = 1; x < T; x += 4) px(img, ox, oy, x, 3, 232, 170, 110);  // rivets
+    // An arched niche with the fire showing at its foot.
+    for (int y = 7; y <= 13; ++y) {
+      for (int x = 6; x <= 9; ++x) {
+        if (y == 7 && (x == 6 || x == 9)) continue;  // the arch
+        px(img, ox, oy, x, y, 30, 26, 24);
       }
     }
-    px(img, ox, oy, 7, 2, 150, 240, 226);
-    px(img, ox, oy, 8, 2, 150, 240, 226);
+    for (int x = 6; x <= 9; ++x) {
+      const double f = rng.next();
+      px(img, ox, oy, x, 13, 220 + f * 30, 120 + f * 60, 40 + f * 20);
+    }
+    px(img, ox, oy, 7, 12, 250, 190, 90);
+    px(img, ox, oy, 8, 12, 236, 150, 60);
+    for (int x = 5; x <= 10; ++x) px(img, ox, oy, x, 14, 108, 110, 118);  // the sill
   });
 
   // ---- evil altar: the soul anchor's opposite number --------------------------
   //
-  // Same construction as the anchor — near-black stone with something burning
-  // inside it — turned from teal to ember, and caged. The block emits no light at
+  // Near-black stone with something burning inside it, caged — the anchor's dark
+  // mirror, and meant to look foreign where the anchor looks like home. The
+  // anchor was once built this way too, in teal; the altar is now the only block
+  // that is. It emits no light at
   // all (a lit altar would stop monsters spawning around it), so every bit of the
   // glow has to be painted: the bars are drawn lighter on the side facing the core
   // and darker away from it, which is what sells an interior light source on a
@@ -1545,14 +1666,46 @@ std::vector<PainterEntry> buildPainters() {
       }
     }
   });
-  add("stove_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+  // The stove's front is its oven door: a glowing window and a handle. Its sides are
+  // riveted plate and its back carries the flue.
+  add("stove_front", [](Image& img, int ox, int oy, Mulberry32& rng) {
     noisy(img, ox, oy, hex(0x54545c), 12, rng);
-    for (int y = 9; y <= 13; ++y) {  // the firebox, glowing
+    for (int y = 4; y <= 14; ++y) {  // the door
+      for (int x = 2; x <= 13; ++x) {
+        const bool rim = y == 4 || y == 14 || x == 2 || x == 13;
+        if (rim) px(img, ox, oy, x, y, y == 4 || x == 2 ? 112 : 46, y == 4 || x == 2 ? 112 : 46,
+                    y == 4 || x == 2 ? 120 : 52);
+      }
+    }
+    for (int y = 8; y <= 12; ++y) {  // the window onto the fire
       for (int x = 4; x <= 11; ++x) {
         const double f = rng.next();
         px(img, ox, oy, x, y, 200 + f * 40, 90 + f * 60, 30 + f * 30);
       }
     }
+    for (int x = 5; x <= 10; ++x) px(img, ox, oy, x, 6, 150, 152, 160);  // the handle
+    px(img, ox, oy, 5, 7, 96, 98, 106);
+    px(img, ox, oy, 10, 7, 96, 98, 106);
+    for (int x = 2; x <= 13; x += 3) px(img, ox, oy, x, 1, 38, 36, 40);  // vent slots
+  });
+  add("stove_side", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x54545c), 12, rng);
+    for (int i = 0; i < T; ++i) {
+      px(img, ox, oy, i, 0, 108, 108, 116);
+      px(img, ox, oy, i, 15, 40, 40, 46);
+    }
+    for (int x : {2, 13}) {
+      for (int y : {2, 13}) px(img, ox, oy, x, y, 132, 134, 142);  // rivets
+    }
+  });
+  add("stove_back", [](Image& img, int ox, int oy, Mulberry32& rng) {
+    noisy(img, ox, oy, hex(0x54545c), 12, rng);
+    for (int y = 0; y <= 10; ++y) {  // the flue, up the back and out
+      for (int x = 6; x <= 9; ++x) {
+        px(img, ox, oy, x, y, x == 6 ? 84 : 56, x == 6 ? 84 : 56, x == 6 ? 92 : 62);
+      }
+    }
+    for (int x = 5; x <= 10; ++x) px(img, ox, oy, x, 10, 40, 40, 46);  // its collar
   });
 
   add("cooking_pot_top", [](Image& img, int ox, int oy, Mulberry32& rng) {

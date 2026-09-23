@@ -553,6 +553,8 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
         }
 
         // ---- the cube path ---------------------------------------------------
+        // A directional block turns its side textures with its facing.
+        const int facing = def.directional ? centre->meta.get(localIdx(x, y, z)) & 3 : 2;
         for (int fi = 0; fi < 6; ++fi) {
           const FaceSpec& f = kFaces[fi];
           const int alx = x + f.dir[0], aly = y + f.dir[1], alz = z + f.dir[2];
@@ -561,7 +563,7 @@ MeshResult meshChunk(const MeshNeighbourhood& nb, const BlockTileTable& tiles,
             continue;
           }
 
-          const resource::TileRef& tile = tiles.face(id, fi);
+          const resource::TileRef& tile = tiles.face(id, directionalFace(facing, fi));
           // Leaves sway as a whole. The original also had a liquid case here, but
           // liquids never reach this path — they are routed to the water emitter
           // above — so it was vestigial.

@@ -61,6 +61,7 @@ void placeBlocks(world::World& w, int cx, int floorY, int z) {
     int meta = 0;
     if (def.cropStages > 0) meta = world::cropMetaFor(def.cropStages - 1);  // ripe
     if (def.render == RenderKind::Ladder || def.render == RenderKind::Painting) meta = 3;
+    if (def.directional) meta = 2;  // front toward +z, where the camera stands
 
     if (def.tall) {
       w.setBlock(x, y, bz, def.id, meta);
