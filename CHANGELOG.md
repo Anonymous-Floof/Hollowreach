@@ -41,6 +41,8 @@ what it lets them do, never by the refactor that made it possible.
 
 ## [Latest]
 
+## [2.18.0] - 2026-09-23
+
 ### Added
 - **Mobs have textures.** Sheep have curly fleece, pigs and cows have hide, and
   zombies and other players wear woven cloth, all at the same pixel size as the
@@ -1394,6 +1396,7 @@ Python script. Highlights of everything on board at 1.0:
   requirements are Python 3 and a WebGL2 browser.
 
 [Latest]: https://github.com/Anonymous-Floof/Hollowreach/compare/v2.12.1...HEAD
+[2.18.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.18.0
 [2.17.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.17.0
 [2.16.0]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.16.0
 [2.15.1]: https://github.com/Anonymous-Floof/Hollowreach/releases/tag/v2.15.1
